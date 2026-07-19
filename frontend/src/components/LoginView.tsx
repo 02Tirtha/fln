@@ -49,10 +49,11 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, onBackToHo
         body: JSON.stringify({ email: loginEmail, password: loginPass })
       });
       const data = await res.json();
+      const payload = data?.data || data;
       if (res.ok) {
-        onLoginSuccess(data.token, data.user);
+        onLoginSuccess(payload.token, payload.user);
       } else {
-        setError(data.error || 'Invalid email or password');
+        setError(data.message || data.error || 'Invalid email or password');
       }
     } catch (err) {
       setError('Connection failed. Verify server state.');

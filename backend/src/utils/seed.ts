@@ -1,6 +1,7 @@
 import { State } from '../models/state.model';
 import { connectDatabase } from '../config/database';
-
+import dns from 'node:dns';
+dns.setServers(['8.8.8.8', '1.1.1.1']);
 const states = [
   { name: 'Andhra Pradesh', code: 'AP' },
   { name: 'Arunachal Pradesh', code: 'AR' },

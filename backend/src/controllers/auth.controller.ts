@@ -9,7 +9,9 @@ export class AuthController {
     try {
       const { email, password } = req.body;
       const result = await teacherService.login(email, password);
-      sendSuccess(res, 'Login successful', result);
+      // normalize to { token, user } shape expected by frontend
+      const payload = { token: result.token, user: (result as any).teacher || (result as any).user };
+      sendSuccess(res, 'Login successful', payload);
     } catch (error) {
       next(error);
     }

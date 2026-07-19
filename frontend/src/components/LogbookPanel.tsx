@@ -63,7 +63,7 @@ export const LogbookPanel: React.FC<LogbookPanelProps> = ({ currentUser, logs })
   // Filter logs where log.level rank <= currentUser.role rank
   const accessibleLogs = useMemo(() => {
     return logs.filter(log => {
-      const logRank = ROLE_RANKS[log.level] || 1;
+      const logRank = ROLE_RANKS[log.userRole] || 1;
       return logRank <= userRank;
     });
   }, [logs, userRank]);
@@ -79,13 +79,15 @@ export const LogbookPanel: React.FC<LogbookPanelProps> = ({ currentUser, logs })
   const finalLogs = useMemo(() => {
     return accessibleLogs.filter(log => {
       const matchesSearch = 
-        log.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        log.activityType.toLowerCase().includes(searchTerm.toLowerCase()) ||
         log.details.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (log.scope && log.scope.toLowerCase().includes(searchTerm.toLowerCase()));
+        log.userRole.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (log.schoolName && log.schoolName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (log.schoolId && log.schoolId.toLowerCase().includes(searchTerm.toLowerCase()));
 
       const matchesRole = 
         selectedRoleFilter === 'all' || 
-        log.level === selectedRoleFilter;
+        log.userRole === selectedRoleFilter;
 
       return matchesSearch && matchesRole;
     });
@@ -205,23 +207,23 @@ export const LogbookPanel: React.FC<LogbookPanelProps> = ({ currentUser, logs })
                 <tr key={log.id} className="hover:bg-gray-50/70 transition-colors dark:hover:bg-gray-950/40">
                   <td className="px-6 py-4 whitespace-nowrap text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
                     <Clock className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                    <span className="font-mono text-[11px]">{log.time}</span>
+                    <span className="font-mono text-[11px]">{log.timestamp}</span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className="font-extrabold text-slate-900 dark:text-white uppercase tracking-wide">
-                      {log.type}
+                      {log.activityType}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${ROLE_COLOR_CLASSES[log.level]}`}>
-                      {ROLE_LABELS[log.level]}
+                    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-bold border ${ROLE_COLOR_CLASSES[log.userRole]}`}>
+                      {ROLE_LABELS[log.userRole]}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-gray-500 font-medium">
-                    {log.scope ? (
+                    {(log.schoolName || log.schoolId) ? (
                       <span className="inline-flex items-center gap-1 text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-900 px-2 py-0.5 rounded border border-slate-100 dark:border-slate-800 text-[11px] font-mono">
                         <MapPin className="h-3 w-3 text-red-500 shrink-0" />
-                        {log.scope}
+                        {log.schoolName || log.schoolId}
                       </span>
                     ) : (
                       <span className="text-gray-300 italic">Global System</span>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { buildUrl } from '../utils/apiBase';
 import { User, UserRole, Student, ClassGroup, School, EvaluationReport, LogEntry, Ticket } from '../types';
 import { Users, ShieldAlert, BookOpen, UserCheck, Calendar, ArrowRight, CheckCircle2, XCircle, SlidersHorizontal, Layers, Award, MapPin, School as SchoolIcon, BarChart3, FileText, ClipboardList, Building2, GraduationCap, BookMarked, Globe, Settings, Database, RefreshCw, Search, ChevronDown } from 'lucide-react';
 import { Table, Column } from './Table';
@@ -184,6 +185,218 @@ function EmptyStudents({ students }: { students: Student[] }) {
   return <Table data={students} columns={cols} searchPlaceholder="Search students..." searchKey="name" />;
 }
 
+interface ParsedReportCard {
+  studentName?: string;
+  studentId?: string;
+  enrolledClass?: string;
+  testDate?: string;
+  assignedLevel?: string;
+  reason?: string;
+  confidence?: string;
+  weakness?: string[];
+  canDo?: string[];
+  growth?: string[];
+  topicsToFocus?: string[];
+  prerequisites?: string[];
+  performanceDifficulty?: string[];
+  shortTermSteps?: string[];
+  mediumTermSteps?: string[];
+  rawText: string;
+  isStructured: boolean;
+}
+
+function parseNarrative(text: string): ParsedReportCard {
+  if (!text || !text.includes('FLN ASSESSMENT REPORT CARD')) {
+    return { rawText: text, isStructured: false };
+  }
+
+  const result: ParsedReportCard = {
+    weakness: [],
+    canDo: [],
+    growth: [],
+    topicsToFocus: [],
+    prerequisites: [],
+    performanceDifficulty: [],
+    shortTermSteps: [],
+    mediumTermSteps: [],
+    rawText: text,
+    isStructured: true
+  };
+
+  const getSectionLines = (sectionTitle: string): string[] => {
+    const lines = text.split('\n');
+    const startIdx = lines.findIndex(l => l.toUpperCase().includes(sectionTitle.toUpperCase()));
+    if (startIdx === -1) return [];
+
+    const sectionLines: string[] = [];
+    for (let i = startIdx + 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (line.startsWith('===') || line.startsWith('---') || (line === line.toUpperCase() && line.length > 5 && !line.includes(':'))) {
+        if (i + 1 < lines.length && lines[i + 1].startsWith('---')) {
+          break;
+        }
+      }
+      if (line) {
+        sectionLines.push(line);
+      }
+    }
+    return sectionLines;
+  };
+
+  const nameMatch = text.match(/Student Name:\s*(.*)/i);
+  if (nameMatch) result.studentName = nameMatch[1].trim();
+
+  const idMatch = text.match(/Student ID:\s*(.*)/i);
+  if (idMatch) result.studentId = idMatch[1].trim();
+
+  const classMatch = text.match(/Enrolled Class:\s*(.*)/i);
+  if (classMatch) result.enrolledClass = classMatch[1].trim();
+
+  const dateMatch = text.match(/Test Date:\s*(.*)/i);
+  if (dateMatch) result.testDate = dateMatch[1].trim();
+
+  const placementLines = getSectionLines('PLACEMENT');
+  placementLines.forEach(l => {
+    if (l.toLowerCase().startsWith('assigned level:')) result.assignedLevel = l.split(':')[1]?.trim();
+    else if (l.toLowerCase().startsWith('reason:')) result.reason = l.split(':')[1]?.trim();
+    else if (l.toLowerCase().startsWith('confidence:')) result.confidence = l.split(':')[1]?.trim();
+  });
+
+  const weaknessLines = getSectionLines('AREAS OF WEAKNESS BY LEVEL');
+  result.weakness = weaknessLines.filter(l => !l.startsWith('Assigned to Level'));
+
+  result.canDo = getSectionLines('WHAT YOUR CHILD CAN DO');
+  result.growth = getSectionLines('AREAS FOR GROWTH');
+
+  const rootCauseLines = getSectionLines('ROOT CAUSE ANALYSIS');
+  rootCauseLines.forEach(l => {
+    if (l.toLowerCase().startsWith('topics to focus:')) {
+      result.topicsToFocus = l.split(':')[1]?.split(',').map(s => s.trim()) || [];
+    } else if (l.toLowerCase().startsWith('prerequisites to review:')) {
+      result.prerequisites = l.split(':')[1]?.split(',').map(s => s.trim()) || [];
+    } else if (l.includes(':')) {
+      result.performanceDifficulty.push(l);
+    }
+  });
+
+  const nextStepsLines = getSectionLines('NEXT STEPS FOR TEACHER');
+  let currentGroup: 'short' | 'medium' | null = null;
+  nextStepsLines.forEach(l => {
+    if (l.toUpperCase().includes('SHORT-TERM')) {
+      currentGroup = 'short';
+    } else if (l.toUpperCase().includes('MEDIUM-TERM')) {
+      currentGroup = 'medium';
+    } else {
+      const cleanLine = l.replace(/^\d+\.\s*/, '').trim();
+      if (cleanLine) {
+        if (currentGroup === 'short') result.shortTermSteps?.push(cleanLine);
+        else if (currentGroup === 'medium') result.mediumTermSteps?.push(cleanLine);
+      }
+    }
+  });
+
+  return result;
+}
+
+const ReportNarrative: React.FC<{ narrative: string }> = ({ narrative }) => {
+  const parsed = parseNarrative(narrative);
+
+  if (!parsed.isStructured) {
+    return <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 leading-relaxed whitespace-pre-line">{narrative}</p>;
+  }
+
+  return (
+    <div className="space-y-4 mt-2">
+      {parsed.assignedLevel && (
+        <div className="bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/60 rounded-lg p-3 flex flex-wrap justify-between items-center gap-2">
+          <div>
+            <span className="text-[10px] font-mono font-bold uppercase text-indigo-500 dark:text-indigo-400 block tracking-wider">Assigned Placement</span>
+            <span className="text-base font-bold text-indigo-900 dark:text-indigo-200">{parsed.assignedLevel}</span>
+            {parsed.reason && <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{parsed.reason}</p>}
+          </div>
+          {parsed.confidence && (
+            <div className="text-right">
+              <span className="text-[10px] font-mono font-bold uppercase text-slate-400 dark:text-slate-500 block tracking-wider">Confidence</span>
+              <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">{parsed.confidence}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {parsed.topicsToFocus && parsed.topicsToFocus.length > 0 && (
+          <div className="border border-red-100 dark:border-red-950 bg-red-50/30 dark:bg-red-950/10 rounded-lg p-3 space-y-2">
+            <span className="text-[10px] font-mono font-bold uppercase text-red-500 dark:text-red-400 tracking-wider block">Needs Focus (Weak Areas)</span>
+            <div className="flex flex-wrap gap-1.5">
+              {parsed.topicsToFocus.map(t => (
+                <span key={t} className="text-[10px] font-semibold px-2 py-0.5 rounded bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-900/40">{t}</span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {parsed.canDo && parsed.canDo.length > 0 && (
+          <div className="border border-green-100 dark:border-green-950 bg-green-50/30 dark:bg-green-950/10 rounded-lg p-3 space-y-2">
+            <span className="text-[10px] font-mono font-bold uppercase text-green-500 dark:text-green-400 tracking-wider block">Current Competencies</span>
+            <ul className="text-xs text-slate-600 dark:text-slate-300 space-y-1">
+              {parsed.canDo.map((item, idx) => (
+                <li key={idx} className="flex items-start gap-1.5">
+                  <span className="text-green-500 font-bold">✓</span>
+                  <span>{item.replace(/^\[OK\]\s*/i, '')}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      {(parsed.weakness?.length || 0) > 0 && (
+        <div className="space-y-1">
+          <span className="text-[10px] font-mono font-bold uppercase text-slate-400 dark:text-slate-500 tracking-wider block">Gaps & Foundational Deficits</span>
+          <div className="text-xs text-slate-600 dark:text-slate-300 space-y-1">
+            {parsed.weakness?.map((item, idx) => (
+              <div key={idx} className="flex items-start gap-2 bg-slate-100 dark:bg-slate-800/60 p-2 rounded border border-slate-200/40 dark:border-slate-700/40">
+                <span className="text-amber-500 font-bold font-mono">⚠️</span>
+                <span>{item}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {((parsed.shortTermSteps?.length || 0) > 0 || (parsed.mediumTermSteps?.length || 0) > 0) && (
+        <div className="border border-slate-200 dark:border-slate-700/80 rounded-lg overflow-hidden bg-white dark:bg-slate-900">
+          <div className="bg-slate-50 dark:bg-slate-800/80 px-3 py-2 border-b border-slate-200 dark:border-slate-700/80">
+            <span className="text-[10px] font-mono font-bold uppercase text-slate-500 dark:text-slate-400 tracking-wider">Teacher Action Plan</span>
+          </div>
+          <div className="p-3 space-y-3">
+            {parsed.shortTermSteps && parsed.shortTermSteps.length > 0 && (
+              <div className="space-y-1.5">
+                <span className="text-[10px] font-semibold text-slate-800 dark:text-slate-200 block">Short-Term Action Items:</span>
+                <ul className="text-xs text-slate-600 dark:text-slate-300 space-y-1 list-disc list-inside pl-1">
+                  {parsed.shortTermSteps.map((step, idx) => (
+                    <li key={idx} className="leading-relaxed">{step}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {parsed.mediumTermSteps && parsed.mediumTermSteps.length > 0 && (
+              <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <span className="text-[10px] font-semibold text-slate-800 dark:text-slate-200 block">Medium-Term Action Items:</span>
+                <ul className="text-xs text-slate-600 dark:text-slate-300 space-y-1 list-disc list-inside pl-1">
+                  {parsed.mediumTermSteps.map((step, idx) => (
+                    <li key={idx} className="leading-relaxed">{step}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser, token }) => {
   const [search, setSearch] = useState('');
   const [stateFilter, setStateFilter] = useState('all');
@@ -200,18 +413,82 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   const [userRoleFilter, setUserRoleFilter] = useState('superadmin');
   const [userSearch, setUserSearch] = useState('');
 
+  // Blueprint states
+  const [blueprints, setBlueprints] = useState<any[]>([]);
+  const [blueprintSearch, setBlueprintSearch] = useState('');
+  const [selectedExamFilter, setSelectedExamFilter] = useState('all');
+  const [showBlueprintModal, setShowBlueprintModal] = useState(false);
+  const [editingBlueprint, setEditingBlueprint] = useState<any | null>(null);
+  const [bpFormData, setBpFormData] = useState({
+    examId: '',
+    examName: '',
+    questionNumber: 1,
+    conceptName: '',
+    type: 'numeric',
+    template: '',
+    engineData: '{}'
+  });
+
   const [apiStudents, setApiStudents] = useState<Student[]>([]);
   const [apiSchools, setApiSchools] = useState<School[]>([]);
   const [apiUsers, setApiUsers] = useState<any[]>([]);
+  const [allReports, setAllReports] = useState<EvaluationReport[]>([]);
+  const [remediationLedgers, setRemediationLedgers] = useState<any[]>([]);
+
+  const fetchLedgers = async () => {
+    if (!sel) return;
+    try {
+      const headers = { 'Authorization': `Bearer ${token}` };
+      const res = await fetch(`/api/remediation/ledgers?studentId=${sel}`, { headers });
+      const d = await res.json();
+      if (d.success && Array.isArray(d.data)) {
+        setRemediationLedgers(d.data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch remediation ledgers:', err);
+    }
+  };
+
+  const fetchBlueprints = async () => {
+    try {
+      const headers = { 'Authorization': `Bearer ${token}` };
+      const res = await fetch('/api/blueprints', { headers });
+      const d = await res.json();
+      if (d.success && Array.isArray(d.data)) {
+        setBlueprints(d.data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch blueprints:', err);
+    }
+  };
 
   useEffect(() => {
     const headers = { 'Authorization': `Bearer ${token}` };
-    fetch('/api/students', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiStudents(d); }).catch(() => {});
-    fetch('/api/schools', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiSchools(d); }).catch(() => {});
-    fetch('/api/admin/coordinators', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiUsers(d); }).catch(() => {});
+    fetch(buildUrl('/api/students'), { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiStudents(d); }).catch(() => { });
+    fetch(buildUrl('/api/schools'), { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiSchools(d); }).catch(() => { });
+    fetch(buildUrl('/api/admin/coordinators'), { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiUsers(d); }).catch(() => { });
+    fetch(buildUrl('/api/evaluation/reports'), { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setAllReports(d); }).catch(() => { });
+    fetchBlueprints();
   }, [token]);
 
-  const students = apiStudents.length > 0 ? apiStudents : STUDENTS_FALLBACK;
+  useEffect(() => {
+    fetchLedgers();
+  }, [sel, token]);
+
+  useEffect(() => {
+    const hasPendingOrGenerating = remediationLedgers.some(
+      l => l.remediationStatus === 'pending' || l.remediationStatus === 'generating'
+    );
+    if (!hasPendingOrGenerating) return;
+
+    const interval = setInterval(() => {
+      fetchLedgers();
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [remediationLedgers]);
+
+  const students = apiStudents;
   const schools = apiSchools.length > 0 ? apiSchools : SCHOOLS_FALLBACK;
   const usersList = apiUsers.length > 0 ? apiUsers : USERS_FALLBACK;
 
@@ -360,6 +637,218 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
     printWindow.document.close();
   };
 
+  const handleViewRemediationNotes = (studentName: string, studentId: string, examId: string) => {
+  // 1. Locate the targeted complete remediation record inside the active state pool
+  const targetLedger = remediationLedgers.find(
+    l => l.studentId === studentId && l.examId === examId
+  );
+
+  if (!targetLedger) return;
+
+  // 2. Open a direct, clean window for viewing and immediate printing
+  const notesWindow = window.open('', '_blank', 'width=850,height=700');
+
+  const notesHtml = `
+    <html>
+      <head>
+        <title>Remediation Notes - ${studentName}</title>
+        <style>
+          body { font-family: system-ui, -apple-system, sans-serif; padding: 30px; color: #1f2937; line-height: 1.5; }
+          .header { margin-bottom: 25px; border-bottom: 2px solid #e5e7eb; padding-bottom: 15px; }
+          .student-title { font-size: 24px; font-weight: 700; color: #111827; margin: 0; }
+          .meta-text { color: #4b5563; font-size: 14px; margin-top: 5px; }
+          .failure-block { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+          .failed-question-header { font-size: 16px; font-weight: 600; color: #dc2626; margin-bottom: 12px; border-bottom: 1px dashed #e5e7eb; padding-bottom: 6px; }
+          .practice-list { margin: 0; padding-left: 20px; }
+          .practice-item { margin-bottom: 10px; font-size: 15px; color: #374151; }
+          @media print {
+            body { padding: 0; }
+            .failure-block { page-break-inside: avoid; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1 class="student-title">Remediation Notes: ${studentName}</h1>
+          <div class="meta-text">Student ID: ${studentId} | Worksheet ID: ${examId}</div>
+        </div>
+
+        ${targetLedger.responses.map((resp: any) => `
+          <div class="failure-block">
+            <div class="failed-question-header">
+              ❌ Failed Question Reference: Question #${resp.questionNumber} (${resp.conceptName})
+            </div>
+            <ol class="practice-list">
+              ${resp.practiceQuestions.map((pq: any) => `
+                <li class="practice-item">${pq.question}</li>
+              `).join('')}
+            </ol>
+          </div>
+        `).join('')}
+      </body>
+    </html>
+  `;
+
+  notesWindow.document.write(notesHtml);
+  notesWindow.document.close();
+};
+
+const handlePrintRemediationSlip = (student: Student, ledger: any) => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('Please allow popups to print the remediation slip.');
+      return;
+    }
+
+    const failedResponses = (ledger.responses || []).filter((r: any) => !r.isCorrect);
+
+    const questionsHtml = failedResponses.map((r: any, idx: number) => {
+      const practiceQs = r.practiceQuestions || [];
+      const questionsList = practiceQs.map((pq: any, qIdx: number) => `
+        <div class="question-item">
+          <div class="question-text"><strong>Q${qIdx + 1}.</strong> ${pq.question}</div>
+          <div class="answer-space">Answer: __________________________________</div>
+        </div>
+      `).join('');
+
+      return `
+        <div class="concept-section">
+          <div class="concept-header">
+            Concept ${idx + 1}: ${r.conceptName} (${r.type.toUpperCase()})
+          </div>
+          <div class="original-box">
+            <strong>Original Question got incorrect:</strong> "${r.originalQuestion}"
+          </div>
+          <div class="practice-list">
+            ${questionsList || '<p style="color:#ef4444; font-size:12px;">No practice questions generated for this concept.</p>'}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    const answerKeyHtml = failedResponses.map((r: any, idx: number) => {
+      const practiceQs = r.practiceQuestions || [];
+      const answersList = practiceQs.map((pq: any, qIdx: number) => `
+        <span><strong>Q${qIdx + 1}:</strong> ${pq.answer}</span>
+      `).join(' &nbsp;|&nbsp; ');
+
+      return `
+        <div style="margin-bottom: 12px; font-size: 11px;">
+          <strong>Concept: ${r.conceptName}</strong><br/>
+          ${answersList}
+        </div>
+      `;
+    }).join('');
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Remediation Slip - ${student.name}</title>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+        <style>
+          body { font-family: 'Inter', sans-serif; color: #1e293b; padding: 40px; line-height: 1.5; font-size: 13px; }
+          .header { text-align: center; border-bottom: 2px dashed #cbd5e1; padding-bottom: 20px; margin-bottom: 25px; }
+          .title { font-size: 22px; font-weight: 700; color: #4f46e5; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; }
+          .subtitle { font-size: 11px; color: #64748b; margin-top: 5px; font-weight: 600; letter-spacing: 0.5px; }
+          .student-info { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 25px; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 15px; }
+          .info-item { font-size: 13px; }
+          .info-item strong { color: #0f172a; }
+          .concept-section { margin-bottom: 30px; page-break-inside: avoid; }
+          .concept-header { font-size: 13px; font-weight: 700; background-color: #f1f5f9; padding: 8px 12px; border-left: 4px solid #4f46e5; border-radius: 0 6px 6px 0; color: #0f172a; margin-bottom: 10px; }
+          .original-box { font-size: 11px; color: #64748b; margin-bottom: 15px; padding: 0 12px; font-style: italic; }
+          .question-item { margin-bottom: 20px; padding-left: 12px; }
+          .question-text { font-size: 13px; color: #1e293b; margin-bottom: 6px; }
+          .answer-space { font-size: 12px; color: #94a3b8; font-family: monospace; margin-top: 4px; }
+          .answer-key-section { margin-top: 50px; border-top: 2px dashed #cbd5e1; padding-top: 20px; page-break-inside: avoid; }
+          .footer { text-align: center; margin-top: 30px; font-size: 10px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 10px; }
+          @media print {
+            body { padding: 20px; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="title">Remediation Practice Slip</div>
+          <div class="subtitle">Targeted Practice Worksheet for Learning Gaps</div>
+        </div>
+
+        <div class="student-info">
+          <div class="info-item">Student Name: <strong>${student.name}</strong></div>
+          <div class="info-item">Student ID: <strong>${student.id}</strong></div>
+          <div class="info-item">Class / Section: <strong>${student.classGroup} - ${student.section}</strong></div>
+          <div class="info-item">Exam ID: <strong>${ledger.examId}</strong></div>
+        </div>
+
+        <div class="section-title" style="font-weight: 700; font-size: 14px; text-transform: uppercase; margin-bottom: 20px; color: #0f172a;">Targeted Practice Exercises</div>
+        
+        ${questionsHtml}
+
+        <div class="answer-key-section">
+          <div style="font-weight: 700; font-size: 12px; text-transform: uppercase; margin-bottom: 15px; color: #475569; letter-spacing: 0.5px;">Teacher Answer Key (For Grading Reference Only)</div>
+          ${answerKeyHtml || '<p style="font-size:11px; color:#64748b;">No keys registered.</p>'}
+        </div>
+
+        <div class="footer">
+          Confidential Remediation Record · Generated by FLN Portal.
+        </div>
+
+        <script>
+          window.onload = function() {
+            setTimeout(function() {
+              window.print();
+            }, 300);
+          }
+        </script>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.open();
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
+
+  const handleDeleteReport = async (reportId: string) => {
+    if (!window.confirm('Are you sure you want to clear this evaluation report?')) return;
+    try {
+      const headers = { 'Authorization': `Bearer ${token}` };
+      const res = await fetch(`/api/evaluation/report/${reportId}`, {
+        method: 'DELETE',
+        headers
+      });
+      if (res.ok) {
+        setAllReports(prev => prev.filter(r => r.id !== reportId));
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Failed to clear report.');
+      }
+    } catch {
+      // Clear from local state as fallback for offline/mock reports
+      setAllReports(prev => prev.filter(r => r.id !== reportId));
+    }
+  };
+
+  const handleClearAllReports = async () => {
+    if (!window.confirm('Are you sure you want to clear ALL evaluation reports? This action cannot be undone.')) return;
+    try {
+      const headers = { 'Authorization': `Bearer ${token}` };
+      const res = await fetch(`/api/evaluation/reports/clear-all`, {
+        method: 'DELETE',
+        headers
+      });
+      if (res.ok) {
+        setAllReports([]);
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Failed to clear all reports.');
+      }
+    } catch {
+      // Clear from local state as fallback for offline/mock reports
+      setAllReports([]);
+    }
+  };
+
   // ===================== TEACHER PANELS =====================
   if (panel === 'student_list') {
     return (
@@ -371,6 +860,15 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   }
 
   if (panel === 'student_profile') {
+    if (students.length === 0) {
+      return (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm">
+          <PageHeader title="Student Profile" desc="No students are currently assigned to your account." icon={<Users className="h-5 w-5" />} />
+          <div className="text-sm text-slate-500 dark:text-slate-400">Please check your class assignment or contact your school administrator.</div>
+        </div>
+      );
+    }
+
     const s = students.find(x => x.id === sel) || students[0];
 
     const filteredStudents = students.filter(x =>
@@ -389,7 +887,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
     };
 
     const profile = EXTENDED_PROFILES[s.id] || {};
-    const reports = REPORTS_MOCK.filter(r => r.studentId === s.id);
+    const reports = allReports.filter(r => r.studentId === s.id);
     const studentSchool = schools.find(sch => sch.id === s.schoolId);
     const att = ATTENDANCE_MOCK.find(a => a.student === s.name);
     const daysSinceEnroll = Math.floor((Date.now() - new Date(profile.enrollmentDate || s.id).getTime()) / 86400000);
@@ -399,7 +897,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
     const allSkills = new Map<string, { mastery: string; date: string }[]>();
     reports.forEach(r => Object.entries(r.conceptMastery).forEach(([topic, mastery]) => {
       if (!allSkills.has(topic)) allSkills.set(topic, []);
-      allSkills.get(topic)!.push({ mastery, date: r.timestamp });
+      allSkills.get(topic)!.push({ mastery: mastery as string, date: r.timestamp });
     }));
     const latestSkills = reports.length > 0 ? Object.entries(reports[0].conceptMastery) : [];
     const weakAreas = latestSkills.filter(([_, m]) => m !== 'Strong').map(([t]) => t);
@@ -617,7 +1115,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
                               {improving && <span className="text-emerald-500">↑</span>}
                             </span>
                           </div>
-                            <div className="h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                          <div className="h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
                             <div className={`h-full rounded-full transition-all ${mastery === 'Strong' ? 'bg-emerald-500' : mastery === 'Satisfactory' ? 'bg-blue-500' : 'bg-red-500'}`} style={{ width: `${pct}%` }} />
                           </div>
                           {history.length >= 2 && (
@@ -716,40 +1214,14 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
                       <div className="flex flex-wrap gap-1.5">{Object.entries(r.conceptMastery).map(([t, m]) => (
                         <span key={t} className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded ${m === 'Strong' ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' : m === 'Satisfactory' ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800' : 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'}`}>{t}: {m}</span>
                       ))}</div>
-                      
+
                       <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
                         <button onClick={() => setExpandedReportId(expandedReportId === r.id ? null : r.id)} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
                           {expandedReportId === r.id ? 'Hide Exam Sheet' : '📋 View Student Exam Responses'}
                         </button>
-                        <button onClick={() => {
-                          const examResponses = s.id === 's1' ? [
-                            { question: 'Q1: Match objects one-to-one (One-to-One Correspondence)', studentAnswer: '3 (incorrect match count)', correctAnswer: 'Matched all 5 items', status: 'Incorrect' },
-                            { question: 'Q2: Odd One Out - Select non-conforming object from [ball, book, table, pen]', studentAnswer: 'B (Book)', correctAnswer: 'table (furniture classification)', status: 'Incorrect' },
-                            { question: 'Q3: Single Digit Addition - Solve: 5 + 4 = ?', studentAnswer: '9', correctAnswer: '9', status: 'Correct' },
-                            { question: 'Q4: Single Digit Subtraction - Solve: 8 - 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' },
-                            { question: 'Q5: Identify shape with 3 corners and 3 straight sides', studentAnswer: 'Triangle', correctAnswer: 'Triangle', status: 'Correct' }
-                          ] : s.id === 's2' ? [
-                            { question: 'Q1: Counting up to 10 - Count the apples: 🍎🍎🍎🍎', studentAnswer: '4', correctAnswer: '4', status: 'Correct' },
-                            { question: 'Q2: Odd One Out - Select non-matching item: [square, circle, red-block, triangle]', studentAnswer: 'red-block', correctAnswer: 'red-block', status: 'Correct' },
-                            { question: 'Q3: Pattern recognition - What comes next in sequence: 🔴🔵🔴🔵 ?', studentAnswer: '🔵', correctAnswer: '🔴', status: 'Incorrect' },
-                            { question: 'Q4: Simple Addition - Solve: 3 + 2 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
-                          ] : [
-                            { question: 'Q1: Place Value Designation - What is the value of 7 in 372?', studentAnswer: '70 (7 tens)', correctAnswer: '70', status: 'Correct' },
-                            { question: 'Q2: Single-Digit Multiplication - Solve: 6 × 3 = ?', studentAnswer: '18', correctAnswer: '18', status: 'Correct' },
-                            { question: 'Q3: Double-Digit Subtraction with Borrowing - Solve: 42 - 17 = ?', studentAnswer: '25', correctAnswer: '25', status: 'Correct' },
-                            { question: 'Q4: Simple Division - Solve: 15 ÷ 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
-                          ];
-                          handleDownloadPDF(s, r, examResponses);
-                        }} className="text-xs font-semibold text-emerald-650 hover:text-emerald-800 flex items-center gap-1">
-                          📥 Download PDF Report
-                        </button>
-                      </div>
-
-                      {expandedReportId === r.id && (
-                        <div className="mt-3 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden bg-slate-50 dark:bg-slate-800 text-xs">
-                          <div className="bg-slate-100 dark:bg-slate-800 px-3 py-2 font-bold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700">Side-by-Side Exam Grader Report</div>
-                          <div className="divide-y divide-slate-200 dark:divide-slate-700">
-                            {(s.id === 's1' ? [
+                        <div className="flex gap-4">
+                          <button onClick={() => {
+                            const examResponses = r.responses || (s.id === 's1' ? [
                               { question: 'Q1: Match objects one-to-one (One-to-One Correspondence)', studentAnswer: '3 (incorrect match count)', correctAnswer: 'Matched all 5 items', status: 'Incorrect' },
                               { question: 'Q2: Odd One Out - Select non-conforming object from [ball, book, table, pen]', studentAnswer: 'B (Book)', correctAnswer: 'table (furniture classification)', status: 'Incorrect' },
                               { question: 'Q3: Single Digit Addition - Solve: 5 + 4 = ?', studentAnswer: '9', correctAnswer: '9', status: 'Correct' },
@@ -765,7 +1237,123 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
                               { question: 'Q2: Single-Digit Multiplication - Solve: 6 × 3 = ?', studentAnswer: '18', correctAnswer: '18', status: 'Correct' },
                               { question: 'Q3: Double-Digit Subtraction with Borrowing - Solve: 42 - 17 = ?', studentAnswer: '25', correctAnswer: '25', status: 'Correct' },
                               { question: 'Q4: Simple Division - Solve: 15 ÷ 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
-                            ]).map((item: any, idx: number) => (
+                            ]);
+                            handleDownloadPDF(s, r, examResponses);
+                          }} className="text-xs font-semibold text-emerald-650 hover:text-emerald-850 flex items-center gap-1">
+                            📥 Download PDF Report
+                          </button>
+                          {(() => {
+                            const ledger = remediationLedgers.find(l => l.examId === r.worksheetId);
+                            if (scorePct >= 100) {
+                              return <span className="text-[10px] text-slate-400 font-mono">100% Mastery - No Remediation Needed</span>;
+                            }
+                            if (!ledger) {
+                              return (
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      const res = await fetch('/api/remediation/generate', {
+                                        method: 'POST',
+                                        headers: {
+                                          'Content-Type': 'application/json',
+                                          'Authorization': `Bearer ${token}`
+                                        },
+                                        body: JSON.stringify({
+                                          studentId: s.id,
+                                          examId: r.worksheetId,
+                                          failedQuestionNums: (r.responses || []).filter((x: any) => x.status === 'Incorrect' || !x.isCorrect).map((_: any, idx: number) => idx + 1)
+                                        })
+                                      });
+                                      const d = await res.json();
+                                      if (d.success) {
+                                        fetchLedgers();
+                                      } else {
+                                        alert(d.error || 'Failed to trigger remediation');
+                                      }
+                                    } catch (err) {
+                                      console.error(err);
+                                    }
+                                  }}
+                                  className="text-xs font-semibold text-indigo-650 hover:text-indigo-850 flex items-center gap-1"
+                                >
+                                  🚀 Start Remediation
+                                </button>
+                              );
+                            }
+                            if (ledger.remediationStatus === 'generating' || ledger.remediationStatus === 'pending') {
+                              return (
+                                <span className="text-xs font-semibold text-amber-600 animate-pulse flex items-center gap-1">
+                                  ⏳ Generating Practice...
+                                </span>
+                              );
+                            }
+                            if (ledger.remediationStatus === 'failed') {
+                              return (
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      const res = await fetch(`/api/remediation/ledgers/${ledger.id}/generate`, {
+                                        method: 'POST',
+                                        headers: { 'Authorization': `Bearer ${token}` }
+                                      });
+                                      const d = await res.json();
+                                      if (d.success) {
+                                        fetchLedgers();
+                                      }
+                                    } catch (err) {
+                                      console.error(err);
+                                    }
+                                  }}
+                                  className="text-xs font-semibold text-red-650 hover:text-red-800"
+                                >
+                                  ⚠️ Retry Remediation
+                                </button>
+                              );
+                            }
+                            return (
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => handleViewRemediationNotes(s.name, s.id, r.worksheetId)}
+                                  className="text-xs font-semibold text-blue-650 hover:text-blue-850 flex items-center gap-1"
+                                >
+                                  📋 View Remediation Notes
+                                </button>
+                                <button
+                                  onClick={() => handlePrintRemediationSlip(s, ledger)}
+                                  className="text-xs font-semibold text-indigo-650 hover:text-indigo-850 flex items-center gap-1"
+                                >
+                                  🖨️ Print Remediation Slip
+                                </button>
+                              </div>
+                            );
+                          })()}
+                          <button onClick={() => handleDeleteReport(r.id)} className="text-xs font-semibold text-red-650 hover:text-red-800 flex items-center gap-1">
+                            🗑️ Clear Report
+                          </button>
+                        </div>
+                      </div>
+
+                      {expandedReportId === r.id && (
+                        <div className="mt-3 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden bg-slate-50 dark:bg-slate-800 text-xs">
+                          <div className="bg-slate-100 dark:bg-slate-800 px-3 py-2 font-bold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700">Side-by-Side Exam Grader Report</div>
+                          <div className="divide-y divide-slate-200 dark:divide-slate-700">
+                            {(r.responses || (s.id === 's1' ? [
+                              { question: 'Q1: Match objects one-to-one (One-to-One Correspondence)', studentAnswer: '3 (incorrect match count)', correctAnswer: 'Matched all 5 items', status: 'Incorrect' },
+                              { question: 'Q2: Odd One Out - Select non-conforming object from [ball, book, table, pen]', studentAnswer: 'B (Book)', correctAnswer: 'table (furniture classification)', status: 'Incorrect' },
+                              { question: 'Q3: Single Digit Addition - Solve: 5 + 4 = ?', studentAnswer: '9', correctAnswer: '9', status: 'Correct' },
+                              { question: 'Q4: Single Digit Subtraction - Solve: 8 - 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' },
+                              { question: 'Q5: Identify shape with 3 corners and 3 straight sides', studentAnswer: 'Triangle', correctAnswer: 'Triangle', status: 'Correct' }
+                            ] : s.id === 's2' ? [
+                              { question: 'Q1: Counting up to 10 - Count the apples: 🍎🍎🍎🍎', studentAnswer: '4', correctAnswer: '4', status: 'Correct' },
+                              { question: 'Q2: Odd One Out - Select non-matching item: [square, circle, red-block, triangle]', studentAnswer: 'red-block', correctAnswer: 'red-block', status: 'Correct' },
+                              { question: 'Q3: Pattern recognition - What comes next in sequence: 🔴🔵🔴🔵 ?', studentAnswer: '🔵', correctAnswer: '🔴', status: 'Incorrect' },
+                              { question: 'Q4: Simple Addition - Solve: 3 + 2 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
+                            ] : [
+                              { question: 'Q1: Place Value Designation - What is the value of 7 in 372?', studentAnswer: '70 (7 tens)', correctAnswer: '70', status: 'Correct' },
+                              { question: 'Q2: Single-Digit Multiplication - Solve: 6 × 3 = ?', studentAnswer: '18', correctAnswer: '18', status: 'Correct' },
+                              { question: 'Q3: Double-Digit Subtraction with Borrowing - Solve: 42 - 17 = ?', studentAnswer: '25', correctAnswer: '25', status: 'Correct' },
+                              { question: 'Q4: Simple Division - Solve: 15 ÷ 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
+                            ])).map((item: any, idx: number) => (
                               <div key={idx} className="p-3 space-y-1">
                                 <div className="font-semibold text-slate-800 dark:text-slate-100">{item.question}</div>
                                 <div className="grid grid-cols-2 gap-2 mt-1 pt-1 border-t border-dotted border-slate-200 dark:border-slate-700">
@@ -995,8 +1583,8 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
       return (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <MetricCard title="Total Reports" value={REPORTS_MOCK.length} subtext="All evaluations" icon={FileText} />
-            <MetricCard title="Avg Score" value={`${Math.round(REPORTS_MOCK.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / REPORTS_MOCK.length)}%`} subtext="Across reports" icon={BarChart3} />
+            <MetricCard title="Total Reports" value={allReports.length} subtext="All evaluations" icon={FileText} />
+            <MetricCard title="Avg Score" value={`${allReports.length > 0 ? Math.round(allReports.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / allReports.length) : 0}%`} subtext="Across reports" icon={BarChart3} />
             <MetricCard title="Schools" value={stateSchools.length} subtext={`In ${userState}`} icon={SchoolIcon} />
             <MetricCard title="Districts" value={stateDistricts.length} subtext="Active jurisdictions" icon={MapPin} />
           </div>
@@ -1017,7 +1605,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
                     <div className="ml-6 mt-2 space-y-4 pl-4 border-l-2 border-indigo-200 dark:border-indigo-800">
                       {distSchools.map(sch => {
                         const schStudents = students.filter(st => st.schoolId === sch.id);
-                        const schReports = REPORTS_MOCK.filter(r => schStudents.some(st => st.id === r.studentId));
+                        const schReports = allReports.filter(r => schStudents.some(st => st.id === r.studentId));
                         const avgScore = schReports.length > 0 ? Math.round(schReports.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / schReports.length) : 0;
                         return (
                           <div key={sch.id} className="border border-slate-200 dark:border-slate-700 rounded-xl p-4">
@@ -1054,21 +1642,35 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
         </div>
       );
     }
+
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <MetricCard title="Total Reports" value={REPORTS_MOCK.length} subtext="All evaluations" icon={FileText} />
-          <MetricCard title="Avg Score" value={`${Math.round(REPORTS_MOCK.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / REPORTS_MOCK.length)}%`} subtext="Across reports" icon={BarChart3} />
-          <MetricCard title="Strong Concepts" value={REPORTS_MOCK.reduce((a, r) => a + Object.values(r.conceptMastery).filter(v => v === 'Strong').length, 0)} subtext="Mastered topics" icon={Award} />
+          <MetricCard title="Total Reports" value={allReports.length} subtext="All evaluations" icon={FileText} />
+          <MetricCard title="Avg Score" value={`${allReports.length > 0 ? Math.round(allReports.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / allReports.length) : 0}%`} subtext="Across reports" icon={BarChart3} />
+          <MetricCard title="Strong Concepts" value={allReports.reduce((a, r) => a + Object.values(r.conceptMastery).filter(v => v === 'Strong').length, 0)} subtext="Mastered topics" icon={Award} />
         </div>
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm space-y-4">
-          <PageHeader title="Evaluation Reports" desc="Detailed assessment narratives and concept mastery breakdowns" />
-          {REPORTS_MOCK.map(r => {
+          <div className="flex justify-between items-start border-b border-slate-200 dark:border-slate-700 pb-4">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">Evaluation Reports</h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Detailed assessment narratives and concept mastery breakdowns</p>
+            </div>
+            {allReports.length > 0 && (
+              <button
+                onClick={handleClearAllReports}
+                className="shrink-0 rounded-lg border-0 bg-red-400 dark:bg-red-850 px-4 py-2 text-sm font-medium text-white shadow-sm outline-none transition-all duration-200 hover:bg-red-700 focus:outline-none"
+              >
+                Clear All
+              </button>
+            )}
+          </div>
+          {allReports.map(r => {
             const student = students.find(s => s.id === r.studentId);
             const isExpanded = expandedReportId === r.id;
-            
+
             // Mock exam questions and student responses for side-by-side preview
-            const examResponses = student ? (
+            const examResponses = r.responses || (student ? (
               student.id === 's1' ? [
                 { question: 'Q1: Match objects one-to-one (One-to-One Correspondence)', studentAnswer: '3 (incorrect match count)', correctAnswer: 'Matched all 5 items', status: 'Incorrect' },
                 { question: 'Q2: Odd One Out - Select non-conforming object from [ball, book, table, pen]', studentAnswer: 'B (Book)', correctAnswer: 'table (furniture classification)', status: 'Incorrect' },
@@ -1086,21 +1688,17 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
                 { question: 'Q3: Double-Digit Subtraction with Borrowing - Solve: 42 - 17 = ?', studentAnswer: '25', correctAnswer: '25', status: 'Correct' },
                 { question: 'Q4: Simple Division - Solve: 15 ÷ 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
               ]
-            ) : [];
+            ) : []);
 
             return (
               <div key={r.id} className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-3 hover:border-slate-300 dark:hover:border-slate-600 transition-all">
                 <div className="flex justify-between items-center"><span className="font-semibold text-sm">{student?.name || 'Unknown'}</span><span className="text-xs text-slate-400 dark:text-slate-500">{new Date(r.timestamp).toLocaleDateString()}</span></div>
-                <div className="flex gap-4 text-sm"><span>Score: <strong>{r.score}/{r.totalQuestions}</strong></span><span>Level: <strong>L{r.recommendedLevel}.{r.recommendedSubLevel ?? 0}</strong></span></div>
-                
-                <div className="bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-lg p-3">
-                  <span className="text-[9px] font-mono font-bold uppercase text-slate-400 dark:text-slate-500 tracking-wider">Evaluation Report Narrative</span>
-                  <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 leading-relaxed whitespace-pre-line">{r.narrative}</p>
-                </div>
 
-                <div className="flex flex-wrap gap-2">{Object.entries(r.conceptMastery).map(([t, m]) => (
-                  <span key={t} className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${m === 'Strong' ? 'bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800' : m === 'Satisfactory' ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800' : 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'}`}>{t}: {m}</span>
-                ))}</div>
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(r.conceptMastery).map(([t, m]) => (
+                    <span key={t} className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${m === 'Strong' ? 'bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800' : m === 'Satisfactory' ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800' : 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'}`}>{t}: {m}</span>
+                  ))}
+                </div>
 
                 <div className="pt-2 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center">
                   <div className="flex gap-3">
@@ -1108,10 +1706,13 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
                       {isExpanded ? 'Hide Exam Sheet' : '📋 View Student Exam Responses'}
                     </button>
                     {student && (
-                      <button onClick={() => handleDownloadPDF(student, r, examResponses)} className="text-xs font-semibold text-emerald-650 hover:text-emerald-800 flex items-center gap-1">
+                      <button onClick={() => handleDownloadPDF(student, r, examResponses)} className="text-xs font-semibold text-emerald-650 hover:text-emerald-850 flex items-center gap-1">
                         📥 Download PDF Report
                       </button>
                     )}
+                    <button onClick={() => handleDeleteReport(r.id)} className="text-xs font-semibold text-red-650 hover:text-red-800 flex items-center gap-1">
+                      🗑️ Clear Report
+                    </button>
                   </div>
                   <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">Assigned from Diagnostic Pipeline</span>
                 </div>
@@ -1123,7 +1724,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
                       {examResponses.map((item, idx) => (
                         <div key={idx} className="p-3 space-y-1">
                           <div className="font-semibold text-slate-800 dark:text-slate-100">{item.question}</div>
-                          <div className="grid grid-cols-2 gap-2 mt-1 pt-1 border-t border-dotted border-slate-200 dark:border-slate-700">
+                          <div className="grid grid-cols-[1fr_1fr_auto] items-center gap-4 mt-1 pt-1 border-t border-dotted border-slate-200 dark:border-slate-700">
                             <div>
                               <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-mono block">Student Response</span>
                               <span className={`font-medium ${item.status === 'Correct' ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>{item.studentAnswer}</span>
@@ -1132,9 +1733,9 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
                               <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-mono block">Correct Keys</span>
                               <span className="font-medium text-slate-800 dark:text-slate-100">{item.correctAnswer}</span>
                             </div>
-                          </div>
-                          <div className="pt-1">
-                            <span className={`inline-block px-1.5 py-0.5 text-[9px] font-bold font-mono rounded ${item.status === 'Correct' ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200' : 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200'}`}>{item.status === 'Correct' ? 'PASS' : 'FAIL'}</span>
+                            <div className="pt-1">
+                              <span className={`inline-block px-1.5 py-0.5 text-[9px] font-bold font-mono rounded ${item.status === 'Correct' ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200' : 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200'}`}>{item.status === 'Correct' ? 'PASS' : 'FAIL'}</span>
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -1187,7 +1788,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
 
   if (panel === 'attendance') {
     const examAttendance = students.map(s => {
-      const reports = REPORTS_MOCK.filter(r => r.studentId === s.id);
+      const reports = allReports.filter(r => r.studentId === s.id);
       const examsGiven = reports.length;
       const lastExam = examsGiven > 0 ? new Date(Math.max(...reports.map(r => new Date(r.timestamp).getTime()))).toLocaleDateString() : 'N/A';
       const avgScore = examsGiven > 0 ? Math.round(reports.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / examsGiven) : 0;
@@ -1522,6 +2123,377 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
           ))}</div>
           <button className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 mt-2"><RefreshCw className="w-3 h-3" /> Refresh Status</button>
         </div>
+      </div>
+    );
+  }
+
+  if (panel === 'exam_blueprint') {
+    const handleSaveBlueprint = async (e: React.FormEvent) => {
+      e.preventDefault();
+      try {
+        let parsedEngineData = {};
+        try {
+          parsedEngineData = JSON.parse(bpFormData.engineData);
+        } catch {
+          alert('Invalid JSON in Engine Data field. Please format as JSON (e.g. {"rangeStart": 1, "rangeEnd": 100})');
+          return;
+        }
+
+        const headers = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        };
+
+        const method = editingBlueprint ? 'PUT' : 'POST';
+        const url = editingBlueprint
+          ? `/api/blueprints/${editingBlueprint.id}`
+          : '/api/blueprints';
+
+        const res = await fetch(url, {
+          method,
+          headers,
+          body: JSON.stringify({
+            ...bpFormData,
+            engineData: parsedEngineData
+          })
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          fetchBlueprints();
+          setShowBlueprintModal(false);
+          setEditingBlueprint(null);
+          setBpFormData({
+            examId: '',
+            examName: '',
+            questionNumber: 1,
+            conceptName: '',
+            type: 'numeric',
+            template: '',
+            engineData: '{}'
+          });
+        } else {
+          alert(data.error || 'Failed to save blueprint');
+        }
+      } catch (err) {
+        console.error('Error saving blueprint:', err);
+      }
+    };
+
+    const handleDeleteBlueprint = async (id: string) => {
+      if (!window.confirm('Are you sure you want to delete this question blueprint rule?')) return;
+      try {
+        const headers = { 'Authorization': `Bearer ${token}` };
+        const res = await fetch(`/api/blueprints/${id}`, {
+          method: 'DELETE',
+          headers
+        });
+        const data = await res.json();
+        if (data.success) {
+          fetchBlueprints();
+        } else {
+          alert(data.error || 'Failed to delete blueprint');
+        }
+      } catch (err) {
+        console.error('Error deleting blueprint:', err);
+      }
+    };
+
+    const handleTestBlueprint = async (id: string) => {
+      try {
+        const headers = { 'Authorization': `Bearer ${token}` };
+        const res = await fetch(`/api/blueprints/${id}/test-generate`, {
+          method: 'POST',
+          headers
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(`Generated Test Question:\n\nQ: ${data.data.question}\nA: ${data.data.answer}`);
+        } else {
+          alert(data.error || 'Failed to test generation');
+        }
+      } catch (err) {
+        console.error('Error testing blueprint:', err);
+      }
+    };
+
+    const filteredBlueprints = blueprints.filter(b => {
+      const matchesSearch = b.conceptName.toLowerCase().includes(blueprintSearch.toLowerCase()) ||
+                            b.examName.toLowerCase().includes(blueprintSearch.toLowerCase());
+      const matchesExam = selectedExamFilter === 'all' || b.examId === selectedExamFilter;
+      return matchesSearch && matchesExam;
+    });
+
+    const uniqueExamIds = [...new Set(blueprints.map(b => b.examId))];
+
+    return (
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm space-y-6">
+        <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-700 pb-4">
+          <PageHeader title="Exam Blueprint Database" desc="Store question generation rules containing templates, concepts, and engines" icon={<Database className="h-5 w-5 text-indigo-500" />} />
+          <button
+            onClick={() => {
+              setEditingBlueprint(null);
+              setBpFormData({
+                examId: '',
+                examName: '',
+                questionNumber: blueprints.length + 1,
+                conceptName: '',
+                type: 'numeric',
+                template: '',
+                engineData: '{\n  "rangeStart": 1,\n  "rangeEnd": 100\n}'
+              });
+              setShowBlueprintModal(true);
+            }}
+            className="rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 text-sm font-medium transition-all"
+          >
+            + Register Question Rule
+          </button>
+        </div>
+
+        {/* Filters */}
+        <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
+          <div className="relative w-full sm:w-72">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search concepts or exams..."
+              value={blueprintSearch}
+              onChange={e => setBlueprintSearch(e.target.value)}
+              className="pl-9 pr-4 py-2 w-full text-sm border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:border-indigo-400 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+            />
+          </div>
+
+          <div className="flex gap-2 w-full sm:w-auto items-center">
+            <span className="text-xs text-slate-500 dark:text-slate-400">Exam:</span>
+            <select
+              value={selectedExamFilter}
+              onChange={e => setSelectedExamFilter(e.target.value)}
+              className="text-xs border border-slate-200 dark:border-slate-700 rounded-lg p-2 bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+            >
+              <option value="all">All Exams</option>
+              {uniqueExamIds.map(id => {
+                const name = blueprints.find(b => b.examId === id)?.examName || id;
+                return <option key={id} value={id}>{name}</option>;
+              })}
+            </select>
+          </div>
+        </div>
+
+        {/* Blueprint Rules Table */}
+        <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+          <table className="w-full border-collapse text-left text-sm">
+            <thead className="bg-slate-50 dark:bg-slate-800/80">
+              <tr>
+                <th className="p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Exam / QNo</th>
+                <th className="p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Concept</th>
+                <th className="p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Engine Type</th>
+                <th className="p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Template Sentence</th>
+                <th className="p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Engine Configuration</th>
+                <th className="p-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+              {filteredBlueprints.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="p-8 text-center text-slate-400 dark:text-slate-500">
+                    No question rules found in blueprint database. Add one to get started!
+                  </td>
+                </tr>
+              ) : filteredBlueprints.map(b => (
+                <tr key={b.id} className="hover:bg-slate-55/40 dark:hover:bg-slate-800/40">
+                  <td className="p-3">
+                    <span className="font-bold block text-slate-900 dark:text-white">{b.examName}</span>
+                    <span className="text-[11px] font-mono text-slate-400 block">{b.examId} · Q#{b.questionNumber}</span>
+                  </td>
+                  <td className="p-3 font-semibold text-slate-800 dark:text-slate-200">{b.conceptName}</td>
+                  <td className="p-3">
+                    <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                      b.type === 'numeric' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300' :
+                      b.type === 'matrix' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300' :
+                      'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300'
+                    }`}>
+                      {b.type.toUpperCase()}
+                    </span>
+                  </td>
+                  <td className="p-3 font-mono text-xs">{b.template}</td>
+                  <td className="p-3">
+                    <pre className="text-[10px] font-mono text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-850 p-2 rounded max-h-16 overflow-y-auto">
+                      {JSON.stringify(b.engineData, null, 2)}
+                    </pre>
+                  </td>
+                  <td className="p-3 text-right space-x-2 whitespace-nowrap">
+                    <button
+                      onClick={() => handleTestBlueprint(b.id)}
+                      title="Test Gen"
+                      className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800 px-2.5 py-1 rounded-lg hover:bg-emerald-100"
+                    >
+                      ⚡ Test
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditingBlueprint(b);
+                        setBpFormData({
+                          examId: b.examId,
+                          examName: b.examName,
+                          questionNumber: b.questionNumber,
+                          conceptName: b.conceptName,
+                          type: b.type,
+                          template: b.template,
+                          engineData: JSON.stringify(b.engineData, null, 2)
+                        });
+                        setShowBlueprintModal(true);
+                      }}
+                      className="text-xs text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 px-2 py-1 rounded"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDeleteBlueprint(b.id)}
+                      className="text-xs text-red-650 hover:text-red-805 dark:text-red-400 px-2 py-1 rounded"
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Blueprint Add/Edit Modal */}
+        {showBlueprintModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+              <div className="bg-slate-50 dark:bg-slate-800/80 px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center">
+                <h3 className="font-bold text-slate-900 dark:text-white text-base">
+                  {editingBlueprint ? 'Edit Question Rule Blueprint' : 'Register New Question Rule'}
+                </h3>
+                <button
+                  onClick={() => setShowBlueprintModal(false)}
+                  className="text-slate-400 hover:text-slate-650 dark:hover:text-slate-300 text-lg font-bold"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveBlueprint} className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Exam ID</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. exam_baseline_class2"
+                      value={bpFormData.examId}
+                      onChange={e => setBpFormData({ ...bpFormData, examId: e.target.value })}
+                      className="w-full border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Exam Name</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Class 2 Baseline Assessment"
+                      value={bpFormData.examName}
+                      onChange={e => setBpFormData({ ...bpFormData, examName: e.target.value })}
+                      className="w-full border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Question Number</label>
+                    <input
+                      type="number"
+                      required
+                      min={1}
+                      value={bpFormData.questionNumber}
+                      onChange={e => setBpFormData({ ...bpFormData, questionNumber: Number(e.target.value) })}
+                      className="w-full border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Concept Name</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Single-digit addition"
+                      value={bpFormData.conceptName}
+                      onChange={e => setBpFormData({ ...bpFormData, conceptName: e.target.value })}
+                      className="w-full border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Engine Type</label>
+                  <select
+                    value={bpFormData.type}
+                    onChange={e => {
+                      const newType = e.target.value;
+                      let defaultData = '{}';
+                      if (newType === 'numeric') {
+                        defaultData = '{\n  "rangeStart": 1,\n  "rangeEnd": 100\n}';
+                      } else if (newType === 'matrix') {
+                        defaultData = '{\n  "wordList": ["cat", "dog", "rat", "pig"]\n}';
+                      } else if (newType === 'generative') {
+                        defaultData = '{\n  "prompt": "generate a reading concept question",\n  "topic": "Addition"\n}';
+                      }
+                      setBpFormData({ ...bpFormData, type: newType, engineData: defaultData });
+                    }}
+                    className="w-full border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
+                  >
+                    <option value="numeric">Numeric (number shuffling)</option>
+                    <option value="matrix">Matrix (word selection)</option>
+                    <option value="generative">Generative (AI/Gemini generation)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Template Sentence</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. What is {0} + {1}?"
+                    value={bpFormData.template}
+                    onChange={e => setBpFormData({ ...bpFormData, template: e.target.value })}
+                    className="w-full border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-850 text-slate-900 dark:text-white font-mono"
+                  />
+                  <span className="text-[10px] text-slate-400 block mt-1">Use placeholder blanks like {`{0}`}, {`{1}`} which will be replaced by the engine.</span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Engine Configuration (JSON)</label>
+                  <textarea
+                    required
+                    rows={4}
+                    value={bpFormData.engineData}
+                    onChange={e => setBpFormData({ ...bpFormData, engineData: e.target.value })}
+                    className="w-full border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-850 text-slate-900 dark:text-white font-mono"
+                  />
+                </div>
+
+                <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowBlueprintModal(false)}
+                    className="px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-500 text-sm hover:bg-slate-50 transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium transition-all"
+                  >
+                    Save Rule
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

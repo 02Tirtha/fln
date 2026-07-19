@@ -124,6 +124,7 @@ export interface EvaluationReport {
   recommendedLevel: number;
   recommendedSubLevel?: number;
   timestamp: string;
+  responses?: any[];
 }
 
 export interface Ticket {

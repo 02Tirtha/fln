@@ -3,7 +3,8 @@ import { User, UserRole, Announcement } from '../types';
 import {
   Menu, X, Search, Bell, Sun, Moon, LogOut, ChevronRight, ChevronLeft, ChevronDown,
   LayoutDashboard, BookOpen, UserCheck, Calendar, ShieldCheck, HelpCircle, Settings, Users,
-  School, GraduationCap, MapPin, BarChart3, FileText, ClipboardList, ShieldAlert, KeyRound,   Clock
+  School, GraduationCap, MapPin, BarChart3, FileText, ClipboardList, ShieldAlert, KeyRound,   Clock,
+  Database
 } from 'lucide-react';
 
 interface NavigationItem {
@@ -208,6 +209,7 @@ export const Layout: React.FC<LayoutProps> = ({
         list.push({ name: 'Content', view: 'content', icon: BookOpen });
         list.push({ name: 'Reports', view: 'reports', icon: FileText });
         list.push({ name: 'Analytics', view: 'analytics', icon: BarChart3 });
+        list.push({ name: 'Exam Blueprint', view: 'exam_blueprint', icon: Database });
         list.push({ name: 'System Settings', view: 'system_settings', icon: Settings });
         list.push({ name: 'Audit Logs', view: 'logbook', icon: ShieldCheck });
         break;

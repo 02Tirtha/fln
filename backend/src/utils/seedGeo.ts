@@ -3,7 +3,8 @@ import { District } from '../models/district.model';
 import { Block } from '../models/block.model';
 import { School } from '../models/school.model';
 import { connectDatabase } from '../config/database';
-
+import dns from 'node:dns';
+dns.setServers(['8.8.8.8', '1.1.1.1']);
 const geoData: Record<string, { districts: { name: string; code: string; blocks: { name: string; code: string; schools: { name: string; code: string; strength: 'high' | 'low' }[] }[] }[] }> = {
   PB: {
     districts: [

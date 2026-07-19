@@ -4,6 +4,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { buildUrl } from './utils/apiBase';
 import { Route, Routes, useNavigate } from 'react-router-dom';
 import { Announcement, User, UserRole } from './types';
 import CoordinatorRegistration from './pages/CoordinatorRegistration';
@@ -42,7 +43,7 @@ export default function App() {
       if (!token) return;
 
       try {
-        const res = await fetch('/api/auth/me', {
+        const res = await fetch(buildUrl('/api/auth/me'), {
           headers: { Authorization: `Bearer ${token}` },
         });
 
@@ -54,7 +55,8 @@ export default function App() {
         }
 
         const data = await res.json();
-        setCurrentUser(data.user);
+        const payload = data?.data || data;
+        setCurrentUser(payload.user);
         setCurrentView('dashboard');
       } catch {
         setToken(null);
@@ -99,15 +101,15 @@ export default function App() {
 
     switch (currentUser.role) {
       case 'superadmin':
-        return <SuperadminDashboard user={currentUser} />;
+        return <SuperadminDashboard user={currentUser} token={token!} />;
       case 'admin':
-        return <AdminDashboard user={currentUser} />;
+        return <AdminDashboard user={currentUser} token={token!} />;
       case 'school':
-        return <SchoolDashboard user={currentUser} />;
+        return <SchoolDashboard user={currentUser} token={token!} />;
       case 'teacher':
-        return <TeacherDashboard user={currentUser} />;
+        return <TeacherDashboard user={currentUser} token={token!} />;
       case 'volunteer':
-        return <VolunteerDashboard user={currentUser} />;
+        return <VolunteerDashboard user={currentUser} token={token!} />;
       default:
         return <div />;
     }

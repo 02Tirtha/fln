@@ -1,6 +1,9 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { MongoClient, Db } from 'mongodb';
+import mongoose from 'mongoose';
+import { IExamBlueprint } from './interfaces/examBlueprint.interface';
+import { IRemediationLedger } from './interfaces/remediationLedger.interface';
 
 const DB_DIR = path.resolve(process.cwd(), 'data');
 const DB_FILE = path.resolve(DB_DIR, 'db.json');
@@ -10,16 +13,18 @@ export let mongoClient: MongoClient | null = null;
 export const connectDB = async () => {
   const uri = process.env.MONGODB_URI;
   if (!uri) {
-    console.error("MONGODB_URI not set — cannot start server");
-    process.exit(1);
+    console.warn("MONGODB_URI not set — starting in file-backed DB mode");
+    mongoClient = null;
+    return;
   }
   try {
     mongoClient = new MongoClient(uri);
     await mongoClient.connect();
     console.log("MongoDB Connected");
-  } catch (err) {
+  } catch (err: any) {
     console.error("MongoDB connection failed:", err.message);
-    process.exit(1);
+    mongoClient = null;
+    console.warn('Server will continue in file-backed DB mode');
   }
 };
 
@@ -172,6 +177,7 @@ export interface EvaluationReport {
   recommendedLevel: number;
   recommendedSubLevel?: number;
   timestamp: string;
+  responses?: any[];
 }
 
 export interface Ticket {
@@ -275,6 +281,8 @@ interface DatabaseSchema {
   announcements: Announcement[];
   interventions: Intervention[];
   bestPractices: BestPractice[];
+  examBlueprints: IExamBlueprint[];
+  remediationLedgers: IRemediationLedger[];
 }
 
 const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
@@ -284,6 +292,7 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
   students: 'students',
   questions: 'questions',
   worksheets: 'worksheets',
+  levelWorksheets: 'levelWorksheets',
   answerSubmissions: 'answer_submissions',
   evaluationReports: 'evaluation_reports',
   tickets: 'tickets',
@@ -291,6 +300,8 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
   announcements: 'announcements',
   interventions: 'interventions',
   bestPractices: 'best_practices',
+  examBlueprints: 'exam_blueprints',
+  remediationLedgers: 'remediation_ledgers',
 };
 
 export class DBStore {
@@ -318,7 +329,7 @@ export class DBStore {
       console.log('No MongoDB — falling back to file-based DB');
       try {
         await fs.mkdir(DB_DIR, { recursive: true });
-      } catch (_) {}
+      } catch (_) { }
       try {
         const content = await fs.readFile(DB_FILE, 'utf-8');
         this.data = JSON.parse(content);
@@ -371,151 +382,251 @@ export class DBStore {
   }
 
   async getUsers() {
-    return await this.mongoDb!.collection<User>('users').find({}).toArray();
+    if (this.mongoDb) return await this.mongoDb.collection<User>('users').find({}).toArray();
+    return Promise.resolve((this.data?.users || []) as User[]);
   }
   async getSchools() {
-    return await this.mongoDb!.collection<School>('schools').find({}).toArray();
+    if (this.mongoDb) return await this.mongoDb.collection<School>('schools').find({}).toArray();
+    return Promise.resolve((this.data?.schools || []) as School[]);
   }
   async getClasses() {
-    return await this.mongoDb!.collection<ClassGroup>('classes').find({}).toArray();
+    if (this.mongoDb) return await this.mongoDb.collection<ClassGroup>('classes').find({}).toArray();
+    return Promise.resolve((this.data?.classes || []) as ClassGroup[]);
   }
   async getStudents() {
-    return await this.mongoDb!.collection<Student>('students').find({}).toArray();
+    if (this.mongoDb) return await this.mongoDb.collection<Student>('students').find({}).toArray();
+    return Promise.resolve((this.data?.students || []) as Student[]);
   }
   async getQuestions() {
-    return await this.mongoDb!.collection<Question>('questions').find({}).toArray();
+    if (this.mongoDb) return await this.mongoDb.collection<Question>('questions').find({}).toArray();
+    return Promise.resolve((this.data?.questions || []) as Question[]);
   }
   async getWorksheets() {
-    return await this.mongoDb!.collection<Worksheet>('worksheets').find({}).toArray();
+    if (this.mongoDb) return await this.mongoDb.collection<Worksheet>('worksheets').find({}).toArray();
+    return Promise.resolve((this.data?.worksheets || []) as Worksheet[]);
   }
   async getLevelWorksheets() {
-    return await this.mongoDb!.collection<LevelWorksheet>('levelWorksheets').find({}).toArray();
+    if (this.mongoDb) return await this.mongoDb.collection<LevelWorksheet>('levelWorksheets').find({}).toArray();
+    return Promise.resolve((this.data?.levelWorksheets || []) as LevelWorksheet[]);
   }
   async getAnswerSubmissions() {
-    return await this.mongoDb!.collection<AnswerSubmission>('answerSubmissions').find({}).toArray();
+    if (this.mongoDb) return await this.mongoDb.collection<AnswerSubmission>('answer_submissions').find({}).toArray();
+    return Promise.resolve((this.data?.answerSubmissions || []) as AnswerSubmission[]);
   }
   async getEvaluationReports() {
-    return await this.mongoDb!.collection<EvaluationReport>('evaluationReports').find({}).toArray();
+    if (this.mongoDb) return await this.mongoDb.collection<EvaluationReport>('evaluation_reports').find({}).toArray();
+    return Promise.resolve((this.data?.evaluationReports || []) as EvaluationReport[]);
   }
   async getTickets() {
-    return await this.mongoDb!.collection<Ticket>('tickets').find({}).toArray();
+    if (this.mongoDb) return await this.mongoDb.collection<Ticket>('tickets').find({}).toArray();
+    return Promise.resolve((this.data?.tickets || []) as Ticket[]);
   }
   async getLogbook() {
-    return await this.mongoDb!.collection<LogEntry>('logbook').find({}).toArray();
+    if (this.mongoDb) return await this.mongoDb.collection<LogEntry>('logbook').find({}).toArray();
+    return Promise.resolve((this.data?.logbook || []) as LogEntry[]);
   }
   async getAnnouncements() {
-    return await this.mongoDb!.collection<Announcement>('announcements').find({}).toArray();
+    if (this.mongoDb) return await this.mongoDb.collection<Announcement>('announcements').find({}).toArray();
+    return Promise.resolve((this.data?.announcements || []) as Announcement[]);
   }
 
   // --- Write / Update Helpers ---
 
   async addUser(user: User) {
-    await this.mongoDb!.collection('users').insertOne(user);
-    if (this.data) this.data.users.push(user);
+    if (this.mongoDb) await this.mongoDb.collection('users').insertOne(user);
+    if (this.data) {
+      if (!this.data.users) this.data.users = [];
+      this.data.users.push(user);
+      await this.save();
+    }
     return user;
   }
 
   async addStudent(student: Student) {
-    await this.mongoDb!.collection('students').insertOne(student);
-    if (this.data) this.data.students.push(student);
+    if (this.mongoDb) await this.mongoDb.collection('students').insertOne(student);
+    if (this.data) {
+      if (!this.data.students) this.data.students = [];
+      this.data.students.push(student);
+      await this.save();
+    }
     return student;
   }
 
   async updateStudent(studentId: string, updates: Partial<Student>) {
-    await this.mongoDb!.collection('students').updateOne({ id: studentId }, { $set: updates });
-    const s = await this.mongoDb!.collection<Student>('students').findOne({ id: studentId });
-    if (s && this.data) {
+    let s: Student | null = null;
+    if (this.mongoDb) {
+      await this.mongoDb.collection('students').updateOne({ id: studentId }, { $set: updates });
+      s = await this.mongoDb.collection<Student>('students').findOne({ id: studentId });
+    }
+    if (this.data) {
       const idx = this.data.students.findIndex(x => x.id === studentId);
-      if (idx !== -1) this.data.students[idx] = s;
+      if (idx !== -1) {
+        this.data.students[idx] = { ...this.data.students[idx], ...(updates as any) } as Student;
+        s = this.data.students[idx];
+      }
+      await this.save();
     }
     return s || undefined;
   }
 
   async addWorksheet(ws: Worksheet) {
-    await this.mongoDb!.collection('worksheets').insertOne(ws);
-    if (this.data) this.data.worksheets.push(ws);
+    if (this.mongoDb) await this.mongoDb.collection('worksheets').insertOne(ws);
+    if (this.data) {
+      if (!this.data.worksheets) this.data.worksheets = [];
+      this.data.worksheets.push(ws);
+      await this.save();
+    }
     return ws;
   }
 
   async updateWorksheet(worksheetId: string, updates: Partial<Worksheet>) {
-    await this.mongoDb!.collection('worksheets').updateOne({ id: worksheetId }, { $set: updates });
-    const ws = await this.mongoDb!.collection<Worksheet>('worksheets').findOne({ id: worksheetId });
-    if (ws && this.data) {
+    let ws: Worksheet | null = null;
+    if (this.mongoDb) {
+      await this.mongoDb.collection('worksheets').updateOne({ id: worksheetId }, { $set: updates });
+      ws = await this.mongoDb.collection<Worksheet>('worksheets').findOne({ id: worksheetId });
+    }
+    if (this.data) {
       const idx = this.data.worksheets.findIndex(x => x.id === worksheetId);
-      if (idx !== -1) this.data.worksheets[idx] = ws;
+      if (idx !== -1) {
+        this.data.worksheets[idx] = { ...this.data.worksheets[idx], ...(updates as any) } as Worksheet;
+        ws = this.data.worksheets[idx];
+      }
+      await this.save();
     }
     return ws || undefined;
   }
 
   async addLevelWorksheet(ws: LevelWorksheet) {
-    await this.mongoDb!.collection('levelWorksheets').insertOne(ws);
-    if (this.data) this.data.levelWorksheets.push(ws);
+    if (this.mongoDb) await this.mongoDb.collection('levelWorksheets').insertOne(ws);
+    if (this.data) {
+      if (!this.data.levelWorksheets) this.data.levelWorksheets = [];
+      this.data.levelWorksheets.push(ws);
+      await this.save();
+    }
     return ws;
   }
 
   async addAnswerSubmission(sub: AnswerSubmission) {
-    await this.mongoDb!.collection('answerSubmissions').insertOne(sub);
-    if (this.data) this.data.answerSubmissions.push(sub);
+    if (this.mongoDb) await this.mongoDb.collection('answer_submissions').insertOne(sub);
+    if (this.data) {
+      if (!this.data.answerSubmissions) this.data.answerSubmissions = [];
+      this.data.answerSubmissions.push(sub);
+      await this.save();
+    }
     return sub;
   }
 
   async addEvaluationReport(rep: EvaluationReport) {
-    await this.mongoDb!.collection('evaluationReports').insertOne(rep);
-    if (this.data) this.data.evaluationReports.push(rep);
+    if (this.mongoDb) await this.mongoDb.collection('evaluation_reports').insertOne(rep);
+    if (this.data) {
+      if (!this.data.evaluationReports) this.data.evaluationReports = [];
+      this.data.evaluationReports.push(rep);
+      await this.save();
+    }
     return rep;
   }
 
+  async deleteEvaluationReport(id: string) {
+    if (this.mongoDb) {
+      await this.mongoDb.collection('evaluation_reports').deleteOne({ id });
+    }
+    if (this.data) {
+      const idx = this.data.evaluationReports.findIndex(x => x.id === id);
+      if (idx !== -1) {
+        this.data.evaluationReports.splice(idx, 1);
+        await this.save();
+      }
+    }
+  }
+
   async addTicket(t: Ticket) {
-    await this.mongoDb!.collection('tickets').insertOne(t);
-    if (this.data) this.data.tickets.push(t);
+    if (this.mongoDb) await this.mongoDb.collection('tickets').insertOne(t);
+    if (this.data) {
+      if (!this.data.tickets) this.data.tickets = [];
+      this.data.tickets.push(t);
+      await this.save();
+    }
     return t;
   }
 
   async updateTicket(id: string, updates: Partial<Ticket>) {
-    await this.mongoDb!.collection('tickets').updateOne({ id }, { $set: updates });
-    const t = await this.mongoDb!.collection<Ticket>('tickets').findOne({ id });
-    if (t && this.data) {
+    let t: Ticket | null = null;
+    if (this.mongoDb) {
+      await this.mongoDb.collection('tickets').updateOne({ id }, { $set: updates });
+      t = await this.mongoDb.collection<Ticket>('tickets').findOne({ id });
+    }
+    if (this.data) {
       const idx = this.data.tickets.findIndex(x => x.id === id);
-      if (idx !== -1) this.data.tickets[idx] = t;
+      if (idx !== -1) {
+        this.data.tickets[idx] = { ...this.data.tickets[idx], ...(updates as any) } as Ticket;
+        t = this.data.tickets[idx];
+      }
+      await this.save();
     }
     return t || undefined;
   }
 
   async updateUser(userId: string, updates: Partial<User>) {
-    await this.mongoDb!.collection('users').updateOne({ id: userId }, { $set: updates });
-    const u = await this.mongoDb!.collection<User>('users').findOne({ id: userId });
-    if (u && this.data) {
+    let u: User | null = null;
+    if (this.mongoDb) {
+      await this.mongoDb.collection('users').updateOne({ id: userId }, { $set: updates });
+      u = await this.mongoDb.collection<User>('users').findOne({ id: userId });
+    }
+    if (this.data) {
       const idx = this.data.users.findIndex(x => x.id === userId);
-      if (idx !== -1) this.data.users[idx] = u;
+      if (idx !== -1) {
+        this.data.users[idx] = { ...this.data.users[idx], ...(updates as any) } as User;
+        u = this.data.users[idx];
+      }
+      await this.save();
     }
     return u || undefined;
   }
 
   async updateSchool(schoolId: string, updates: Partial<School>) {
-    await this.mongoDb!.collection('schools').updateOne({ id: schoolId }, { $set: updates });
-    const s = await this.mongoDb!.collection<School>('schools').findOne({ id: schoolId });
-    if (s && this.data) {
+    let s: School | null = null;
+    if (this.mongoDb) {
+      await this.mongoDb.collection('schools').updateOne({ id: schoolId }, { $set: updates });
+      s = await this.mongoDb.collection<School>('schools').findOne({ id: schoolId });
+    }
+    if (this.data) {
       const idx = this.data.schools.findIndex(x => x.id === schoolId);
-      if (idx !== -1) this.data.schools[idx] = s;
+      if (idx !== -1) {
+        this.data.schools[idx] = { ...this.data.schools[idx], ...(updates as any) } as School;
+        s = this.data.schools[idx];
+      }
+      await this.save();
     }
     return s || undefined;
   }
 
   async addSchool(school: School) {
-    await this.mongoDb!.collection('schools').insertOne(school);
-    if (this.data) this.data.schools.push(school);
+    if (this.mongoDb) await this.mongoDb.collection('schools').insertOne(school);
+    if (this.data) {
+      if (!this.data.schools) this.data.schools = [];
+      this.data.schools.push(school);
+      await this.save();
+    }
     return school;
   }
 
   async addLog(log: LogEntry) {
-    await this.mongoDb!.collection('logbook').insertOne(log);
-    if (this.data) this.data.logbook.unshift(log);
+    if (this.mongoDb) await this.mongoDb.collection('logbook').insertOne(log);
+    if (this.data) {
+      if (!this.data.logbook) this.data.logbook = [];
+      this.data.logbook.unshift(log);
+      await this.save();
+    }
     return log;
   }
 
   async addAnnouncement(ann: Announcement) {
-    await this.mongoDb!.collection('announcements').insertOne(ann);
-    if (this.data) this.data.announcements.unshift(ann);
+    if (this.mongoDb) await this.mongoDb.collection('announcements').insertOne(ann);
+    if (this.data) {
+      if (!this.data.announcements) this.data.announcements = [];
+      this.data.announcements.unshift(ann);
+      await this.save();
+    }
     return ann;
   }
 
@@ -542,23 +653,79 @@ export class DBStore {
   }
 
   async getBestPractices() {
-    return await this.mongoDb!.collection<BestPractice>('bestPractices').find({}).toArray();
+    return await this.mongoDb!.collection<BestPractice>('best_practices').find({}).toArray();
   }
 
   async addBestPractice(bp: BestPractice) {
-    await this.mongoDb!.collection('bestPractices').insertOne(bp);
+    await this.mongoDb!.collection('best_practices').insertOne(bp);
     if (this.data) this.data.bestPractices.push(bp);
     return bp;
   }
 
   async updateBestPractice(id: string, updates: Partial<BestPractice>) {
-    await this.mongoDb!.collection('bestPractices').updateOne({ id }, { $set: updates });
-    const bp = await this.mongoDb!.collection<BestPractice>('bestPractices').findOne({ id });
+    await this.mongoDb!.collection('best_practices').updateOne({ id }, { $set: updates });
+    const bp = await this.mongoDb!.collection<BestPractice>('best_practices').findOne({ id });
     if (bp && this.data) {
       const idx = this.data.bestPractices.findIndex(x => x.id === id);
       if (idx !== -1) this.data.bestPractices[idx] = bp;
     }
     return bp || undefined;
+  }
+
+  // --- Exam Blueprint Methods ---
+  async getExamBlueprints() {
+    return await this.mongoDb!.collection<IExamBlueprint>('exam_blueprints').find({}).toArray();
+  }
+
+  async addExamBlueprint(blueprint: IExamBlueprint) {
+    await this.mongoDb!.collection('exam_blueprints').insertOne(blueprint);
+    if (this.data) {
+      if (!this.data.examBlueprints) this.data.examBlueprints = [];
+      this.data.examBlueprints.push(blueprint);
+    }
+    return blueprint;
+  }
+
+  async updateExamBlueprint(id: string, updates: Partial<IExamBlueprint>) {
+    await this.mongoDb!.collection('exam_blueprints').updateOne({ id }, { $set: updates });
+    const bp = await this.mongoDb!.collection<IExamBlueprint>('exam_blueprints').findOne({ id });
+    if (bp && this.data) {
+      const idx = this.data.examBlueprints.findIndex(x => x.id === id);
+      if (idx !== -1) this.data.examBlueprints[idx] = bp;
+    }
+    return bp || undefined;
+  }
+
+  async deleteExamBlueprint(id: string) {
+    await this.mongoDb!.collection('exam_blueprints').deleteOne({ id });
+    if (this.data && this.data.examBlueprints) {
+      const idx = this.data.examBlueprints.findIndex(x => x.id === id);
+      if (idx !== -1) this.data.examBlueprints.splice(idx, 1);
+    }
+  }
+
+  // --- Remediation Ledger Methods ---
+  async getRemediationLedgers() {
+    return await this.mongoDb!.collection<IRemediationLedger>('remediation_ledgers').find({}).toArray();
+  }
+
+  async addRemediationLedger(ledger: IRemediationLedger) {
+    await this.mongoDb!.collection('remediation_ledgers').insertOne(ledger);
+    if (this.data) {
+      if (!this.data.remediationLedgers) this.data.remediationLedgers = [];
+      this.data.remediationLedgers.push(ledger);
+    }
+    return ledger;
+  }
+
+  async updateRemediationLedger(id: string, updates: Partial<IRemediationLedger>) {
+    await this.mongoDb!.collection('remediation_ledgers').updateOne({ id }, { $set: updates });
+    const ledger = await this.mongoDb!.collection<IRemediationLedger>('remediation_ledgers').findOne({ id });
+    if (ledger && this.data) {
+      const idx = this.data.remediationLedgers.findIndex(x => x.id === id);
+      if (idx !== -1) this.data.remediationLedgers[idx] = ledger;
+    }
+    return ledger || undefined;
   }
 
   // --- Preloaded Question Pool (Mathematical Curriculum Questions Classes 2-4) ---
@@ -2484,7 +2651,9 @@ export class DBStore {
       logbook,
       announcements,
       interventions,
-      bestPractices
+      bestPractices,
+      examBlueprints: [],
+      remediationLedgers: []
     };
   }
 }
