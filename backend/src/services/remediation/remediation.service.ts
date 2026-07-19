@@ -153,6 +153,7 @@ export class RemediationService {
                 `Similar to: ${response.originalQuestion || 'this math question'}`,
                 `Create a similar but distinct practice question for concept: ${response.conceptName}`
               );
+              
               if (!generatedTexts.has(generated.question)) {
                 generatedTexts.add(generated.question);
                 practiceQuestions.push({
@@ -163,7 +164,7 @@ export class RemediationService {
               }
             }
             response.practiceQuestions = practiceQuestions;
-            response.type = 'generative';
+            response.type = blueprintQuestion.type.toLowerCase() as any;
             continue;
           }
 
@@ -182,6 +183,7 @@ export class RemediationService {
 
           response.practiceQuestions = practiceQuestions;
           // Update type if mismatch (convert uppercase to lowercase engine format)
+          response.type = blueprintQuestion?.type?.toLowerCase() as any || 'generative';
           response.type = blueprintQuestion.type.toLowerCase() as any;
         } catch (qErr: any) {
           console.error(`[RemediationService] Failed to generate practice questions for Q#${response.questionNumber}:`, qErr.message);

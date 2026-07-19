@@ -113,7 +113,7 @@ function genClass4Question() {
 export function generateClassSpecificDiagnostic(classGroup: string): Question[] {
   const normalizedClass = (classGroup || 'Class 1').trim().toLowerCase();
   
-  let q1, q2, q3, q4;
+  let q1: string, q2: string, q3: string, q4: string;
   let l1, l2, l3, l4;
 
   if (normalizedClass.includes('1')) {

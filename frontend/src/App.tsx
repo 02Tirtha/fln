@@ -11,6 +11,7 @@ import CoordinatorRegistration from './pages/CoordinatorRegistration';
 import { LandingView } from './components/LandingView';
 import { LoginView } from './components/LoginView';
 import { Layout } from './components/Layout';
+import { RemediationNotesView } from './components/RemediationNotesView';
 import {
   SuperadminDashboard,
   AdminDashboard,
@@ -23,7 +24,7 @@ import { TicketSubmission } from './components/TicketSubmission';
 import { AssessmentCalendar } from './components/AssessmentCalendar';
 import { PanelViews } from './components/PanelViews';
 import { Bell, Settings, ShieldCheck } from 'lucide-react';
-
+// import { RemediationNotesView } from './components/RemediationNotesView';
 export default function App() {
   const navigate = useNavigate();
   const [token, setToken] = useState<string | null>(localStorage.getItem('fln_token'));
@@ -120,6 +121,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/register-coordinator" element={<CoordinatorRegistration />} />
+      <Route path="/remediation-note/:studentId/:examId" element={<RemediationNotesView />} />
       <Route
         path="*"
         element={

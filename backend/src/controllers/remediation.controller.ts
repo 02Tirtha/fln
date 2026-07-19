@@ -6,9 +6,10 @@ import { IRemediationLedger } from '../interfaces/remediationLedger.interface';
 
 export class RemediationController {
   // POST /api/remediation/generate (trigger)
-  async generate(req: Request, res: Response): Promise<void> {
+  
+    async generate(req: Request, res: Response): Promise<void> {
     try {
-      const { studentId, examId, failedQuestionNums } = req.body;
+      const { studentId, examId, failedQuestionNums, originalQuestions } = req.body;
 
       if (!studentId || !examId || !Array.isArray(failedQuestionNums)) {
         res.status(400).json({ success: false, error: 'Missing studentId, examId, or failedQuestionNums array.' });
@@ -20,13 +21,17 @@ export class RemediationController {
         return;
       }
 
-      const result = await remediationService.startGeneration(studentId, examId, failedQuestionNums);
+      const result = await remediationService.startGeneration(
+        studentId,
+        examId,
+        failedQuestionNums,
+        originalQuestions
+      );
       res.status(202).json({ success: true, ...result });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }
   }
-
   // GET /api/remediation/:studentId/:examId (poll + fetch)
   async getLedgerByStudentAndExam(req: Request, res: Response): Promise<void> {
     try {

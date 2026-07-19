@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { buildUrl } from '../utils/apiBase';
 import { User, UserRole, Student, ClassGroup, School, EvaluationReport, LogEntry, Ticket } from '../types';
 import { Users, ShieldAlert, BookOpen, UserCheck, Calendar, ArrowRight, CheckCircle2, XCircle, SlidersHorizontal, Layers, Award, MapPin, School as SchoolIcon, BarChart3, FileText, ClipboardList, Building2, GraduationCap, BookMarked, Globe, Settings, Database, RefreshCw, Search, ChevronDown } from 'lucide-react';
@@ -11,7 +12,7 @@ interface PanelViewsProps {
   currentUser: User;
   token: string;
 }
-
+  
 const STUDENTS_FALLBACK: Student[] = [
   { id: 's1', name: 'Amanpreet Singh', age: 8, classGroup: 'Class 2', section: 'A', schoolId: 'gps-mt-001', currentLevel: 12, currentSubLevel: 0, targetLevel: 13, aadharMasked: 'XXXX-XXXX-1234', levelHistory: [{ level: 12, subLevel: 0, date: '2026-03-15', reason: 'Diagnostic' }], streak: 3 },
   { id: 's2', name: 'Jasmine Kaur', age: 7, classGroup: 'Class 2', section: 'A', schoolId: 'gps-mt-001', currentLevel: 8, currentSubLevel: 1, targetLevel: 12, aadharMasked: 'XXXX-XXXX-5678', levelHistory: [{ level: 8, subLevel: 1, date: '2026-02-20', reason: 'Mid-year' }], streak: 1 },
@@ -162,6 +163,7 @@ const SYSTEM_LOGS_MOCK = [
   { action: 'Cache Invalidation', status: 'Success', timestamp: '2026-07-06 06:00', details: 'CDN cache purged for /api/analytics' },
 ];
 
+
 function PageHeader({ title, desc, icon }: { title: string; desc: string; icon?: React.ReactNode }) {
   return (
     <div className="flex items-center gap-3 border-b border-slate-200 dark:border-slate-700 pb-4">
@@ -184,6 +186,7 @@ function EmptyStudents({ students }: { students: Student[] }) {
   ];
   return <Table data={students} columns={cols} searchPlaceholder="Search students..." searchKey="name" />;
 }
+
 
 interface ParsedReportCard {
   studentName?: string;
@@ -396,12 +399,94 @@ const ReportNarrative: React.FC<{ narrative: string }> = ({ narrative }) => {
     </div>
   );
 };
+const calculateAveragePercentage = (reports: EvaluationReport[]) => {
+  if (!reports || reports.length === 0) return 0;
+  
+  const sumOfPercentages = reports.reduce((acc, r) => {
+    const score = Number(r.score) || 0;
+    const total = Number(r.totalQuestions) > 0 ? Number(r.totalQuestions) : 1;
+    return acc + ((score / total) * 100);
+  }, 0);
+  
+  return Math.round(sumOfPercentages / reports.length);
+};
+
 
 export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser, token }) => {
   const [search, setSearch] = useState('');
   const [stateFilter, setStateFilter] = useState('all');
   const [distFilter, setDistFilter] = useState('all');
   const [blockFilter, setBlockFilter] = useState('all');
+  const [userSearch, setUserSearch] = useState('');
+  const navigate = useNavigate();
+
+ const handleGoToRemediationNote = (studentId: string, examId: string, studentName?: string) => {
+    const query = studentName ? `?studentName=${encodeURIComponent(studentName)}` : '';
+    navigate(`/remediation-note/${studentId}/${examId}${query}`);
+  };
+
+    const handleRequestRemediation = async (student: Student, report: EvaluationReport, examResponses: any[]) => {
+    const failedQuestionNums = examResponses
+      .map((item: any, idx: number) => ({ item, idx }))
+      .filter(({ item }) => item.status !== 'Correct')
+      .map(({ idx }) => idx + 1);
+
+    if (failedQuestionNums.length === 0) {
+      handleGoToRemediationNote(student.id, report.worksheetId, student.name);
+      return;
+    }
+
+    const originalQuestions = examResponses.map((item: any) => {
+      const questionText = String(item.question || '');
+      const lower = questionText.toLowerCase();
+      let topic = 'Number Sense';
+      if (lower.includes('addition') || lower.includes('+')) topic = 'Addition';
+      else if (lower.includes('subtraction') || lower.includes('-')) topic = 'Subtraction';
+      else if (lower.includes('place value') || lower.includes('value of')) topic = 'Place Value';
+      else if (lower.includes('pattern') || lower.includes('sequence')) topic = 'Patterns';
+      else if (lower.includes('multiply') || lower.includes('×') || lower.includes('*')) topic = 'Multiplication';
+      else if (lower.includes('divide') || lower.includes('÷') || lower.includes('/')) topic = 'Division';
+
+      const answerValue = item.correctAnswer ?? '';
+      const isNumberAnswer =
+        typeof answerValue === 'number' ||
+        (String(answerValue).trim() !== '' && !Number.isNaN(Number(answerValue)));
+
+      return {
+        question: item.question,
+        answer: String(answerValue),
+        topic,
+        answer_type: isNumberAnswer ? 'number' : 'choice',
+      };
+    });
+
+    try {
+      const res = await fetch(buildUrl('/api/remediation/generate'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          studentId: student.id,
+          examId: report.worksheetId,
+          failedQuestionNums,
+          originalQuestions,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        window.alert(data?.error || 'Failed to request remediation note. Please try again.');
+        return;
+      }
+
+      handleGoToRemediationNote(student.id, report.worksheetId, student.name);
+    } catch (err) {
+      console.error('Remediation request failed', err);
+      window.alert('Unable to request remediation note. Please try again.');
+    }
+  };
   const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
   const [sel, setSel] = useState('');
   const [profileTab, setProfileTab] = useState<'overview' | 'academic' | 'personal' | 'activity'>('overview');
@@ -411,7 +496,6 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   const [expandedDistRpt, setExpandedDistRpt] = useState<string | null>(null);
   const [expandedDist, setExpandedDist] = useState<string | null>(null);
   const [userRoleFilter, setUserRoleFilter] = useState('superadmin');
-  const [userSearch, setUserSearch] = useState('');
 
   // Blueprint states
   const [blueprints, setBlueprints] = useState<any[]>([]);
@@ -434,7 +518,12 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   const [apiUsers, setApiUsers] = useState<any[]>([]);
   const [allReports, setAllReports] = useState<EvaluationReport[]>([]);
   const [remediationLedgers, setRemediationLedgers] = useState<any[]>([]);
-
+  const safePercent = (score: number, totalQuestions?: number, fallbackLength = 0) => {
+    const total = Number(totalQuestions) > 0 ? Number(totalQuestions) : fallbackLength;
+    if (total <= 0) return 0;
+    const percent = Math.round((Number(score) || 0) / total * 100);
+    return Math.max(0, Math.min(100, percent));
+  };
   const fetchLedgers = async () => {
     if (!sel) return;
     try {
@@ -513,11 +602,9 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
       alert('Please allow popups to download/print the PDF report card.');
       return;
     }
-
-    const conceptBadges = Object.entries(r.conceptMastery)
-      .map(([t, m]) => `<span class="badge ${m === 'Strong' ? 'badge-pass' : 'badge-fail'}">${t}: ${m}</span>`)
-      .join(' ');
-
+    const failedResponses = examResponses.filter((item: any) => item.status !== 'Correct')       
+  
+    
     const tableRows = examResponses.map(item => `
       <tr>
         <td style="font-weight: 500;">${item.question}</td>
@@ -530,7 +617,9 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
         </td>
       </tr>
     `).join('');
-
+    const scorePct = safePercent(r.score, r.totalQuestions, examResponses.length);    const conceptBadges = Object.entries(r.conceptMastery)
+      .map(([t, m]) => `<span class="badge ${m === 'Strong' ? 'badge-pass' : 'badge-fail'}">${t}: ${m}</span>`)
+      .join(' ');
     const htmlContent = `
       <!DOCTYPE html>
       <html>
@@ -701,7 +790,7 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
     }
 
     const failedResponses = (ledger.responses || []).filter((r: any) => !r.isCorrect);
-
+    
     const questionsHtml = failedResponses.map((r: any, idx: number) => {
       const practiceQs = r.practiceQuestions || [];
       const questionsList = practiceQs.map((pq: any, qIdx: number) => `
@@ -710,7 +799,6 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
           <div class="answer-space">Answer: __________________________________</div>
         </div>
       `).join('');
-
       return `
         <div class="concept-section">
           <div class="concept-header">
@@ -893,7 +981,7 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
     const daysSinceEnroll = Math.floor((Date.now() - new Date(profile.enrollmentDate || s.id).getTime()) / 86400000);
     const classStudents = students.filter(st => st.classGroup === s.classGroup);
     const classAvg = Math.round(classStudents.reduce((a, st) => a + st.currentLevel, 0) / Math.max(1, classStudents.length));
-    const avgScore = reports.length > 0 ? Math.round(reports.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / reports.length) : 0;
+    const avgScore = calculateAveragePercentage(reports);
     const allSkills = new Map<string, { mastery: string; date: string }[]>();
     reports.forEach(r => Object.entries(r.conceptMastery).forEach(([topic, mastery]) => {
       if (!allSkills.has(topic)) allSkills.set(topic, []);
@@ -1606,7 +1694,10 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
                       {distSchools.map(sch => {
                         const schStudents = students.filter(st => st.schoolId === sch.id);
                         const schReports = allReports.filter(r => schStudents.some(st => st.id === r.studentId));
-                        const avgScore = schReports.length > 0 ? Math.round(schReports.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / schReports.length) : 0;
+                        // Locate this line and replace it:
+                      const avgScore = allReports.length > 0 
+                        ? Math.round(allReports.reduce((a, r) => (a + (r.score / r.totalQuestions)), 0) / allReports.length * 100)
+                        : 0;
                         return (
                           <div key={sch.id} className="border border-slate-200 dark:border-slate-700 rounded-xl p-4">
                             <div className="flex justify-between items-center mb-3"><h4 className="font-bold text-slate-900 dark:text-white text-sm">{sch.name}</h4><span className="text-xs text-slate-400 dark:text-slate-500">{sch.blockCode} · {sch.strength}</span></div>
@@ -1642,12 +1733,17 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
         </div>
       );
     }
-
+const avgScore = calculateAveragePercentage(allReports);
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <MetricCard title="Total Reports" value={allReports.length} subtext="All evaluations" icon={FileText} />
-          <MetricCard title="Avg Score" value={`${allReports.length > 0 ? Math.round(allReports.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / allReports.length) : 0}%`} subtext="Across reports" icon={BarChart3} />
+         <MetricCard 
+              title="Avg Score" 
+              value={`${avgScore}%`} 
+              subtext="Across reports" 
+              icon={BarChart3} 
+            />
           <MetricCard title="Strong Concepts" value={allReports.reduce((a, r) => a + Object.values(r.conceptMastery).filter(v => v === 'Strong').length, 0)} subtext="Mastered topics" icon={Award} />
         </div>
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm space-y-4">
@@ -1689,31 +1785,54 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
                 { question: 'Q4: Simple Division - Solve: 15 ÷ 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
               ]
             ) : []);
+           // 2. Calculate scorePct and needsRemediation here
+            const scorePct = safePercent(r.score, r.totalQuestions, examResponses.length);
+            const needsRemediation = examResponses.some((item: any) => item.status === 'Incorrect' || item.isCorrect === false);
+          return (
+    <div key={r.id} className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-3 hover:border-slate-300 dark:hover:border-slate-600 transition-all">
+      <div className="flex justify-between items-center">
+        <span className="font-semibold text-sm">{student?.name || 'Unknown'}</span>
+        <span className="text-xs text-slate-400 dark:text-slate-500">{new Date(r.timestamp).toLocaleDateString()}</span>
+      </div>
 
-            return (
-              <div key={r.id} className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-3 hover:border-slate-300 dark:hover:border-slate-600 transition-all">
-                <div className="flex justify-between items-center"><span className="font-semibold text-sm">{student?.name || 'Unknown'}</span><span className="text-xs text-slate-400 dark:text-slate-500">{new Date(r.timestamp).toLocaleDateString()}</span></div>
+      {/* Mastery Badges */}
+      <div className="flex flex-wrap gap-2">
+        {Object.entries(r.conceptMastery).map(([t, m]) => (
+          <span key={t} className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${m === 'Strong' ? 'bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800' : m === 'Satisfactory' ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800' : 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'}`}>{t}: {m}</span>
+        ))}
+      </div>
 
-                <div className="flex flex-wrap gap-2">
-                  {Object.entries(r.conceptMastery).map(([t, m]) => (
-                    <span key={t} className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${m === 'Strong' ? 'bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800' : m === 'Satisfactory' ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800' : 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'}`}>{t}: {m}</span>
-                  ))}
-                </div>
+      <div className="pt-2 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center">
+        <div className="flex gap-3">
+          <button onClick={() => setExpandedReportId(isExpanded ? null : r.id)} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
+            {isExpanded ? 'Hide Exam Sheet' : '📋 View Student Exam Responses'}
+          </button>
+          
+          {student && (
+            <button onClick={() => handleDownloadPDF(student, r, examResponses)} className="text-xs font-semibold text-emerald-600 hover:text-emerald-800 flex items-center gap-1">
+              📥 Download PDF Report
+            </button>
+          )}
 
-                <div className="pt-2 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center">
-                  <div className="flex gap-3">
-                    <button onClick={() => setExpandedReportId(isExpanded ? null : r.id)} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
-                      {isExpanded ? 'Hide Exam Sheet' : '📋 View Student Exam Responses'}
-                    </button>
-                    {student && (
-                      <button onClick={() => handleDownloadPDF(student, r, examResponses)} className="text-xs font-semibold text-emerald-650 hover:text-emerald-850 flex items-center gap-1">
-                        📥 Download PDF Report
-                      </button>
-                    )}
-                    <button onClick={() => handleDeleteReport(r.id)} className="text-xs font-semibold text-red-650 hover:text-red-800 flex items-center gap-1">
-                      🗑️ Clear Report
-                    </button>
-                  </div>
+          {/* Conditional Remediation Button */}
+          {needsRemediation ? (
+            <button
+              onClick={() => handleRequestRemediation(student, r, examResponses)}
+              className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 transition"
+            >
+              📝 Generate Remediation Note
+            </button>
+          ) : (
+            <span className="text-emerald-600 text-xs font-bold flex items-center gap-1">
+              ✅ All answers correct
+            </span>
+          )}
+
+          <button onClick={() => handleDeleteReport(r.id)} className="text-xs font-semibold text-red-600 hover:text-red-800 flex items-center gap-1">
+            🗑️ Clear Report
+          </button>
+        </div>
+      
                   <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">Assigned from Diagnostic Pipeline</span>
                 </div>
 
@@ -1791,9 +1910,17 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
       const reports = allReports.filter(r => r.studentId === s.id);
       const examsGiven = reports.length;
       const lastExam = examsGiven > 0 ? new Date(Math.max(...reports.map(r => new Date(r.timestamp).getTime()))).toLocaleDateString() : 'N/A';
-      const avgScore = examsGiven > 0 ? Math.round(reports.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / examsGiven) : 0;
+    const avgScore = allReports.length > 0
+  ? Math.round(
+      (allReports.reduce((acc, r) => {
+        const score = Number(r.score) || 0;
+        const total = Number(r.totalQuestions) > 0 ? Number(r.totalQuestions) : 1;
+        return acc + (score / total);
+      }, 0) / allReports.length) * 100
+    )
+  : 0;
       return { student: s.name, class: `${s.classGroup} - ${s.section}`, examsGiven, lastExam, avgScore, placed: s.levelHistory.length > 0 };
-    });
+          });
     const totalExams = examAttendance.reduce((a, e) => a + e.examsGiven, 0);
     return (
       <div className="space-y-6">
