@@ -42,6 +42,7 @@ export class RemediationService {
         } else {
           originalInfo = await this.findOriginalQuestion(examId, qNo);
         }
+        console.log("Original Question:", originalInfo.questionText);
         return {
           questionNumber: qNo,
           conceptName: originalInfo.conceptName || `Concept for Q#${qNo}`,
@@ -150,10 +151,10 @@ export class RemediationService {
             while (practiceQuestions.length < 5 && retries < maxRetries) {
               retries++;
               const generated = await generativeEngine.generate(
-                `Similar to: ${response.originalQuestion || 'this math question'}`,
-                `Create a similar but distinct practice question for concept: ${response.conceptName}`
+                response.originalQuestion || `Question #${response.questionNumber}`,
+                response.conceptName
               );
-              
+
               if (!generatedTexts.has(generated.question)) {
                 generatedTexts.add(generated.question);
                 practiceQuestions.push({
@@ -164,7 +165,7 @@ export class RemediationService {
               }
             }
             response.practiceQuestions = practiceQuestions;
-            response.type = blueprintQuestion.type.toLowerCase() as any;
+            response.type = 'generative';
             continue;
           }
 

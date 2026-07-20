@@ -401,14 +401,33 @@ const ReportNarrative: React.FC<{ narrative: string }> = ({ narrative }) => {
 };
 const calculateAveragePercentage = (reports: EvaluationReport[]) => {
   if (!reports || reports.length === 0) return 0;
-  
+
+  console.log("Reports:", reports);
+
   const sumOfPercentages = reports.reduce((acc, r) => {
-    const score = Number(r.score) || 0;
-    const total = Number(r.totalQuestions) > 0 ? Number(r.totalQuestions) : 1;
-    return acc + ((score / total) * 100);
+    let score = Number(r.score) || 0;
+
+    // Handle mixed old data:
+    // score 1 with total 1 means 100%
+    // score 100 means already percentage
+    const percent = score <= 1 && r.totalQuestions === 1
+      ? score * 100
+      : score;
+
+    console.log({
+      score,
+      total: r.totalQuestions,
+      percent
+    });
+
+    return acc + Math.min(100, Math.max(0, percent));
   }, 0);
-  
-  return Math.round(sumOfPercentages / reports.length);
+
+  const average = sumOfPercentages / reports.length;
+
+  console.log("Average =", average);
+
+  return Math.round(average);
 };
 
 
@@ -520,9 +539,12 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   const [remediationLedgers, setRemediationLedgers] = useState<any[]>([]);
   const safePercent = (score: number, totalQuestions?: number, fallbackLength = 0) => {
     const total = Number(totalQuestions) > 0 ? Number(totalQuestions) : fallbackLength;
-    if (total <= 0) return 0;
-    const percent = Math.round((Number(score) || 0) / total * 100);
-    return Math.max(0, Math.min(100, percent));
+   if (total <= 0) return 0;
+
+    const value = Number(score) || 0;
+
+    // score is already percentage
+    return Math.max(0, Math.min(100, Math.round(value)));
   };
   const fetchLedgers = async () => {
     if (!sel) return;
@@ -676,7 +698,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
             <div class="metric-label">Placed Level</div>
           </div>
           <div class="metric-card">
-            <div class="metric-value">${Math.round((r.score / r.totalQuestions) * 100)}%</div>
+            <div class="metric-value">${Math.min(100, Math.max(0, Number(r.score) || 0))}%</div>
             <div class="metric-label">Accuracy Rate</div>
           </div>
         </div>
@@ -990,9 +1012,27 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
     const latestSkills = reports.length > 0 ? Object.entries(reports[0].conceptMastery) : [];
     const weakAreas = latestSkills.filter(([_, m]) => m !== 'Strong').map(([t]) => t);
     const recentActivity = [
-      ...reports.map(r => ({ type: 'assessment' as const, label: `${r.score}/${r.totalQuestions} on ${r.worksheetId}`, date: r.timestamp, detail: `Score ${Math.round(r.score / r.totalQuestions * 100)}%` })),
-      ...s.levelHistory.map(lh => ({ type: 'level_change' as const, label: `Level changed to L${lh.level}`, date: lh.date, detail: lh.reason })),
-    ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  ...reports.map(r => {
+    const scorePct = Math.min(
+      100,
+      Math.max(0, Number(r.score) || 0)
+    );
+
+    return {
+      type: 'assessment' as const,
+      label: `${r.score}/${r.totalQuestions} on ${r.worksheetId}`,
+      date: r.timestamp,
+      detail: `Score ${scorePct}%`
+    };
+  }),
+
+  ...s.levelHistory.map(lh => ({
+    type: 'level_change' as const,
+    label: `Level changed to L${lh.level}`,
+    date: lh.date,
+    detail: lh.reason
+  })),
+].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     const filteredActivity = activityFilter === 'all' ? recentActivity : recentActivity.filter(a => a.type === activityFilter);
 
     const tabs = [
@@ -1127,9 +1167,12 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
                   <div className="relative">
                     <div className="flex items-end gap-3 h-40 border-b border-l border-slate-200 dark:border-slate-700 ml-8 pb-2 pl-2">
                       {reports.map((r, i) => {
-                        const pct = Math.round((r.score / r.totalQuestions) * 100);
-                        const barH = Math.max(pct * 0.8, 10);
-                        const isUp = i === 0 || pct >= Math.round((reports[i - 1].score / reports[i - 1].totalQuestions) * 100);
+                        const pct = Math.min(100, Math.max(0, Number(r.score) || 0));                        const barH = Math.max(pct * 0.8, 10);
+                        const previousPct = i === 0 
+                          ? 0 
+                          : Math.min(100, Math.max(0, Number(reports[i - 1].score) || 0));
+
+                        const isUp = i === 0 || pct >= previousPct;                        
                         return (
                           <div key={r.id} className="flex-1 flex flex-col items-center gap-1.5 group relative">
                             <div className="flex flex-col items-center opacity-0 group-hover:opacity-100 transition-opacity absolute -top-8">
@@ -1151,8 +1194,20 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
                     {reports.length >= 2 && (
                       <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center gap-4 text-[10px] text-slate-500 dark:text-slate-400">
                         <span>Trend: <strong className={avgScore >= 70 ? 'text-emerald-600' : 'text-amber-600'}>{avgScore}% avg</strong></span>
-                        <span>Best: <strong className="text-emerald-600">{Math.max(...reports.map(r => Math.round((r.score / r.totalQuestions) * 100)))}%</strong></span>
-                        <span>Last: <strong>{Math.round((reports[reports.length - 1].score / reports[reports.length - 1].totalQuestions) * 100)}%</strong></span>
+                        <span>
+                          Best: 
+                          <strong className="text-emerald-600">
+                            {Math.max(...reports.map(r => Math.min(100, Math.max(0, Number(r.score) || 0))))}%
+                          </strong>
+                        </span>                        
+                        <span>
+                          Last: <strong>
+                            {Math.min(
+                              100,
+                              Math.max(0, Number(reports[reports.length - 1].score) || 0)
+                            )}%
+                          </strong>
+                        </span>
                       </div>
                     )}
                   </div>
@@ -1274,7 +1329,17 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
               <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm">
                 <h3 className="text-xs font-mono font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2"><Award className="w-3.5 h-3.5" /> Progress Highlights</h3>
                 <div className="space-y-2 text-sm">
-                  {reports.length > 0 && <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Best Score</span><span className="font-bold text-emerald-600">{Math.max(...reports.map(r => Math.round((r.score / r.totalQuestions) * 100)))}%</span></div>}
+                  {reports.length > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-500 dark:text-slate-400">Recent Score</span>
+                      <span className="font-bold text-slate-800 dark:text-slate-100">
+                        {Math.min(
+                          100,
+                          Math.max(0, Number(reports[reports.length - 1].score) || 0)
+                        )}%
+                      </span>
+                    </div>
+                  )}                  
                   {reports.length > 0 && <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Recent Score</span><span className="font-bold text-slate-800 dark:text-slate-100">{Math.round((reports[reports.length - 1].score / reports[reports.length - 1].totalQuestions) * 100)}%</span></div>}
                   <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Levels Gained</span><span className="font-bold text-slate-800 dark:text-slate-100">{s.levelHistory.length > 0 ? s.currentLevel - s.levelHistory[0].level : 0}</span></div>
                   <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Strong Skills</span><span className="font-bold text-slate-800 dark:text-slate-100">{latestSkills.filter(([_, m]) => m === 'Strong').length}/{latestSkills.length}</span></div>
@@ -1286,8 +1351,7 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
               <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm">
                 <h3 className="text-xs font-mono font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-4">All Assessment Reports</h3>
                 {reports.length > 0 ? <div className="space-y-4">{reports.map(r => {
-                  const scorePct = Math.round((r.score / r.totalQuestions) * 100);
-                  return (
+                    const scorePct = Math.min(100, Math.max(0, Number(r.score) || 0));                  return (
                     <div key={r.id} className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-3 hover:border-slate-300 dark:hover:border-slate-600 transition-colors">
                       <div className="flex justify-between items-center">
                         <div className="flex items-center gap-3">
@@ -1672,7 +1736,19 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <MetricCard title="Total Reports" value={allReports.length} subtext="All evaluations" icon={FileText} />
-            <MetricCard title="Avg Score" value={`${allReports.length > 0 ? Math.round(allReports.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / allReports.length) : 0}%`} subtext="Across reports" icon={BarChart3} />
+            <MetricCard 
+              title="Avg Score"
+              value={`${allReports.length > 0 
+                ? Math.round(
+                    allReports.reduce(
+                      (a, r) => a + Math.min(100, Math.max(0, Number(r.score) || 0)),
+                      0
+                    ) / allReports.length
+                  )
+                : 0}%`}
+              subtext="Across reports"
+              icon={BarChart3}
+            />            
             <MetricCard title="Schools" value={stateSchools.length} subtext={`In ${userState}`} icon={SchoolIcon} />
             <MetricCard title="Districts" value={stateDistricts.length} subtext="Active jurisdictions" icon={MapPin} />
           </div>
@@ -1695,9 +1771,7 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
                         const schStudents = students.filter(st => st.schoolId === sch.id);
                         const schReports = allReports.filter(r => schStudents.some(st => st.id === r.studentId));
                         // Locate this line and replace it:
-                      const avgScore = allReports.length > 0 
-                        ? Math.round(allReports.reduce((a, r) => (a + (r.score / r.totalQuestions)), 0) / allReports.length * 100)
-                        : 0;
+                     const avgScore = calculateAveragePercentage(schReports);
                         return (
                           <div key={sch.id} className="border border-slate-200 dark:border-slate-700 rounded-xl p-4">
                             <div className="flex justify-between items-center mb-3"><h4 className="font-bold text-slate-900 dark:text-white text-sm">{sch.name}</h4><span className="text-xs text-slate-400 dark:text-slate-500">{sch.blockCode} · {sch.strength}</span></div>
@@ -1709,7 +1783,7 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
                             {schReports.length > 0 ? (
                               <div className="space-y-2">{schReports.map(r => {
                                 const student = schStudents.find(st => st.id === r.studentId);
-                                const scorePct = Math.round((r.score / r.totalQuestions) * 100);
+                                const scorePct = Math.min(100, Math.max(0, r.score <= 1 ? r.score * 100 : Number(r.score) || 0));
                                 return (
                                   <div key={r.id} className="border border-slate-100 dark:border-slate-700 rounded-lg p-3 text-sm">
                                     <div className="flex justify-between items-center"><span className="font-semibold">{student?.name || 'N/A'}</span><span className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${scorePct >= 80 ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300' : scorePct >= 60 ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300' : 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300'}`}>{r.score}/{r.totalQuestions} ({scorePct}%)</span></div>
@@ -1733,17 +1807,39 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
         </div>
       );
     }
+    console.log("=== REPORTS ===");
+
+allReports.forEach((r, index) => {
+  console.log({
+    report: index + 1,
+    score: r.score,
+    totalQuestions: r.totalQuestions,
+    percentage:
+      (Number(r.score) / Number(r.totalQuestions)) * 100,
+  });
+});
+console.log("=== REPORTS ===");
+allReports.forEach(r => {
+  console.log({
+    student: r.studentId,
+    score: r.score,
+    totalQuestions: r.totalQuestions,
+    percentage: (Number(r.score) / Number(r.totalQuestions)) * 100
+  });
+});
+console.log(allReports[0]);
 const avgScore = calculateAveragePercentage(allReports);
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <MetricCard title="Total Reports" value={allReports.length} subtext="All evaluations" icon={FileText} />
-         <MetricCard 
-              title="Avg Score" 
-              value={`${avgScore}%`} 
-              subtext="Across reports" 
-              icon={BarChart3} 
-            />
+
+          <MetricCard 
+            title="Avg Score"
+            value={`${calculateAveragePercentage(allReports)}%`}
+            subtext="Across reports"
+            icon={BarChart3}
+          />
           <MetricCard title="Strong Concepts" value={allReports.reduce((a, r) => a + Object.values(r.conceptMastery).filter(v => v === 'Strong').length, 0)} subtext="Mastered topics" icon={Award} />
         </div>
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm space-y-4">

@@ -79,7 +79,7 @@ export async function generateDiagnosticPaper({
     questions = [
       {
         question_id: `DIAG_Q1`,
-        question: `Identify the place value of the underlined digit: 7_8_4 (Class ${classNumber} Diagnostic)`,
+        question: `Identify the place value of the underlined digit: 7_8_4 `,
         answer: `80`,
         answer_type: `number`,
         topic: `Number Sense`,

@@ -633,7 +633,7 @@ async function startServer() {
 
     // Connect to Python Evaluation Metrics Pipeline
     const dateStr = new Date().toISOString().split('T')[0];
-    const pipelineDir = path.join(ROOT_DIR, 'evaluation_metrics');
+    const pipelineDir = path.join(ROOT_DIR, 'ai-services');
     const responseDir = path.join(pipelineDir, 'student_responses', `class_${classNumber}`, 'phrase_1');
     fs.mkdirSync(responseDir, { recursive: true });
 

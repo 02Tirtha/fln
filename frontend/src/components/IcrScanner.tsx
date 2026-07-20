@@ -908,7 +908,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                 ))}
               </div>
             </div>
-            {hasFailedQuestions && currentSelectedStudent && (
+            {/* {hasFailedQuestions && currentSelectedStudent && (
               <div className="bg-gradient-to-r from-amber-50/50 to-orange-50/50 dark:from-amber-950/20 dark:to-orange-950/20 border border-amber-200 dark:border-amber-900/60 rounded-xl p-4.5 space-y-4">
                 <div className="flex items-start gap-3">
                   <div className="h-9 w-9 rounded-full bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center text-base">
@@ -938,7 +938,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                   )}
                 </div>
               </div>
-            )}
+            )} */}
             <div className="flex gap-3 pt-2">
               <button
                 onClick={resetScanner}

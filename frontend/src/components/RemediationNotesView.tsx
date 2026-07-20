@@ -239,8 +239,10 @@ export const RemediationNotesView: React.FC = () => {
                           <ol className="mt-2 space-y-2 pl-5 text-sm text-slate-700 dark:text-slate-300">
                             {response.practiceQuestions && response.practiceQuestions.length > 0 ? (
                               response.practiceQuestions.map((pq, pqIndex) => (
-                                <li key={pqIndex}>{pq.question}</li>
-                              ))
+                            <li key={pqIndex}>
+                              {pq.question.replace(/\s*\(Class\s+\d+\s+Diagnostic\)/gi, "")}
+                            </li>                              
+                          ))
                             ) : (
                               <li className="text-slate-500 dark:text-slate-400">No practice questions generated.</li>
                             )}
