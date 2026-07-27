@@ -1,3 +1,4 @@
+import { apiFetch } from '../services/apiClient';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { buildUrl } from '../utils/apiBase';
@@ -575,10 +576,10 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
 
   useEffect(() => {
     const headers = { 'Authorization': `Bearer ${token}` };
-    fetch(buildUrl('/api/students'), { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiStudents(d); }).catch(() => { });
-    fetch(buildUrl('/api/schools'), { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiSchools(d); }).catch(() => { });
-    fetch(buildUrl('/api/admin/coordinators'), { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiUsers(d); }).catch(() => { });
-    fetch(buildUrl('/api/evaluation/reports'), { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setAllReports(d); }).catch(() => { });
+    apiFetch('/api/students', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiStudents(d); }).catch(() => {});
+    apiFetch('/api/schools', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiSchools(d); }).catch(() => {});
+    apiFetch('/api/admin/coordinators', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiUsers(d); }).catch(() => {});
+    apiFetch('/api/evaluation/reports', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setAllReports(d); }).catch(() => {});
     fetchBlueprints();
   }, [token]);
 

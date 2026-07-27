@@ -1,3 +1,4 @@
+import { apiFetch, withBase } from '../services/apiClient';
 import React, { useState, useEffect, useMemo } from 'react';
 import { buildUrl } from '../utils/apiBase';
 import { Link } from 'react-router-dom';
@@ -193,7 +194,7 @@ export const RegionalAnalyticsView: React.FC<{ token: string; user: User }> = ({
     setLoading(true);
     try {
       const q = `stateCode=${stateCode}&districtCode=${districtCode}&blockCode=${blockCode}`;
-      const res = await fetch(buildUrl(`/api/analytics?${q}`), {
+      const res = await apiFetch(`/api/analytics?${q}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const d = await res.json();
@@ -575,11 +576,11 @@ export const SuperadminDashboard: React.FC<DashboardProps> = ({ user, token }) =
 
   const fetchGlobalData = async () => {
     try {
-      const schRes = await fetch('/api/schools', { headers: { 'Authorization': `Bearer ${token}` } });
+      const schRes = await apiFetch('/api/schools', { headers: { 'Authorization': `Bearer ${token}` } });
       const schData = await schRes.json();
       if (Array.isArray(schData)) setSchools(schData);
 
-      const statsRes = await fetch('/api/stats');
+      const statsRes = await apiFetch('/api/stats');
       const statsData = await statsRes.json();
       setStats(statsData);
     } catch (err) {
@@ -589,7 +590,7 @@ export const SuperadminDashboard: React.FC<DashboardProps> = ({ user, token }) =
 
   const fetchCoordinators = async () => {
     try {
-      const res = await fetch('/api/admin/coordinators', { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await apiFetch('/api/admin/coordinators', { headers: { 'Authorization': `Bearer ${token}` } });
       const data = await res.json();
       if (Array.isArray(data)) setCoordinatorsList(data);
     } catch (e) {
@@ -606,7 +607,7 @@ export const SuperadminDashboard: React.FC<DashboardProps> = ({ user, token }) =
     e.preventDefault();
     if (!announcementTitle || !announcementMsg) return;
     try {
-      const res = await fetch('/api/announcements/create', {
+      const res = await apiFetch('/api/announcements/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -635,7 +636,7 @@ export const SuperadminDashboard: React.FC<DashboardProps> = ({ user, token }) =
       : undefined;
 
     try {
-      const res = await fetch('/api/admin/create', {
+      const res = await apiFetch('/api/admin/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -667,7 +668,7 @@ export const SuperadminDashboard: React.FC<DashboardProps> = ({ user, token }) =
         await fetchCoordinators();
 
         // Refresh school data
-        const schRes = await fetch('/api/schools', { headers: { 'Authorization': `Bearer ${token}` } });
+        const schRes = await apiFetch('/api/schools', { headers: { 'Authorization': `Bearer ${token}` } });
         const schData = await schRes.json();
         if (Array.isArray(schData)) setSchools(schData);
 
@@ -689,7 +690,7 @@ export const SuperadminDashboard: React.FC<DashboardProps> = ({ user, token }) =
     setLoading(true);
 
     try {
-      const res = await fetch('/api/schools', {
+      const res = await apiFetch('/api/schools', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -713,7 +714,7 @@ export const SuperadminDashboard: React.FC<DashboardProps> = ({ user, token }) =
         setNewSchoolDistrict('');
         setNewSchoolBlock('');
         // Refresh school list
-        const schRes = await fetch('/api/schools', { headers: { 'Authorization': `Bearer ${token}` } });
+        const schRes = await apiFetch('/api/schools', { headers: { 'Authorization': `Bearer ${token}` } });
         const schData = await schRes.json();
         if (Array.isArray(schData)) setSchools(schData);
         setTimeout(() => setSchoolSuccess(''), 6000);
@@ -770,7 +771,7 @@ export const SuperadminDashboard: React.FC<DashboardProps> = ({ user, token }) =
         <button
           onClick={async () => {
             if (!window.confirm('Reset all database data to fresh seed state? This is irreversible.')) return;
-            await fetch('/api/reset', { method: 'POST' });
+            await apiFetch('/api/reset', { method: 'POST' });
             window.location.reload();
           }}
           className="px-3 py-1.5 text-xs font-mono font-bold rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900 transition-colors"
@@ -1188,15 +1189,15 @@ export const AdminDashboard: React.FC<DashboardProps> = ({ user, token }) => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const schRes = await fetch('/api/schools', { headers: { 'Authorization': `Bearer ${token}` } });
+        const schRes = await apiFetch('/api/schools', { headers: { 'Authorization': `Bearer ${token}` } });
         const schData = await schRes.json();
         if (Array.isArray(schData)) setSchools(schData);
 
-        const stdRes = await fetch('/api/students', { headers: { 'Authorization': `Bearer ${token}` } });
+        const stdRes = await apiFetch('/api/students', { headers: { 'Authorization': `Bearer ${token}` } });
         const stdData = await stdRes.json();
         if (Array.isArray(stdData)) setStudents(stdData);
 
-        const uRes = await fetch('/api/admin/coordinators', { headers: { 'Authorization': `Bearer ${token}` } });
+        const uRes = await apiFetch('/api/admin/coordinators', { headers: { 'Authorization': `Bearer ${token}` } });
         const uData = await uRes.json();
         if (Array.isArray(uData)) setAllUsers(uData);
       } catch (err) {
@@ -1438,7 +1439,7 @@ export const AdminDashboard: React.FC<DashboardProps> = ({ user, token }) => {
 
                   const handleRestore = async () => {
                     try {
-                      const res = await fetch('/api/admin/restore-school', {
+                      const res = await apiFetch('/api/admin/restore-school', {
                         method: 'POST',
                         headers: {
                           'Content-Type': 'application/json',
@@ -1449,11 +1450,10 @@ export const AdminDashboard: React.FC<DashboardProps> = ({ user, token }) => {
                       if (res.ok) {
                         alert(`School access restored for ${sch.name}.`);
                         // Refresh data
-                        const schRes = await fetch('/api/schools', { headers: { 'Authorization': `Bearer ${token}` } });
+                        const schRes = await apiFetch('/api/schools', { headers: { 'Authorization': `Bearer ${token}` } });
                         const schData = await schRes.json();
                         if (Array.isArray(schData)) setSchools(schData);
-
-                        const uRes = await fetch('/api/admin/coordinators', { headers: { 'Authorization': `Bearer ${token}` } });
+                        const uRes = await apiFetch('/api/admin/coordinators', { headers: { 'Authorization': `Bearer ${token}` } });
                         const uData = await uRes.json();
                         if (Array.isArray(uData)) setAllUsers(uData);
                       } else {
@@ -1510,7 +1510,7 @@ export const AdminDashboard: React.FC<DashboardProps> = ({ user, token }) => {
 
                   const handleRevive = async () => {
                     try {
-                      const res = await fetch('/api/admin/revive-teacher', {
+                      const res = await apiFetch('/api/admin/revive-teacher', {
                         method: 'POST',
                         headers: {
                           'Content-Type': 'application/json',
@@ -1521,11 +1521,10 @@ export const AdminDashboard: React.FC<DashboardProps> = ({ user, token }) => {
                       if (res.ok) {
                         alert(`Teacher ${tch.name} revived. Suspension released.`);
                         // Refresh data
-                        const schRes = await fetch('/api/schools', { headers: { 'Authorization': `Bearer ${token}` } });
+                        const schRes = await apiFetch('/api/schools', { headers: { 'Authorization': `Bearer ${token}` } });
                         const schData = await schRes.json();
                         if (Array.isArray(schData)) setSchools(schData);
-
-                        const uRes = await fetch('/api/admin/coordinators', { headers: { 'Authorization': `Bearer ${token}` } });
+                        const uRes = await apiFetch('/api/admin/coordinators', { headers: { 'Authorization': `Bearer ${token}` } });
                         const uData = await uRes.json();
                         if (Array.isArray(uData)) setAllUsers(uData);
                       } else {
@@ -1584,11 +1583,11 @@ export const SchoolDashboard: React.FC<DashboardProps> = ({ user, token }) => {
 
   const fetchSchoolData = async () => {
     try {
-      const clsRes = await fetch('/api/classes', { headers: { 'Authorization': `Bearer ${token}` } });
+      const clsRes = await apiFetch('/api/classes', { headers: { 'Authorization': `Bearer ${token}` } });
       const clsData = await clsRes.json();
       if (Array.isArray(clsData)) setClasses(clsData);
 
-      const stdRes = await fetch('/api/students', { headers: { 'Authorization': `Bearer ${token}` } });
+      const stdRes = await apiFetch('/api/students', { headers: { 'Authorization': `Bearer ${token}` } });
       const stdData = await stdRes.json();
       if (Array.isArray(stdData)) setStudents(stdData);
     } catch (err) {
@@ -1720,7 +1719,7 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
     setLevelPdfLoading(true);
     setLevelPdfError('');
     try {
-      const res = await fetch('/api/worksheets/generate-level-pdf', {
+      const res = await apiFetch('/api/worksheets/generate-level-pdf', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1756,7 +1755,7 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
     setLevelBatchSkipped([]);
     setLevelBatchId(null);
     try {
-      const res = await fetch('/api/worksheets/generate-level-batch', {
+      const res = await apiFetch('/api/worksheets/generate-level-batch', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1786,7 +1785,7 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
     if (!levelBatchId) return;
     setLevelBatchDownloading(true);
     try {
-      const res = await fetch(`/api/worksheets/download-batch/${levelBatchId}`);
+      const res = await apiFetch(`/api/worksheets/download-batch/${levelBatchId}`);
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || 'Download failed.');
@@ -1809,14 +1808,14 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
 
   const fetchTeacherData = async () => {
     try {
-      const clsRes = await fetch('/api/classes', { headers: { 'Authorization': `Bearer ${token}` } });
+      const clsRes = await apiFetch('/api/classes', { headers: { 'Authorization': `Bearer ${token}` } });
       const clsData = await clsRes.json();
       if (Array.isArray(clsData)) {
         setClasses(clsData);
         if (clsData.length > 0) setActiveClass(clsData[0]);
       }
 
-      const stdRes = await fetch('/api/students', { headers: { 'Authorization': `Bearer ${token}` } });
+      const stdRes = await apiFetch('/api/students', { headers: { 'Authorization': `Bearer ${token}` } });
       const stdData = await stdRes.json();
       if (Array.isArray(stdData)) setStudents(stdData);
     } catch (err) {
@@ -1833,7 +1832,7 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
     if (!bulkJob || bulkJob.status !== 'running') return;
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/diagnostic/bulk/${bulkJob.jobId}/progress`);
+        const res = await apiFetch(`/api/diagnostic/bulk/${bulkJob.jobId}/progress`);
         if (res.ok) {
           const data = await res.json();
           setBulkJob(prev => prev ? { ...prev, completed: data.completed, status: data.status, pdfUrl: data.pdfUrl || prev.pdfUrl, downloadUrl: data.downloadUrl || prev.downloadUrl, error: data.error || '' } : prev);
@@ -1868,7 +1867,7 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
     const finalSection = activeClass ? activeClass.section : sec;
 
     try {
-      const res = await fetch('/api/students', {
+      const res = await apiFetch('/api/students', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2159,7 +2158,7 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
                     setBulkError('');
                     setBulkJob(null);
                     try {
-                      const res = await fetch('/api/diagnostic/bulk', {
+                      const res = await apiFetch('/api/diagnostic/bulk', {
                         method: 'POST',
                         headers: {
                           'Content-Type': 'application/json',
@@ -2405,7 +2404,7 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
                             Print L{s.currentLevel}.{s.currentSubLevel || 0}
                           </button>
                           <a
-                            href={`/worksheets/levels_main.html?level=${s.currentLevel}&sub=${s.currentSubLevel || 0}`}
+                            href={withBase(`/worksheets/levels_main.html?level=${s.currentLevel}&sub=${s.currentSubLevel || 0}`)}
                             target="_blank"
                             rel="noreferrer"
                             className="bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 font-mono text-[9px] font-bold px-2 py-0.5 rounded cursor-pointer transition-all active:scale-95 inline-flex items-center gap-1"
@@ -2502,7 +2501,7 @@ export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) =>
     setLevelPdfLoading(true);
     setLevelPdfError('');
     try {
-      const res = await fetch('/api/worksheets/generate-level-pdf', {
+      const res = await apiFetch('/api/worksheets/generate-level-pdf', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2525,14 +2524,14 @@ export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) =>
 
   const fetchVolunteerData = async () => {
     try {
-      const clsRes = await fetch('/api/classes', { headers: { 'Authorization': `Bearer ${token}` } });
+      const clsRes = await apiFetch('/api/classes', { headers: { 'Authorization': `Bearer ${token}` } });
       const clsData = await clsRes.json();
       if (Array.isArray(clsData)) {
         setClasses(clsData);
         if (clsData.length > 0) setActiveClass(clsData[0]);
       }
 
-      const stdRes = await fetch('/api/students', { headers: { 'Authorization': `Bearer ${token}` } });
+      const stdRes = await apiFetch('/api/students', { headers: { 'Authorization': `Bearer ${token}` } });
       const stdData = await stdRes.json();
       if (Array.isArray(stdData)) setStudents(stdData);
     } catch (err) {
@@ -2549,7 +2548,7 @@ export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) =>
     if (!bulkJob || bulkJob.status !== 'running') return;
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/diagnostic/bulk/${bulkJob.jobId}/progress`);
+        const res = await apiFetch(`/api/diagnostic/bulk/${bulkJob.jobId}/progress`);
         if (res.ok) {
           const data = await res.json();
           setBulkJob(prev => prev ? { ...prev, completed: data.completed, status: data.status, pdfUrl: data.pdfUrl || prev.pdfUrl, downloadUrl: data.downloadUrl || prev.downloadUrl, error: data.error || '' } : prev);
@@ -2584,7 +2583,7 @@ export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) =>
     const finalSection = activeClass ? activeClass.section : sec;
 
     try {
-      const res = await fetch('/api/students', {
+      const res = await apiFetch('/api/students', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2852,7 +2851,7 @@ export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) =>
                     setBulkError('');
                     setBulkJob(null);
                     try {
-                      const res = await fetch('/api/diagnostic/bulk', {
+                      const res = await apiFetch('/api/diagnostic/bulk', {
                         method: 'POST',
                         headers: {
                           'Content-Type': 'application/json',
@@ -2948,7 +2947,7 @@ export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) =>
                     setLevelBulkLoading(true);
                     setLevelBulkProgress({ total: placed.length, completed: 0, errors: [] });
                     try {
-                      const res = await fetch('/api/worksheets/generate-level-batch', {
+                      const res = await apiFetch('/api/worksheets/generate-level-batch', {
                         method: 'POST',
                         headers: {
                           'Content-Type': 'application/json',
@@ -3067,7 +3066,7 @@ export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) =>
                             Print L{s.currentLevel}.{s.currentSubLevel || 0}
                           </button>
                           <a
-                            href={`/worksheets/levels_main.html?level=${s.currentLevel}&sub=${s.currentSubLevel || 0}`}
+                            href={withBase(`/worksheets/levels_main.html?level=${s.currentLevel}&sub=${s.currentSubLevel || 0}`)}
                             target="_blank"
                             rel="noreferrer"
                             className="bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 font-mono text-[9px] font-bold px-2 py-0.5 rounded cursor-pointer transition-all active:scale-95 inline-flex items-center gap-1"

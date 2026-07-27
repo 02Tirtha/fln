@@ -1,3 +1,4 @@
+import { apiFetch } from '../services/apiClient';
 import React, { useState, useEffect } from 'react';
 import { Student, ClassGroup, Question, EvaluationReport, User } from '../types';
 
@@ -392,8 +393,8 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
     const fetchData = async () => {
       try {
         const [clsRes, stdRes] = await Promise.all([
-          fetch('/api/classes', { headers: { 'Authorization': `Bearer ${token}` } }),
-          fetch('/api/students', { headers: { 'Authorization': `Bearer ${token}` } })
+          apiFetch('/api/classes', { headers: { 'Authorization': `Bearer ${token}` } }),
+          apiFetch('/api/students', { headers: { 'Authorization': `Bearer ${token}` } })
         ]);
         if (clsRes.ok) {
           const clsData = await clsRes.json();
@@ -428,7 +429,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`/api/students/${currentSelectedStudent.id}/diagnostic`, {
+      const res = await apiFetch(`/api/students/${currentSelectedStudent.id}/diagnostic`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -492,7 +493,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`/api/students/${currentSelectedStudent.id}/diagnostic/submit`, {
+      const res = await apiFetch(`/api/students/${currentSelectedStudent.id}/diagnostic/submit`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
