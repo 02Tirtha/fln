@@ -117,7 +117,7 @@ export class RemediationService {
    */
   private async runBackgroundGeneration(ledgerId: string, studentId: string, examId: string, failedQuestionNums: number[]): Promise<void> {
     console.log(`[RemediationService] Starting background generation for ledger ${ledgerId}...`);
-    
+
     // Flip to generating status
     try {
       await RemediationLedger.updateOne({ id: ledgerId }, { $set: { remediationStatus: 'generating' } }).exec();
@@ -131,7 +131,7 @@ export class RemediationService {
       let ledger: any = null;
       try {
         ledger = await RemediationLedger.findOne({ id: ledgerId }).exec();
-      } catch {}
+      } catch { }
       if (!ledger) {
         const all = await dbStore.getRemediationLedgers();
         ledger = all.find(l => l.id === ledgerId) || null;
@@ -146,14 +146,59 @@ export class RemediationService {
       let qIdx = 0;
       for (const response of responses) {
         try {
-          const origQ = response.originalQuestion || `Question #${response.questionNumber}`;
-          const concept = response.conceptName || 'Mathematics';
+          let origQ = response.originalQuestion || '';
+          let concept = response.conceptName || 'Mathematics';
           const qType = response.questionType || 'standard';
           const baseOffset = qIdx * 5;
 
-          console.log(`[Remediation] Generating Q#${response.questionNumber}: "${origQ}" | type=${qType} | offset=${baseOffset}`);
+          // If original question is missing or is just a placeholder like "Question text for Q#N",
+          // look up the real question text from the exam paper
+          const isMissingOrPlaceholder = !origQ ||
+            /^Question text for Q#/i.test(origQ) ||
+            /^Question #/i.test(origQ) ||
+            /^Concept for Q#/i.test(origQ);
 
-          let batch: Array<{ question: string; answer: string }> = [];
+          if (isMissingOrPlaceholder) {
+            const looked = await this.findOriginalQuestion(ledger.examId || ledger.worksheetId, response.questionNumber);
+            if (looked.questionText) {
+              origQ = looked.questionText;
+              response.originalQuestion = origQ;
+            }
+            if (looked.conceptName) {
+              concept = looked.conceptName;
+              response.conceptName = concept;
+            }
+          }
+
+          // If we still don't have the real question text after the lookup,
+          // don't generate anything from it — that's exactly what used to
+          // produce fabricated "Solve calculation: X + Y" style questions.
+          // Flag it instead so it shows up for review rather than silently
+          // shipping wrong content.
+          const stillPlaceholder = !origQ ||
+            /^Question text for Q#/i.test(origQ) ||
+            /^Question #/i.test(origQ) ||
+            /^Concept for Q#/i.test(origQ);
+
+          if (stillPlaceholder) {
+            console.warn(`[Remediation] No real question text found for Q#${response.questionNumber}, flagging for review instead of generating.`);
+            response.practiceQuestions = Array.from({ length: 5 }, () => ({
+              question: `Practice question for "${concept}" isn't available yet — the original question text wasn't found on the scanned paper.`,
+              answer: '',
+              generatedAt: new Date(),
+              aiGenerated: false,
+              needsReview: true
+            }));
+            response.type = 'generative';
+            qIdx++;
+            continue;
+          }
+
+          console.log(`[Remediation] Generating Q#${response.questionNumber}: "${origQ}" | concept=${concept} | type=${qType} | offset=${baseOffset}`);
+
+
+
+          let batch: Array<{ question: string; answer: string; aiGenerated?: boolean; needsReview?: boolean }> = [];
 
           try {
             batch = await generativeEngine.generateBatch(origQ, concept, qType, baseOffset);
@@ -170,7 +215,9 @@ export class RemediationService {
           const practiceQuestions: IGeneratedPracticeQuestion[] = batch.map(b => ({
             question: b.question,
             answer: b.answer,
-            generatedAt: new Date()
+            generatedAt: new Date(),
+            aiGenerated: b.aiGenerated ?? false,
+            needsReview: b.needsReview ?? false
           }));
 
           response.practiceQuestions = practiceQuestions;
@@ -185,7 +232,13 @@ export class RemediationService {
             response.conceptName || 'Mathematics',
             response.questionType || 'standard',
             baseOffset
-          ).map(b => ({ question: b.question, answer: b.answer, generatedAt: new Date() }));
+          ).map(b => ({
+            question: b.question,
+            answer: b.answer,
+            generatedAt: new Date(),
+            aiGenerated: b.aiGenerated ?? false,
+            needsReview: b.needsReview ?? false
+          }));
           qIdx++;
         }
       }
@@ -204,7 +257,7 @@ export class RemediationService {
       try {
         await RemediationLedger.updateOne({ id: ledgerId }, { $set: { remediationStatus: 'failed' } }).exec();
         await dbStore.updateRemediationLedger(ledgerId, { remediationStatus: 'failed' });
-      } catch {}
+      } catch { }
     }
   }
 
@@ -227,11 +280,31 @@ export class RemediationService {
     questionType?: string;
   }> {
     try {
+      let resolvedExamId = examId;
+      if (examId.startsWith('rem_')) {
+        const ledgers = await dbStore.getRemediationLedgers();
+        const ledger = ledgers.find(l => l.id === examId);
+        if (ledger) {
+          if (ledger.worksheetId) resolvedExamId = ledger.worksheetId;
+          if (ledger.responses && Array.isArray(ledger.responses)) {
+            const respItem = ledger.responses.find((r: any) => r.questionNumber === questionNumber) || ledger.responses[questionNumber - 1];
+            if (respItem && respItem.originalQuestion && !respItem.originalQuestion.includes('Question text for Q#')) {
+              return {
+                questionText: respItem.originalQuestion,
+                answer: (respItem as any).originalAnswer || (respItem as any).correctAnswer || '',
+                conceptName: respItem.conceptName || 'Mathematics',
+                questionType: (respItem as any).questionType || 'standard'
+              };
+            }
+          }
+        }
+      }
+
       // 1. Look up saved paper blueprint
-      let bp = blueprintService.getWorksheetBlueprint(examId);
+      let bp = blueprintService.getWorksheetBlueprint(resolvedExamId);
       if (!bp) {
         const allBps = (blueprintService as any).getAllBlueprints ? (blueprintService as any).getAllBlueprints() : [];
-        bp = allBps.find((b: any) => b.worksheetId === examId || examId.includes(b.worksheetId) || b.worksheetId.includes(examId));
+        bp = allBps.find((b: any) => b.worksheetId === resolvedExamId || resolvedExamId.includes(b.worksheetId) || b.worksheetId.includes(resolvedExamId));
       }
 
       if (bp && bp.items) {
@@ -258,9 +331,10 @@ export class RemediationService {
           i.question_no === questionNumber
         ) || lws.answerKey.items[questionNumber - 1];
 
-        if (item) {
+        const explicitText = item?.questionText || item?.question || item?.prompt || item?.text || item?.description || item?.title;
+        if (item && explicitText) {
           return {
-            questionText: item.questionText || item.question || `${item.sectionName || 'Question'} — Item ${questionNumber}`,
+            questionText: explicitText,
             answer: typeof item.correctAnswer === 'object' ? JSON.stringify(item.correctAnswer) : String(item.correctAnswer ?? item.answer ?? ''),
             conceptName: item.sectionName || item.topic || 'Mathematics',
             questionType: item.questionType || item.type || 'standard'
@@ -312,11 +386,110 @@ export class RemediationService {
     conceptName: string,
     questionType: string,
     baseOffset: number = 0
-  ): Array<{ question: string; answer: string }> {
+  ): Array<{ question: string; answer: string; aiGenerated?: boolean; needsReview?: boolean }> {
     return Array.from({ length: 5 }, (_, i) => {
       const bp = blueprintEngine.generate(originalQuestion, conceptName, questionType, '', baseOffset + i);
-      return { question: bp.question, answer: bp.answer };
+      return { question: bp.question, answer: bp.answer, aiGenerated: bp.aiGenerated, needsReview: bp.needsReview };
     });
+  }
+
+  /**
+   * Automatic Full Database Migration: Refreshes ALL previous remediation ledgers in MongoDB and dbStore
+   * ensuring 100% of previous practice questions are converted to topic-specific, human-readable questions.
+   */
+  public async migrateAllStaleLedgers(): Promise<void> {
+    console.log('[RemediationService] Starting full database migration to refresh all previous remediation ledgers...');
+    try {
+      let mongoLedgers: any[] = [];
+      try {
+        mongoLedgers = await RemediationLedger.find({}).exec();
+      } catch (err: any) {
+        console.warn('MongoDB ledger query warning:', err.message);
+      }
+
+      const cachedLedgers = (await dbStore.getRemediationLedgers()) || [];
+      const allLedgers = [...mongoLedgers, ...cachedLedgers];
+
+      const processedIds = new Set<string>();
+
+      for (const ledger of allLedgers) {
+        if (!ledger || !ledger.id || processedIds.has(ledger.id)) continue;
+        processedIds.add(ledger.id);
+
+        let updated = false;
+        let qIdx = 0;
+
+        const responses = await Promise.all((ledger.responses || []).map(async (r: any) => {
+          let origQ = r.originalQuestion || '';
+          let concept = r.conceptName || 'Mathematics';
+          const qType = r.questionType || 'standard';
+          const baseOffset = qIdx * 5;
+          qIdx++;
+
+          // If original question is missing or placeholder, look it up from the paper
+          const isMissingOrPlaceholder = !origQ ||
+            /^Question text for Q#/i.test(origQ) ||
+            /^Question #/i.test(origQ) ||
+            /^Concept for Q#/i.test(origQ);
+
+          if (isMissingOrPlaceholder) {
+            try {
+              const examId = ledger.examId || ledger.worksheetId || '';
+              const looked = await this.findOriginalQuestion(examId, r.questionNumber);
+              if (looked.questionText) origQ = looked.questionText;
+              if (looked.conceptName) concept = looked.conceptName;
+            } catch { }
+          }
+
+          const conceptLower = concept.toLowerCase();
+          const isSubtractionTopic = /subtra|minus|difference|diff|take away|change|paid|spent|left|remaining|fewer/i.test(conceptLower + ' ' + origQ);
+          const isDivisionTopic = /divis|divide|quotient|sharing|grouping|equal groups/i.test(conceptLower + ' ' + origQ);
+          const isMultiplyTopic = /multipl|times|product/i.test(conceptLower + ' ' + origQ);
+
+          const isStale = !r.practiceQuestions || r.practiceQuestions.length === 0 ||
+            r.practiceQuestions.some((pq: any) => {
+              const pqQ = pq.question || '';
+              if (/Numeric practice for/i.test(pqQ)) return true;
+              if (/Practice for/i.test(pqQ)) return true;
+              if (/Practice #/i.test(pqQ)) return true;
+              if (/Sample #/i.test(pqQ)) return true;
+              if (/— Question \d+/i.test(pqQ)) return true;
+              if (/— Item \d+/i.test(pqQ)) return true;
+              if (/Solve calculation: \d+ \+ \d+/i.test(pqQ)) return true;
+              if (/Solve the .+ calculation: \d+ \+ \d+/i.test(pqQ)) return true;
+              if (/^Solve (subtraction|division|multiplication): /i.test(pqQ)) return true;
+              if (pqQ === r.originalQuestion) return true;
+              if (isSubtractionTopic && /\d+ \+ \d+/.test(pqQ)) return true;
+              if (isDivisionTopic && /\d+ \+ \d+/.test(pqQ)) return true;
+              if (isMultiplyTopic && /\d+ \+ \d+/.test(pqQ)) return true;
+              return false;
+            });
+
+          if (isStale) {
+            updated = true;
+            return {
+              ...r,
+              originalQuestion: origQ,
+              conceptName: concept,
+              practiceQuestions: this.getInlineFallback(origQ, concept, qType, baseOffset)
+                .map((b: any) => ({ question: b.question, answer: b.answer, generatedAt: new Date() }))
+            };
+          }
+          return r;
+        }));
+
+        if (updated) {
+          console.log(`[RemediationMigration] Updated ledger ${ledger.id} with topic-specific human-readable questions.`);
+          try {
+            await RemediationLedger.updateOne({ id: ledger.id }, { $set: { responses } }).exec();
+          } catch { }
+          await dbStore.updateRemediationLedger(ledger.id, { responses });
+        }
+      }
+      console.log('[RemediationService] Full database migration completed successfully.');
+    } catch (err: any) {
+      console.error('[RemediationService] Migration error:', err.message);
+    }
   }
 }
 

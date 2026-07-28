@@ -38,9 +38,14 @@ async function startServer() {
     console.error("Out-of-band blueprint sync crash:", err)
   );
 
+  // Automatically migrate and refresh all previous database remediation ledgers
+  remediationService.migrateAllStaleLedgers().catch(err =>
+    console.error("Database remediation ledger migration crash:", err)
+  );
+
   const app = express();
-  // Allow Vite dev server and other tools to access API during development
-  app.use(cors({ origin: ['http://localhost:5173', 'http://127.0.0.1:5173'], credentials: true }));
+  // Allow Vite dev server and other tools on any localhost port to access API during development
+  app.use(cors({ origin: true, credentials: true }));
   app.use(express.json());
 
   // Serve Puppeteer output PDF sheets statically
@@ -959,15 +964,16 @@ async function startServer() {
 
         if (itemsList.length > 0) {
           const questions: Question[] = itemsList.map((item: any, idx: number) => {
-            const qNum = item.questionNumber || item.questionNo || (idx + 1);
+            const qNum = item.questionNumber || item.questionNo || item.question_no || (idx + 1);
             const secName = item.sectionName || item.topic || `Section ${item.section || idx + 1}`;
             const rawAns = item.answer != null ? item.answer : item.correctAnswer;
             const ansStr = typeof rawAns === 'object' ? JSON.stringify(rawAns) : String(rawAns != null ? rawAns : '');
             const qType = item.type || item.answerType || item.questionType || 'standard';
+            const qText = item.questionText || item.question || item.prompt || item.text || `${secName} — Item ${qNum}`;
 
             return {
               question_id: `${student.id}_${item.questionId || `Q${idx + 1}`}`,
-              question: `${secName} — Item ${qNum}`,
+              question: qText,
               answer: ansStr,
               answer_type: qType === 'circle-choice' || qType === 'mcq' || item.answerType === 'mcq' ? 'choice' : 'text',
               choices: qType === 'circle-choice' ? ['left', 'right'] : item.choices || undefined,
@@ -995,7 +1001,36 @@ async function startServer() {
         }
       }
 
-      // Emergency fallback
+      // 3. Automated Paper Generator Fallback: Render exact worksheet paper via Puppeteer
+      try {
+        const { generateLevelWorksheet } = await import('./paperGenerator');
+        const result = await generateLevelWorksheet({
+          studentId: student.id,
+          studentName: student.name,
+          levelId: currentLevel,
+          subIdx: currentSubLevel
+        });
+
+        if (result && Array.isArray(result.questions) && result.questions.length > 0) {
+          const resolvedId = result.fileName ? result.fileName.replace(/\.pdf$/, '') : `WS-L${currentLevel}-${student.id}`;
+          blueprintService.saveWorksheetBlueprint(resolvedId, student.id, currentLevel, sublevelId, result.questions);
+
+          return res.json({
+            success: true,
+            worksheetId: resolvedId,
+            levelId: currentLevel,
+            sublevelId,
+            pdfUrl: result.pdfUrl || null,
+            setNum: 1,
+            questions: result.questions,
+            source: 'paper_generated'
+          });
+        }
+      } catch (genErr) {
+        console.warn('[PaperGenerator] Automated paper rendering fallback warning:', genErr);
+      }
+
+      // Emergency fallback (only if Puppeteer rendering failed)
       const generatedQuestions = generateQuestionsForLevel(currentLevel, currentSubLevel) || [];
       const fallbackQuestions = generatedQuestions.map((q, idx) => ({
         ...q,

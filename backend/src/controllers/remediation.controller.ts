@@ -74,11 +74,18 @@ export class RemediationController {
           const isWrongMeasurementAssigned = /measurement-mixed-mcq|mixed-mcq/i.test(r.originalQuestion || '') &&
             r.practiceQuestions?.some((pq: any) => /Convert meters|Convert kilograms|Convert 500 cm/i.test(pq.question));
 
-          const isStaleOrInvalid = !r.practiceQuestions || r.practiceQuestions.length === 0 || isWrongShapeAssigned || isWrongDivisionAssigned || isWrongMultiplicationAssigned || isWrongEqualGroupsAssigned || isWrongMeasurementAssigned ||
+          const isWrongChangeAssigned = /change|paid|spent|cost|difference|remaining|left/i.test(r.originalQuestion || '') &&
+            r.practiceQuestions?.some((pq: any) => /Solve calculation|\+ \d+|Practice #/i.test(pq.question));
+
+          const isStaleOrInvalid = !r.practiceQuestions || r.practiceQuestions.length === 0 || isWrongShapeAssigned || isWrongDivisionAssigned || isWrongMultiplicationAssigned || isWrongEqualGroupsAssigned || isWrongMeasurementAssigned || isWrongChangeAssigned ||
             r.practiceQuestions.some((pq: any) =>
               /Numeric practice for/i.test(pq.question) ||
               /Practice for/i.test(pq.question) ||
+              /Practice #/i.test(pq.question) ||
               /Sample #/i.test(pq.question) ||
+              /— Question \d+/i.test(pq.question) ||
+              /— Item \d+/i.test(pq.question) ||
+              /Solve calculation: \d+ \+ \d+/i.test(pq.question) ||
               pq.question === r.originalQuestion
             );
 

@@ -430,8 +430,40 @@ export class DBStore {
     return Promise.resolve((this.data?.worksheets || []) as Worksheet[]);
   }
   async getLevelWorksheets() {
-    if (this.mongoDb) return await this.mongoDb.collection<LevelWorksheet>('levelWorksheets').find({}).toArray();
-    return Promise.resolve((this.data?.levelWorksheets || []) as LevelWorksheet[]);
+    let mongoList: LevelWorksheet[] = [];
+    if (this.mongoDb) {
+      try {
+        mongoList = await this.mongoDb.collection<LevelWorksheet>('levelWorksheets').find({}).toArray();
+      } catch (e) {
+        console.warn('mongoDb getLevelWorksheets error:', e);
+      }
+    }
+    const memList = (this.data?.levelWorksheets || []) as LevelWorksheet[];
+    const map = new Map<string, LevelWorksheet>();
+    memList.forEach(w => { if (w && w.id) map.set(w.id, w); });
+    mongoList.forEach(w => { if (w && w.id) map.set(w.id, w); });
+    return Array.from(map.values());
+  }
+
+  async addLevelWorksheet(ws: LevelWorksheet) {
+    if (this.mongoDb) {
+      try {
+        await this.mongoDb.collection('levelWorksheets').replaceOne({ id: ws.id }, ws, { upsert: true });
+      } catch (e) {
+        console.warn('mongoDb addLevelWorksheet replaceOne warning:', e);
+      }
+    }
+    if (this.data) {
+      if (!this.data.levelWorksheets) this.data.levelWorksheets = [];
+      const idx = this.data.levelWorksheets.findIndex(x => x.id === ws.id);
+      if (idx >= 0) {
+        this.data.levelWorksheets[idx] = ws;
+      } else {
+        this.data.levelWorksheets.push(ws);
+      }
+      await this.save();
+    }
+    return ws;
   }
   async getAnswerSubmissions() {
     if (this.mongoDb) return await this.mongoDb.collection<AnswerSubmission>('answer_submissions').find({}).toArray();
@@ -520,15 +552,7 @@ export class DBStore {
     return ws || undefined;
   }
 
-  async addLevelWorksheet(ws: LevelWorksheet) {
-    if (this.mongoDb) await this.mongoDb.collection('levelWorksheets').insertOne(ws);
-    if (this.data) {
-      if (!this.data.levelWorksheets) this.data.levelWorksheets = [];
-      this.data.levelWorksheets.push(ws);
-      await this.save();
-    }
-    return ws;
-  }
+
 
   async addAnswerSubmission(sub: AnswerSubmission) {
     if (this.mongoDb) await this.mongoDb.collection('answer_submissions').insertOne(sub);

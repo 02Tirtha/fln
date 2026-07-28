@@ -4,18 +4,24 @@ export interface IGeneratedPracticeQuestion {
   question: string;
   answer: string;
   generatedAt?: Date;
+  aiGenerated?: boolean;
+  needsReview?: boolean;
+  answerMode?: 'text' | 'dropdown';
 }
 
 export interface IRemediationResponse {
   questionNumber: number;
   conceptName: string;
   type: 'numeric' | 'matrix' | 'generative';
+  questionType?: string;
   originalQuestion: string;
   originalAnswer: string;
   studentAnswer: string;
   isCorrect: boolean;
+  answerMode?: 'text' | 'dropdown';
   practiceQuestions?: IGeneratedPracticeQuestion[];
 }
+
 
 export interface IRemediationLedger {
   id: string;

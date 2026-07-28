@@ -17,10 +17,10 @@ function classifyEngine(originalQuestion: string, questionType: string, conceptN
     ? questionType
     : (/tally|tallies/.test(combined) ? 'tally'
       : /clock|read the clock|match time/.test(combined) ? 'clock'
-      : /shape trac|marine trac/.test(combined) ? 'trace'
-      : /\btrac(e|ing)\b/.test(combined) ? 'trace'
-      : /match the shape|shape match/.test(combined) ? 'shape'
-      : questionType);
+        : /shape trac|marine trac/.test(combined) ? 'trace'
+          : /\btrac(e|ing)\b/.test(combined) ? 'trace'
+            : /match the shape|shape match/.test(combined) ? 'shape'
+              : questionType);
 
   // ALWAYS send these to the AI or blueprintEngine (not numeric/matrix)
   const isApiOnly =
@@ -107,6 +107,19 @@ export class GenerativeEngine {
     questionType: string = 'standard',
     baseOffset: number = 0
   ): Promise<Array<{ question: string; answer: string; aiGenerated: boolean }>> {
+    const aiClient = getAiClient();
+    if (aiClient) {
+      try {
+        const aiResults = await this.generateBatchViaAI(originalQuestion, conceptName, questionType);
+        if (aiResults && aiResults.length >= 3) {
+          console.log(`[GenerativeEngine] Successfully generated 5 variants via Gemini AI API for "${originalQuestion}"`);
+          return aiResults;
+        }
+      } catch (err) {
+        console.warn('[GenerativeEngine] AI generation failed, falling back to blueprintEngine:', err);
+      }
+    }
+
     return Array.from({ length: 5 }, (_, i) => {
       const bp = blueprintEngine.generate(originalQuestion, conceptName, questionType, '', baseOffset + i);
       return { question: bp.question, answer: bp.answer, aiGenerated: bp.aiGenerated };
@@ -168,14 +181,25 @@ export class GenerativeEngine {
         .map(v => ({ question: String(v.question || '').trim(), answer: String(v.answer || '').trim() }))
         .filter(v => v.question && v.question !== originalQuestion && !/Item \d+/i.test(v.question));
 
-      if (valid.length < 3) return this.generateBatchFallback(originalQuestion, conceptName, questionType);
+      // Only fall back completely if the AI gave us NOTHING usable.
+      // Previously this discarded 1-2 perfectly good AI variants just
+      // because fewer than 3 came back.
+      if (valid.length === 0) return this.generateBatchFallback(originalQuestion, conceptName, questionType);
 
-      // Pad to 5 with fallback if needed
-      const fallbacks = this.generateBatchFallback(originalQuestion, conceptName, questionType);
-      const result = [...valid.slice(0, 5)];
-      while (result.length < 5) result.push(fallbacks[result.length] || fallbacks[0]);
+      // Keep every real AI variant. Only pad missing slots with the local
+      // fallback, and label those honestly instead of marking everything
+      // as AI-generated.
+      const result: Array<{ question: string; answer: string; aiGenerated: boolean; needsReview?: boolean }> =
+        valid.slice(0, 5).map(v => ({ ...v, aiGenerated: true }));
 
-      return result.map(v => ({ ...v, aiGenerated: true }));
+      if (result.length < 5) {
+        const fallbacks = this.generateBatchFallback(originalQuestion, conceptName, questionType);
+        while (result.length < 5) {
+          result.push(fallbacks[result.length] || fallbacks[0]);
+        }
+      }
+
+      return result;
     } catch {
       return this.generateBatchFallback(originalQuestion, conceptName, questionType);
     }
@@ -302,13 +326,13 @@ export class GenerativeEngine {
     if (questionType && questionType !== 'standard') return questionType;
     const q = originalQuestion.toLowerCase();
     if (/count,\s*write|count\s*&\s*match|gesture|finger/i.test(q)) return 'count-match';
-    if (/tally|tallies/i.test(q))                          return 'tally';
-    if (/clock|time|calendar/i.test(q))                    return 'clock';
-    if (/shape trac|marine trac/i.test(q))                  return 'trace';
-    if (/\btrac(e|ing)\b/i.test(q))                        return 'trace';
-    if (/match the shape|shape match/i.test(q))             return 'shape';
-    if (/odd one out/i.test(q))                             return 'matrix';
-    if (/long or short|shorter|longer/i.test(q))            return 'circle-choice';
+    if (/tally|tallies/i.test(q)) return 'tally';
+    if (/clock|time|calendar/i.test(q)) return 'clock';
+    if (/shape trac|marine trac/i.test(q)) return 'trace';
+    if (/\btrac(e|ing)\b/i.test(q)) return 'trace';
+    if (/match the shape|shape match/i.test(q)) return 'shape';
+    if (/odd one out/i.test(q)) return 'matrix';
+    if (/long or short|shorter|longer/i.test(q)) return 'circle-choice';
     return questionType || 'standard';
   }
 }
