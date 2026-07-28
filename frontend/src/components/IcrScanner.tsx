@@ -250,7 +250,6 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack, ini
   const [isScanning, setIsScanning] = useState(false);
   const [scanPhase, setScanPhase] = useState<'idle' | 'feeding' | 'scanning' | 'done'>('idle');
   const [extractedAnswers, setExtractedAnswers] = useState<{ [questionId: string]: string }>({});
-  const [uploadedSheetPreview, setUploadedSheetPreview] = useState<string | null>(null);
 
   /**
    * Robustly compare a student answer against the answer key.
@@ -315,17 +314,6 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack, ini
     if (rawKey.toLowerCase() === 'no') return 'yes';
 
     return `Incorrect Answer #${idx + 1}`;
-  };
-
-  const handleFileUploadSheet = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setUploadedSheetPreview(reader.result as string);
-      startScan();
-    };
-    reader.readAsDataURL(file);
   };
   const [report, setReport] = useState<EvaluationReport | null>(null);
   const [remediationLedger, setRemediationLedger] = useState<any>(null);
@@ -838,17 +826,13 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack, ini
               </div>
             </div>
           </div>
-          <div className="flex flex-col sm:flex-row justify-center items-center gap-4">
+          <div className="flex justify-center items-center">
             <button
               onClick={startScan}
               className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-sm py-3 px-8 rounded-xl transition-colors shadow-lg hover:shadow-emerald-200/50"
             >
               Start ICR Scan
             </button>
-            <label htmlFor="upload-answer-paper-input" className="cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm py-3 px-8 rounded-xl transition-colors shadow-lg hover:shadow-indigo-200/50 inline-flex items-center gap-2">
-              <span>📸 Upload Answer Paper Photo</span>
-              <input type="file" accept="image/*,.pdf" className="hidden" onChange={handleFileUploadSheet} id="upload-answer-paper-input" name="uploadedPaper" />
-            </label>
           </div>
         </div>
       )}
@@ -932,23 +916,6 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack, ini
                 Review each extracted answer below. Items highlighted in green match the official answer key, while amber items differ — verify and correct before final submission.
               </p>
             </div>
-
-            {uploadedSheetPreview ? (
-              <div className="bg-white dark:bg-slate-900 border border-zinc-200 dark:border-zinc-700 rounded-xl p-4 shadow-sm space-y-2">
-                <div className="flex justify-between items-center">
-                  <span className="text-xs font-mono font-bold text-zinc-500 uppercase">Uploaded Physical Sheet</span>
-                  <button onClick={() => setUploadedSheetPreview(null)} className="text-[10px] text-red-500 hover:underline">Remove</button>
-                </div>
-                <img src={uploadedSheetPreview} className="w-full h-auto rounded-lg border border-zinc-200 max-h-96 object-contain" alt="Uploaded Student Paper" />
-              </div>
-            ) : (
-              <div className="bg-zinc-50 dark:bg-slate-800/50 border border-dashed border-zinc-300 dark:border-zinc-700 rounded-xl p-4 text-center">
-                <label htmlFor="upload-paper-verify-input" className="cursor-pointer text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1">
-                  <span>📸 Upload Photo of Physical Answer Sheet</span>
-                  <input type="file" accept="image/*,.pdf" className="hidden" onChange={handleFileUploadSheet} id="upload-paper-verify-input" name="uploadedPaperVerify" />
-                </label>
-              </div>
-            )}
 
             <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4 text-center">
               <div className="text-3xl font-display font-bold text-zinc-800">{currentSelectedStudent?.name}</div>
