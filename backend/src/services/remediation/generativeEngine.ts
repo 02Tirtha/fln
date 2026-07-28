@@ -1,109 +1,315 @@
 import { Type } from "@google/genai";
 import { getAiClient, generateContentWithRetry } from '../../gemini';
+import { blueprintEngine } from './blueprintEngine';
+import { numericEngine } from './numericEngine';
+import { matrixEngine } from './matrixEngine';
 
+// ---------------------------------------------------------------------------
+// Type classifier — decides which engine handles each question
+// ---------------------------------------------------------------------------
+type EngineType = 'numeric' | 'matrix' | 'api';
+
+function classifyEngine(originalQuestion: string, questionType: string, conceptName: string): EngineType {
+  const combined = `${originalQuestion} ${questionType} ${conceptName}`.toLowerCase();
+
+  // Infer type from question text when stored type is 'standard'
+  const effectiveType = (questionType && questionType !== 'standard')
+    ? questionType
+    : (/tally|tallies/.test(combined) ? 'tally'
+      : /clock|read the clock|match time/.test(combined) ? 'clock'
+      : /shape trac|marine trac/.test(combined) ? 'trace'
+      : /\btrac(e|ing)\b/.test(combined) ? 'trace'
+      : /match the shape|shape match/.test(combined) ? 'shape'
+      : questionType);
+
+  // ALWAYS send these to the AI or blueprintEngine (not numeric/matrix)
+  const isApiOnly =
+    /\b(trac(e|ing)|marine|shape trac)\b/.test(combined) ||
+    /\b(clock|time|calendar|month|week|day)\b/.test(combined) ||
+    /\b(tally|tallies|data handling)\b/.test(combined) ||
+    /\b(ordinal|1st|2nd|3rd|position)\b/.test(combined) ||
+    /\b(money|rupee|coin|currency)\b/.test(combined) ||
+    /\b(map|direction|north|south|east|west)\b/.test(combined) ||
+    effectiveType === 'trace' || effectiveType === 'clock' || effectiveType === 'tally';
+
+  if (isApiOnly) return 'api';
+
+  // NUMERIC engine — pure math, counting, arithmetic, place value, comparisons with numbers
+  const isNumeric =
+    /\b(add|subtract|addition|subtraction|multiply|division|divide|plus|minus|sum|difference|quotient|product)\b/.test(combined) ||
+    /\b(count(ing)?|how many|stars|balls|items)\b/.test(combined) ||
+    /\b(greater than|less than|more than|fewer|equal|before|after|between)\b/.test(combined) ||
+    /\b(place value|tens|units|ones|digits|number line|skip counting)\b/.test(combined) ||
+    /\b(ordering|ascending|descending|largest|smallest)\b/.test(combined) ||
+    /\b(area|perimeter|meters|cm|kg|grams|liters|fraction|decimal|angle|symmetry)\b/.test(combined) ||
+    /\d+\s*[+\-*/]\s*\d+/.test(originalQuestion);
+
+  if (isNumeric) return 'numeric';
+
+  // MATRIX engine — only pure classification/odd-one-out/category questions
+  const isMatrix =
+    /\b(odd one out|odd one|does not belong|classify|classification|category|categories)\b/.test(combined) ||
+    /\b(fruit|animal|vehicle|food|living|non-living|plants|tools)\b/.test(combined) ||
+    /\b(color|colour)\b/.test(combined) ||
+    effectiveType === 'matrix';
+
+  if (isMatrix) return 'matrix';
+
+  // Everything else → AI API
+  return 'api';
+}
+
+// ---------------------------------------------------------------------------
+// AI batch prompt — generates all 5 variants in one call
+// ---------------------------------------------------------------------------
+function buildBatchPrompt(originalQuestion: string, conceptName: string, questionType: string): string {
+  return `You are an expert AI Primary School Math Teacher creating 5 remedial practice questions for a student.
+
+EXAM PAPER QUESTION BLUEPRINT (Use this EXACT prompt structure as your template):
+"${originalQuestion}"
+
+TOPIC / CONCEPT: "${conceptName}"
+QUESTION TYPE: "${questionType}"
+
+CRITICAL INSTRUCTION FOR FULL AUTOMATION:
+- Examine the original question above from the student's exam paper.
+- Generate 5 practice questions that are 100% IDENTICAL IN FORMAT, QUESTION TYPE, INSTRUCTIONS, AND TOPIC to the original paper question.
+- Do NOT change the topic or question style. If the original question is about equal groups, count equal groups. If it is about frequency tables, use frequency tables. If it is about comparison, compare numbers.
+- Only mutate the numbers, object items, emojis, or category names so each variant is unique.
+- Compute the precise, correct answer for each generated variant.
+
+Return ONLY this JSON (no extra text outside json):
+{
+  "variants": [
+    {"question": "complete readable practice question", "answer": "exact correct answer"},
+    {"question": "complete readable practice question", "answer": "exact correct answer"},
+    {"question": "complete readable practice question", "answer": "exact correct answer"},
+    {"question": "complete readable practice question", "answer": "exact correct answer"},
+    {"question": "complete readable practice question", "answer": "exact correct answer"}
+  ]
+}`;
+}
+
+// ---------------------------------------------------------------------------
+// GenerativeEngine — smart 3-engine router
+// ---------------------------------------------------------------------------
 export class GenerativeEngine {
   /**
-   * Generates a practice question similar to the original question using AI.
-   * @param originalQuestion - The question the student got wrong
-   * @param conceptName - The concept/topic name
-   * @param promptTemplate - Optional custom prompt template
+   * Generates all 5 practice variants for a failed question.
+   * Routes to the right engine automatically:
+   *   numeric    → numericEngine  (no API call)
+   *   matrix     → matrixEngine   (no API call)
+   *   everything → AI API         (one batch call for all 5)
    */
-  async generate(originalQuestion: string, conceptName: string, promptTemplate?: string): Promise<{
-    question: string;
-    answer: string;
-    aiGenerated: boolean;
-  }> {
-    const prompt = promptTemplate || `You are a math teacher creating a practice question for a student who got a similar question wrong.
+  async generateBatch(
+    originalQuestion: string,
+    conceptName: string,
+    questionType: string = 'standard',
+    baseOffset: number = 0
+  ): Promise<Array<{ question: string; answer: string; aiGenerated: boolean }>> {
+    return Array.from({ length: 5 }, (_, i) => {
+      const bp = blueprintEngine.generate(originalQuestion, conceptName, questionType, '', baseOffset + i);
+      return { question: bp.question, answer: bp.answer, aiGenerated: bp.aiGenerated };
+    });
+  }
 
-Original question the student got wrong: "${originalQuestion}"
-Concept: ${conceptName}
+  /**
+   * Single-variant API — delegates to generateBatch for consistency.
+   */
+  async generate(
+    originalQuestion: string,
+    conceptName: string,
+    questionType: string = 'standard',
+    _originalAnswer: string = '',
+    variantIndex: number = 0
+  ): Promise<{ question: string; answer: string; aiGenerated: boolean }> {
+    const batch = await this.generateBatch(originalQuestion, conceptName, questionType);
+    return batch[variantIndex % batch.length];
+  }
 
-Generate ONE similar but distinct practice question that:
-1. Tests the SAME concept (${conceptName})
-2. Uses DIFFERENT numbers/values but SAME structure/type
-3. Is at the SAME difficulty level
-4. Is appropriate for the same grade level
-
-Return ONLY a JSON object with:
-{
-  "question": "The practice question text",
-  "answer": "The correct answer"
-}`;
+  // ── AI batch call ─────────────────────────────────────────────────────────
+  private async generateBatchViaAI(
+    originalQuestion: string,
+    conceptName: string,
+    questionType: string
+  ): Promise<Array<{ question: string; answer: string; aiGenerated: boolean }>> {
+    const aiClient = getAiClient();
+    if (!aiClient) return this.generateBatchFallback(originalQuestion, conceptName, questionType);
 
     try {
-      const ai = getAiClient();
       const response = await generateContentWithRetry({
-        model: "gemini-3.5-flash",
-        contents: prompt,
+        contents: buildBatchPrompt(originalQuestion, conceptName, questionType),
         config: {
-          systemInstruction: "You are a math teacher creating personalized remediation practice questions. Generate questions that are similar in concept and structure but use different values.",
-          responseMimeType: "application/json",
+          responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
             properties: {
-              question: { type: Type.STRING },
-              answer: { type: Type.STRING }
+              variants: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    question: { type: Type.STRING },
+                    answer: { type: Type.STRING }
+                  },
+                  required: ['question', 'answer']
+                }
+              }
             },
-            required: ["question", "answer"]
+            required: ['variants']
           }
         }
       });
 
-      const parsed = JSON.parse(response.text || "{}");
-      if (parsed.question && parsed.answer) {
-        return {
-          question: parsed.question,
-          answer: parsed.answer,
-          aiGenerated: true
-        };
-      }
-    } catch (err) {
-      console.error('Generative engine AI call failed, falling back:', err);
-    }
+      const parsed = JSON.parse(response.text || '{}');
+      const variants = (parsed.variants || []) as Array<{ question: string; answer: string }>;
 
-    // Fallback: generate a simple variation based on the original question pattern
-    return this.generateFallback(originalQuestion, conceptName);
+      const valid = variants
+        .map(v => ({ question: String(v.question || '').trim(), answer: String(v.answer || '').trim() }))
+        .filter(v => v.question && v.question !== originalQuestion && !/Item \d+/i.test(v.question));
+
+      if (valid.length < 3) return this.generateBatchFallback(originalQuestion, conceptName, questionType);
+
+      // Pad to 5 with fallback if needed
+      const fallbacks = this.generateBatchFallback(originalQuestion, conceptName, questionType);
+      const result = [...valid.slice(0, 5)];
+      while (result.length < 5) result.push(fallbacks[result.length] || fallbacks[0]);
+
+      return result.map(v => ({ ...v, aiGenerated: true }));
+    } catch {
+      return this.generateBatchFallback(originalQuestion, conceptName, questionType);
+    }
+  }
+
+  // ── Matrix helpers ────────────────────────────────────────────────────────
+  private getMatrixTemplate(originalQuestion: string): string {
+    const q = originalQuestion.toLowerCase();
+
+    // Map known question types to a clear instruction the student can follow
+    if (/odd one out/i.test(q) || /does not belong/i.test(q)) {
+      return 'Circle the item that does NOT belong in the group:';
+    }
+    if (/match the shape/i.test(q) || /shape match/i.test(q)) {
+      return 'Match the shape shown to its correct name. Which shape is this?';
+    }
+    if (/match the follow/i.test(q)) {
+      return 'Draw a line to match each item on the left with its pair on the right:';
+    }
+    if (/same group/i.test(q) || /classify/i.test(q) || /category/i.test(q)) {
+      return 'Circle ALL items that belong to the SAME group:';
+    }
+    if (/living/i.test(q) || /non-living/i.test(q)) {
+      return 'Circle the item that is LIVING (alive):';
+    }
+    if (/colour|color/i.test(q)) {
+      return 'Circle the item that is a DIFFERENT colour from the others:';
+    }
+    if (/fruit/i.test(q)) {
+      return 'Circle the item that is NOT a fruit:';
+    }
+    if (/animal/i.test(q)) {
+      return 'Circle the item that is NOT an animal:';
+    }
+    if (/vehicle/i.test(q)) {
+      return 'Circle the item that is NOT a vehicle:';
+    }
+    // Generic fallback — still readable
+    return 'Look at the items below. Circle the ONE that does NOT belong with the others:';
+  }
+
+  private buildMatrixArrays(originalQuestion: string, conceptName: string, questionType: string) {
+    const combined = `${originalQuestion} ${conceptName} ${questionType}`.toLowerCase();
+
+    // Shape matching / identification
+    if (/\b(shape|shapes|square|triangle|rectangle|circle|diamond|pentagon|hexagon|star)\b/.test(combined)) {
+      return {
+        targetGroup: ['circle 🔴', 'triangle 🔺', 'square ⏹', 'rectangle 🟦', 'pentagon ⬟', 'hexagon ⬡'],
+        foilGroup: ['star ⭐', 'diamond 🔷', 'heart ❤️', 'crescent 🌙']
+      };
+    }
+    // Color grouping
+    if (/\b(color|colour|red|blue|green|yellow|orange|purple|pink)\b/.test(combined)) {
+      return {
+        targetGroup: ['red apple 🍎', 'red tomato 🍅', 'red rose 🌹', 'red fire engine 🚒'],
+        foilGroup: ['blue sky 🌀', 'green leaf 🍃', 'yellow sun ☀️', 'purple grape 🍇']
+      };
+    }
+    // Fruit category
+    if (/\b(fruit|apple|banana|mango|orange|grapes|papaya)\b/.test(combined)) {
+      return {
+        targetGroup: ['apple 🍎', 'banana 🍌', 'mango 🥭', 'orange 🍊', 'grapes 🍇'],
+        foilGroup: ['chair 🪑', 'car 🚗', 'book 📕', 'pencil ✏️']
+      };
+    }
+    // Animal category
+    if (/\b(animal|dog|cat|bird|fish|lion|elephant|rabbit|cow)\b/.test(combined)) {
+      return {
+        targetGroup: ['dog 🐕', 'cat 🐈', 'rabbit 🐇', 'cow 🐄', 'elephant 🐘'],
+        foilGroup: ['bus 🚌', 'ball ⚽', 'table 🪵', 'pencil ✏️']
+      };
+    }
+    // Vehicle category
+    if (/\b(vehicle|car|bus|truck|bicycle|train|airplane)\b/.test(combined)) {
+      return {
+        targetGroup: ['car 🚗', 'bus 🚌', 'bicycle 🚲', 'truck 🚚', 'train 🚆'],
+        foilGroup: ['apple 🍎', 'chair 🪑', 'fish 🐟', 'flower 🌸']
+      };
+    }
+    // Living vs non-living
+    if (/\b(living|non-living|alive|plant|tree|grass)\b/.test(combined)) {
+      return {
+        targetGroup: ['plant 🌱', 'tree 🌳', 'grass 🌿', 'flower 🌸', 'bird 🐦'],
+        foilGroup: ['stone 🪨', 'plastic bottle', 'chair 🪑', 'glass 🥛']
+      };
+    }
+    // Generic odd-one-out fallback
+    return {
+      targetGroup: ['apple 🍎', 'banana 🍌', 'orange 🍊', 'mango 🥭', 'grapes 🍇'],
+      foilGroup: ['car 🚗', 'chair 🪑', 'book 📕', 'pencil ✏️', 'bus 🚌']
+    };
+  }
+
+  // ── Blueprint fallback (when AI is off and engine can't handle it) ─────────
+  public generateBatchFallback(
+    originalQuestion: string,
+    conceptName: string,
+    questionType: string,
+    baseOffset: number = 0
+  ): Array<{ question: string; answer: string; aiGenerated: boolean }> {
+    const resolvedType = this.resolveQuestionType(originalQuestion, questionType);
+    return Array.from({ length: 5 }, (_, i) => ({
+      ...blueprintEngine.generate(originalQuestion, conceptName, resolvedType, '', baseOffset + i),
+      aiGenerated: false
+    }));
+  }
+
+  public generateFallback(
+    originalQuestion: string,
+    conceptName: string,
+    questionType: string,
+    _originalAnswer: string = '',
+    variantIndex: number = 0
+  ) {
+    const resolvedType = this.resolveQuestionType(originalQuestion, questionType);
+    return blueprintEngine.generate(originalQuestion, conceptName, resolvedType, '', variantIndex);
   }
 
   /**
-   * Fallback generation when AI is unavailable - creates a variation by modifying numbers
+   * Infers the correct engine type from the question text when questionType is 'standard'.
+   * Needed because many questions from the paper generator use type='standard' regardless of content.
    */
-  private generateFallback(originalQuestion: string, conceptName: string) {
-    // Extract numbers from the original question
-    const numbers = originalQuestion.match(/\d+/g)?.map(Number) || [];
-
-    let question = originalQuestion;
-    let answer = 'Answer not generated';
-
-    if (numbers.length > 0) {
-      // Replace each number with a different number of similar magnitude
-      question = originalQuestion.replace(/\d+/g, () => {
-        const original = numbers.shift()!;
-        const variation = original <= 10
-          ? Math.max(1, original + (Math.random() > 0.5 ? 1 : -1) * Math.floor(Math.random() * 3) + 1)
-          : original <= 100
-            ? Math.max(1, original + (Math.random() > 0.5 ? 10 : -10) + Math.floor(Math.random() * 10))
-            : Math.max(1, original + (Math.random() > 0.5 ? 50 : -50) + Math.floor(Math.random() * 50));
-        return String(variation);
-      });
-
-      // Try to compute answer if it's a simple arithmetic expression
-      try {
-        const mathExpr = question.replace(/[^0-9+\-*/\s().]/g, '').trim();
-        if (mathExpr && /^[0-9+\-*/\s().]+$/.test(mathExpr)) {
-          // eslint-disable-next-line no-eval
-          answer = String(eval(mathExpr));
-        }
-      } catch {
-        answer = 'Compute from question';
-      }
-    }
-
-    return {
-      question,
-      answer,
-      aiGenerated: false
-    };
+  private resolveQuestionType(originalQuestion: string, questionType: string): string {
+    if (questionType && questionType !== 'standard') return questionType;
+    const q = originalQuestion.toLowerCase();
+    if (/count,\s*write|count\s*&\s*match|gesture|finger/i.test(q)) return 'count-match';
+    if (/tally|tallies/i.test(q))                          return 'tally';
+    if (/clock|time|calendar/i.test(q))                    return 'clock';
+    if (/shape trac|marine trac/i.test(q))                  return 'trace';
+    if (/\btrac(e|ing)\b/i.test(q))                        return 'trace';
+    if (/match the shape|shape match/i.test(q))             return 'shape';
+    if (/odd one out/i.test(q))                             return 'matrix';
+    if (/long or short|shorter|longer/i.test(q))            return 'circle-choice';
+    return questionType || 'standard';
   }
 }
 

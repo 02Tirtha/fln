@@ -214,7 +214,7 @@ export async function generateLevelWorksheet({
       process.env.WORKSHEET_ASSETS_DIR ||
       path.resolve(__dirname, "..", "..", "frontend", "public", "worksheets");
     const htmlPath = path.join(worksheetAssetsDir, "levels_main.html");
-    await page.goto(`file://${htmlPath}`, { waitUntil: 'networkidle0' as any, timeout: 30000 });
+    await page.goto(`file://${htmlPath}`, { waitUntil: 'load' as any, timeout: 15000 });
 
     const data = await page.evaluate(({ levelId, subIdx, studentId, studentName }) => {
       const nameInput = document.getElementById('studentName') as HTMLInputElement | null;
@@ -228,8 +228,8 @@ export async function generateLevelWorksheet({
       // @ts-ignore
       meta = [];
       
-      // Run generation a random number of times to yield different question selections and layouts
-      const iterations = Math.floor(Math.random() * 20) + 1;
+      // Run generation once so HTML sheet and Answer Key are 100% matched
+      const iterations = 1;
       for (let i = 0; i < iterations; i++) {
         // @ts-ignore
         generateOneSet(levelId, subIdx);
@@ -311,7 +311,7 @@ body{font-family:'Segoe UI',Arial,sans-serif;margin:0;background:#fff;color:var(
       </div>
     </body></html>`;
 
-    await printPage.setContent(wrappedHtml, { waitUntil: 'networkidle0' as any, timeout: 15000 });
+    await printPage.setContent(wrappedHtml, { waitUntil: 'load' as any, timeout: 15000 });
     await printPage.setViewport({ width: 794, height: 1123 });
 
     const pdfBuffer = await printPage.pdf({
@@ -324,26 +324,68 @@ body{font-family:'Segoe UI',Arial,sans-serif;margin:0;background:#fff;color:var(
 
     await printPage.close();
 
-    // Map answerKey items to Question[]
+    // Map answerKey items/answers to Question[]
     const questions: Question[] = [];
-    if (data.answerKey && Array.isArray(data.answerKey.items)) {
-      data.answerKey.items.forEach((item: any, idx: number) => {
-        questions.push({
-          question_id: `${studentId}_${item.questionId}`,
-          question: `Question ${idx + 1} for Level ${levelId}`,
-          answer: String(item.correctAnswer != null ? item.correctAnswer : ''),
-          answer_type: item.answerType === 'mcq' ? 'choice' : 'number',
-          topic: item.sectionName || `Topic ${idx + 1}`,
-          subtopic: item.sectionId || 'subtopic',
-          difficulty: 'medium',
-          source_level: levelId
-        });
-      });
-    }
+    const itemsList = data.answerKey
+      ? (Array.isArray(data.answerKey.answers)
+          ? data.answerKey.answers
+          : Array.isArray(data.answerKey.items)
+          ? data.answerKey.items
+          : [])
+      : [];
 
-    const fileName = `level_${levelId}_sub_${subIdx}_student_${studentId}_${randomUUID()}.pdf`;
+    itemsList.forEach((item: any, idx: number) => {
+      const qNum = item.questionNumber || item.questionNo || (idx + 1);
+      const secName = item.sectionName || item.topic || `Section ${item.section || idx + 1}`;
+      const rawAns = item.answer != null ? item.answer : item.correctAnswer;
+      const ansStr = typeof rawAns === 'object' ? JSON.stringify(rawAns) : String(rawAns != null ? rawAns : '');
+      const qType = item.type || item.answerType || item.questionType || 'standard';
+      const promptText = item.questionText || item.question || item.prompt || item.text || `${secName} — Question ${qNum}`;
+
+      questions.push({
+        question_id: `${studentId}_${item.questionId || `Q${idx + 1}`}`,
+        question: promptText,
+        answer: ansStr,
+        answer_type: qType === 'circle-choice' || qType === 'mcq' || item.answerType === 'mcq' ? 'choice' : 'text',
+        choices: qType === 'circle-choice' ? ['left', 'right'] : item.choices || undefined,
+        topic: secName,
+        subtopic: item.section || `L${levelId}.${subIdx}`,
+        difficulty: 'medium',
+        source_level: levelId,
+        questionType: qType
+      });
+    });
+
+    const baseName = `level_${levelId}_${levelId}.${subIdx}_set1_${studentId}_${randomUUID()}`;
+    const fileName = `${baseName}.pdf`;
     const filePath = path.join(OUTPUT_DIR, fileName);
     fs.writeFileSync(filePath, pdfBuffer);
+
+    // Persist answer key JSON file for reliable disk retrieval
+    if (data.answerKey) {
+      fs.writeFileSync(path.join(OUTPUT_DIR, `${baseName}_answer_key.json`), JSON.stringify(data.answerKey, null, 2));
+    }
+
+    // Persist assigned LevelWorksheet record to dbStore
+    try {
+      const { dbStore } = await import('./db');
+      await dbStore.addLevelWorksheet({
+        id: baseName,
+        batchId: baseName,
+        studentId,
+        studentName,
+        rollNumber: '',
+        levelId,
+        sublevelId: `${levelId}.${subIdx}`,
+        setNum: 1,
+        generatedAt: new Date().toISOString(),
+        pdfUrl: `/output/${fileName}`,
+        answerKey: data.answerKey || { items: questions },
+        coords: []
+      });
+    } catch (e) {
+      console.warn('Failed to add LevelWorksheet to dbStore:', e);
+    }
 
     return {
       fileName,
@@ -352,7 +394,7 @@ body{font-family:'Segoe UI',Arial,sans-serif;margin:0;background:#fff;color:var(
       questions
     };
   } finally {
-    await browser.close();
+    // Shared browser is kept open; page instances are closed inside the try block
   }
 }
 

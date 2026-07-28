@@ -6,6 +6,8 @@ interface IcrScannerProps {
   token: string;
   user: User;
   onBack: () => void;
+  initialStudentId?: string;
+  initialClassId?: string;
 }
 
 type ScannerStep = 'select' | 'paper' | 'scanning' | 'verify' | 'result';
@@ -234,11 +236,12 @@ const ReportNarrative: React.FC<{ narrative: string }> = ({ narrative }) => {
   );
 };
 
-export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) => {
+export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack, initialStudentId, initialClassId }) => {
   const [classes, setClasses] = useState<ClassGroup[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
-  const [selectedClassId, setSelectedClassId] = useState('');
-  const [selectedStudentId, setSelectedStudentId] = useState('');
+  const [selectedClassId, setSelectedClassId] = useState(initialClassId || '');
+  const [selectedStudentId, setSelectedStudentId] = useState(initialStudentId || '');
+  const [paperType, setPaperType] = useState<'diagnostic' | 'level'>('diagnostic');
   const [step, setStep] = useState<ScannerStep>('select');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -247,22 +250,116 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
   const [isScanning, setIsScanning] = useState(false);
   const [scanPhase, setScanPhase] = useState<'idle' | 'feeding' | 'scanning' | 'done'>('idle');
   const [extractedAnswers, setExtractedAnswers] = useState<{ [questionId: string]: string }>({});
+  const [uploadedSheetPreview, setUploadedSheetPreview] = useState<string | null>(null);
+
+  /**
+   * Robustly compare a student answer against the answer key.
+   * Handles plain strings, numbers, and JSON-encoded objects.
+   * Two object answers are equal only when EVERY key matches.
+   */
+  const compareAnswers = (studentRaw: string, keyRaw: string): boolean => {
+    const s = (studentRaw || '').trim();
+    const k = (keyRaw || '').trim();
+    if (!s) return false; // blank is never correct
+    // Try deep-object comparison when both look like JSON objects/arrays
+    if ((s.startsWith('{') || s.startsWith('[')) && (k.startsWith('{') || k.startsWith('['))) {
+      try {
+        const sObj = JSON.parse(s);
+        const kObj = JSON.parse(k);
+        return JSON.stringify(sObj) === JSON.stringify(kObj);
+      } catch {
+        // fall through to string compare
+      }
+    }
+    return s.toLowerCase() === k.toLowerCase();
+  };
+
+  /**
+   * Simulates ICR optical character recognition from the scanned paper sheet.
+   * Extracts student answers automatically: ~75% match answer key (Pass / True),
+   * ~25% simulate student errors (Differs from key / False).
+   */
+  const simulateExtractedAnswer = (q: Question, idx: number): string => {
+    const rawKey = String(q.answer || '').trim();
+
+    // 1 in 4 questions simulates a student incorrect answer or ICR misread
+    const isError = (idx + 1) % 4 === 0;
+
+    if (!isError) {
+      return rawKey; // ~75% pass (Match / True)
+    }
+
+    // Handle JSON-encoded object answers (e.g. Shape matching {"shape":"diamond","correctRightIndex":1})
+    if (rawKey.startsWith('{')) {
+      try {
+        const obj = JSON.parse(rawKey);
+        if (obj.shape) {
+          const wrongShapes = ['square', 'circle', 'triangle', 'rectangle', 'pentagon'].filter(s => s !== obj.shape);
+          const wrongShape = wrongShapes[idx % wrongShapes.length];
+          return JSON.stringify({ ...obj, shape: wrongShape });
+        }
+      } catch {}
+    }
+
+    // Handle numeric answers (e.g. "8" or "12")
+    if (!isNaN(Number(rawKey)) && rawKey !== '') {
+      const num = Number(rawKey);
+      const wrongNum = Math.max(0, num + ((idx % 2 === 0) ? 1 : -1));
+      return String(wrongNum);
+    }
+
+    // Handle text / choice answers (e.g. "Pencil A", "A", "square")
+    if (rawKey.toLowerCase() === 'a') return 'B';
+    if (rawKey.toLowerCase() === 'b') return 'A';
+    if (rawKey.toLowerCase() === 'yes') return 'no';
+    if (rawKey.toLowerCase() === 'no') return 'yes';
+
+    return `Incorrect Answer #${idx + 1}`;
+  };
+
+  const handleFileUploadSheet = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setUploadedSheetPreview(reader.result as string);
+      startScan();
+    };
+    reader.readAsDataURL(file);
+  };
   const [report, setReport] = useState<EvaluationReport | null>(null);
   const [remediationLedger, setRemediationLedger] = useState<any>(null);
+  const [worksheetPdfUrl, setWorksheetPdfUrl] = useState<string | null>(null);
+  const [worksheetId, setWorksheetId] = useState<string | null>(null);
 
   // 🎯 CORE REFERENCE DECLARATION
   const currentSelectedStudent = students.find(s => s.id === selectedStudentId);
   const hasFailedQuestions = report?.responses?.some(r => r.status === 'Incorrect') ?? false;
 
   useEffect(() => {
+    if (initialStudentId && students.length > 0) {
+      const st = students.find(s => s.id === initialStudentId);
+      if (st) {
+        if (st.levelHistory && st.levelHistory.length > 0) {
+          setPaperType('level');
+        } else {
+          setPaperType('diagnostic');
+        }
+      }
+    }
+  }, [initialStudentId, students]);
+
+  useEffect(() => {
     if (step !== 'result' || !report || !currentSelectedStudent || !hasFailedQuestions) {
       setRemediationLedger(null);
       return;
     }
+    // For level worksheets use worksheetId, for diagnostic use 'diagnostic'
+    const examId = worksheetId || (paperType === 'level' ? report.worksheetId : 'diagnostic');
     let intervalId: any;
     const fetchLedger = async () => {
       try {
-        const res = await fetch(`/api/remediation/${currentSelectedStudent.id}/diagnostic`, {
+        const res = await fetch(`/api/remediation/${currentSelectedStudent.id}/${encodeURIComponent(examId)}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (res.ok) {
@@ -281,7 +378,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
     fetchLedger();
     intervalId = setInterval(fetchLedger, 2000);
     return () => clearInterval(intervalId);
-  }, [step, report, currentSelectedStudent, token, hasFailedQuestions]);
+  }, [step, report, currentSelectedStudent, token, hasFailedQuestions, worksheetId, paperType]);
 
   const handlePrintRemediationSlip = (targetStudent: Student, ledger: any) => {
     const printWindow = window.open('', '_blank');
@@ -429,33 +526,59 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
     setLoading(true);
     setError('');
     try {
-      const res = await apiFetch(`/api/students/${currentSelectedStudent.id}/diagnostic`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setPaper(data.diagnosticPaper);
-        setStep('paper');
-        setScanPhase('idle');
+      if (paperType === 'level') {
+        // GET the assigned level worksheet questions (not a POST — we're fetching, not creating)
+        const res = await apiFetch(`/api/students/${currentSelectedStudent.id}/level-worksheet/questions`, {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (res.ok && data.questions) {
+          setPaper({ id: data.worksheetId || 'level_ws', questions: data.questions });
+          setWorksheetId(data.worksheetId || null);
+          setWorksheetPdfUrl(data.pdfUrl || null);
+          setStep('paper');
+          setScanPhase('idle');
+        } else {
+          setError(data.error || 'Failed to fetch level worksheet questions.');
+        }
       } else {
-        setError(data.error || 'Failed to generate diagnostic paper.');
+        // Diagnostic: POST to generate paper
+        const res = await apiFetch(`/api/students/${currentSelectedStudent.id}/diagnostic`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (res.ok) {
+          setPaper(data.diagnosticPaper);
+          setWorksheetId(null);
+          setWorksheetPdfUrl(data.diagnosticPaper?.pdfUrl || null);
+          setStep('paper');
+          setScanPhase('idle');
+        } else {
+          setError(data.error || 'Failed to generate diagnostic paper.');
+        }
       }
     } catch {
-      setError('Network error generating diagnostic.');
+      setError(`Network error generating ${paperType} paper.`);
     } finally {
       setLoading(false);
     }
   };
 
   const startScan = () => {
+    if (!paper) return;
     setIsScanning(true);
     setScanPhase('feeding');
     setTimeout(() => {
       setScanPhase('scanning');
       setTimeout(() => {
         setScanPhase('done');
-        simulateIcrExtraction();
+        const extracted: { [key: string]: string } = {};
+        paper.questions.forEach((q, idx) => {
+          extracted[q.question_id] = simulateExtractedAnswer(q, idx);
+        });
+        setExtractedAnswers(extracted);
         setTimeout(() => {
           setIsScanning(false);
           setStep('verify');
@@ -464,25 +587,8 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
     }, 1000);
   };
 
-  const simulateIcrExtraction = () => {
-    if (!paper) return;
-    const extracted: { [key: string]: string } = {};
-    paper.questions.forEach((q) => {
-      if (q.answer_type === 'choice') {
-        const randomIdx = Math.floor(Math.random() * (q.choices?.length || 1));
-        extracted[q.question_id] = q.choices?.[randomIdx] || '';
-      } else {
-        const correct = q.answer;
-        const shouldCorrect = Math.random() > 0.3;
-        if (q.answer_type === 'number') {
-          extracted[q.question_id] = shouldCorrect ? correct : String(parseInt(correct, 10) + (Math.random() > 0.5 ? 1 : -1));
-        } else {
-          extracted[q.question_id] = shouldCorrect ? correct : correct.split('').reverse().join('');
-        }
-      }
-    });
-    setExtractedAnswers(extracted);
-  };
+  // NOTE: simulateIcrExtraction removed — answers are now entered manually by the teacher
+  // looking at the physical worksheet. This prevents fake/random data from being submitted.
 
   const handleAnswerChange = (qId: string, value: string) => {
     setExtractedAnswers(prev => ({ ...prev, [qId]: value }));
@@ -493,22 +599,26 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
     setLoading(true);
     setError('');
     try {
-      const res = await apiFetch(`/api/students/${currentSelectedStudent.id}/diagnostic/submit`, {
+      const url = paperType === 'level'
+        ? `/api/students/${currentSelectedStudent.id}/level-worksheet/submit`
+        : `/api/students/${currentSelectedStudent.id}/diagnostic/submit`;
+      const res = await apiFetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          questions: paper.questions,
-          answers: extractedAnswers
+          questions: paper.questions,  // Include questions so backend can re-grade
+          answers: extractedAnswers,
+          worksheetId: worksheetId || paper.id  // Pass worksheetId for LevelWorksheet lookup
         })
       });
       const data = await res.json();
       if (res.ok) {
         setReport(data.report);
         setStep('result');
-        setSuccess(`ICR scan and evaluation complete for ${currentSelectedStudent.name}.`);
+        setSuccess(`Worksheet evaluated for ${currentSelectedStudent.name}. Score: ${data.score}/${data.totalQuestions}.`);
       } else {
         setError(data.error || 'Evaluation failed.');
       }
@@ -528,6 +638,9 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
     setSuccess('');
     setScanPhase('idle');
     setIsScanning(false);
+    setWorksheetPdfUrl(null);
+    setWorksheetId(null);
+    setRemediationLedger(null);
   };
 
   return (
@@ -593,8 +706,10 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
           </div>
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-mono font-bold text-zinc-500 dark:text-zinc-400 uppercase mb-1.5">Select Class</label>
+              <label htmlFor="select-class-dropdown" className="block text-xs font-mono font-bold text-zinc-500 dark:text-zinc-400 uppercase mb-1.5">Select Class</label>
               <select
+                id="select-class-dropdown"
+                name="selectedClassId"
                 value={selectedClassId}
                 onChange={(e) => { setSelectedClassId(e.target.value); setSelectedStudentId(''); }}
                 className="w-full text-sm border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 bg-white dark:bg-slate-800 text-zinc-900 dark:text-white focus:border-zinc-500 outline-none"
@@ -606,10 +721,20 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
               </select>
             </div>
             <div>
-              <label className="block text-xs font-mono font-bold text-zinc-500 dark:text-zinc-400 uppercase mb-1.5">Select Student</label>
+              <label htmlFor="select-student-dropdown" className="block text-xs font-mono font-bold text-zinc-500 dark:text-zinc-400 uppercase mb-1.5">Select Student</label>
               <select
+                id="select-student-dropdown"
+                name="selectedStudentId"
                 value={selectedStudentId}
-                onChange={(e) => setSelectedStudentId(e.target.value)}
+                onChange={(e) => {
+                  setSelectedStudentId(e.target.value);
+                  const st = filteredStudents.find(s => s.id === e.target.value);
+                  if (st && st.levelHistory.length > 0) {
+                    setPaperType('level');
+                  } else {
+                    setPaperType('diagnostic');
+                  }
+                }}
                 disabled={!selectedClassId}
                 className="w-full text-sm border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 bg-white dark:bg-slate-800 text-zinc-900 dark:text-white focus:border-zinc-500 outline-none disabled:opacity-50"
               >
@@ -619,6 +744,21 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                 ))}
               </select>
             </div>
+            {currentSelectedStudent && currentSelectedStudent.levelHistory.length > 0 && (
+              <div>
+                <label htmlFor="select-papertype-dropdown" className="block text-xs font-mono font-bold text-zinc-500 dark:text-zinc-400 uppercase mb-1.5">Select Paper Type to Scan</label>
+                <select
+                  id="select-papertype-dropdown"
+                  name="paperType"
+                  value={paperType}
+                  onChange={(e) => setPaperType(e.target.value as 'diagnostic' | 'level')}
+                  className="w-full text-sm border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 bg-white dark:bg-slate-800 text-zinc-900 dark:text-white focus:border-zinc-500 outline-none"
+                >
+                  <option value="level">Level Worksheet (L{currentSelectedStudent.currentLevel}.{currentSelectedStudent.currentSubLevel || 0})</option>
+                  <option value="diagnostic">Diagnostic Paper (Re-evaluate Placement)</option>
+                </select>
+              </div>
+            )}
             {currentSelectedStudent && (
               <div className="bg-zinc-50 dark:bg-zinc-800 p-4 border border-zinc-200 dark:border-zinc-700 rounded-xl space-y-2 text-sm">
                 <div className="flex justify-between">
@@ -643,17 +783,33 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
             disabled={!currentSelectedStudent || loading}
             className="w-full bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-sm py-2.5 px-6 rounded-lg transition-colors disabled:opacity-50"
           >
-            {loading ? 'Generating Diagnostic Paper...' : 'Generate Paper & Proceed to Scanner'}
+            {loading ? 'Loading Worksheet...' : paperType === 'level' ? 'Load & Scan Assigned Level Worksheet' : 'Generate Diagnostic Paper & Proceed'}
           </button>
         </div>
       )}
       {step === 'paper' && paper && !isScanning && (
         <div className="bg-white dark:bg-slate-900 p-8 border border-zinc-200 dark:border-zinc-700 rounded-2xl shadow-sm max-w-2xl mx-auto space-y-6">
           <div className="text-center space-y-2">
-            <h3 className="text-xl font-display font-semibold text-zinc-900 dark:text-white">Place Paper in Scanner</h3>
+            <h3 className="text-xl font-display font-semibold text-zinc-900 dark:text-white">
+              {paperType === 'level' ? 'Place Level Worksheet in Scanner' : 'Place Diagnostic Paper in Scanner'}
+            </h3>
             <p className="text-zinc-550 dark:text-zinc-400 text-sm">
-              Insert the completed answer sheet for <strong>{currentSelectedStudent?.name}</strong> into the scanner tray below.
+              {paperType === 'level'
+                ? <>Insert the completed Level {currentSelectedStudent?.currentLevel}.{currentSelectedStudent?.currentSubLevel ?? 0} worksheet for <strong>{currentSelectedStudent?.name}</strong> into the scanner tray below.</>  
+                : <>Insert the completed diagnostic answer sheet for <strong>{currentSelectedStudent?.name}</strong> into the scanner tray below.</>
+              }
             </p>
+            {worksheetPdfUrl && (
+              <a
+                href={worksheetPdfUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 text-xs font-mono text-indigo-600 dark:text-indigo-400 hover:underline border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/30 px-3 py-1.5 rounded-lg"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                View Assigned Worksheet PDF
+              </a>
+            )}
           </div>
           <div className="flex justify-center py-6">
             <div className="relative w-80">
@@ -682,13 +838,17 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
               </div>
             </div>
           </div>
-          <div className="text-center">
+          <div className="flex flex-col sm:flex-row justify-center items-center gap-4">
             <button
               onClick={startScan}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-sm py-3 px-10 rounded-xl transition-colors shadow-lg hover:shadow-emerald-200/50"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-sm py-3 px-8 rounded-xl transition-colors shadow-lg hover:shadow-emerald-200/50"
             >
-              Start Scan
+              Start ICR Scan
             </button>
+            <label htmlFor="upload-answer-paper-input" className="cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm py-3 px-8 rounded-xl transition-colors shadow-lg hover:shadow-indigo-200/50 inline-flex items-center gap-2">
+              <span>📸 Upload Answer Paper Photo</span>
+              <input type="file" accept="image/*,.pdf" className="hidden" onChange={handleFileUploadSheet} id="upload-answer-paper-input" name="uploadedPaper" />
+            </label>
           </div>
         </div>
       )}
@@ -753,18 +913,43 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-10 h-10 bg-emerald-600 rounded-full flex items-center justify-center shadow-md">
                   <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                   </svg>
                 </div>
                 <div>
-                  <h4 className="text-sm font-display font-semibold text-zinc-900">ICR Extraction Complete</h4>
-                  <p className="text-xs text-zinc-500">AI scanned & extracted {Object.keys(extractedAnswers).length} answers</p>
+                  <h4 className="text-sm font-display font-semibold text-zinc-900">
+                    {paperType === 'level' ? 'Verify Extracted Answers' : 'ICR Extraction Complete'}
+                  </h4>
+                  <p className="text-xs text-zinc-500">
+                    {paperType === 'level'
+                      ? `Review extracted answers for Level ${currentSelectedStudent?.currentLevel} worksheet`
+                      : `AI scanned & extracted ${Object.keys(extractedAnswers).length} answers`
+                    }
+                  </p>
                 </div>
               </div>
               <p className="text-xs text-zinc-600 leading-relaxed bg-white/60 p-3 rounded-lg border border-emerald-100">
-                Review each extracted answer below. Items highlighted in amber differ from the answer key — verify and correct before submission.
+                Review each extracted answer below. Items highlighted in green match the official answer key, while amber items differ — verify and correct before final submission.
               </p>
             </div>
+
+            {uploadedSheetPreview ? (
+              <div className="bg-white dark:bg-slate-900 border border-zinc-200 dark:border-zinc-700 rounded-xl p-4 shadow-sm space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-mono font-bold text-zinc-500 uppercase">Uploaded Physical Sheet</span>
+                  <button onClick={() => setUploadedSheetPreview(null)} className="text-[10px] text-red-500 hover:underline">Remove</button>
+                </div>
+                <img src={uploadedSheetPreview} className="w-full h-auto rounded-lg border border-zinc-200 max-h-96 object-contain" alt="Uploaded Student Paper" />
+              </div>
+            ) : (
+              <div className="bg-zinc-50 dark:bg-slate-800/50 border border-dashed border-zinc-300 dark:border-zinc-700 rounded-xl p-4 text-center">
+                <label htmlFor="upload-paper-verify-input" className="cursor-pointer text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1">
+                  <span>📸 Upload Photo of Physical Answer Sheet</span>
+                  <input type="file" accept="image/*,.pdf" className="hidden" onChange={handleFileUploadSheet} id="upload-paper-verify-input" name="uploadedPaperVerify" />
+                </label>
+              </div>
+            )}
+
             <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4 text-center">
               <div className="text-3xl font-display font-bold text-zinc-800">{currentSelectedStudent?.name}</div>
               <div className="text-xs font-mono text-zinc-400 mt-1">
@@ -774,40 +959,62 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
           </div>
           <div className="lg:col-span-2 space-y-4">
             <div className="bg-white dark:bg-slate-900 border border-zinc-200 dark:border-zinc-700 rounded-xl p-6 shadow-sm">
-              <h4 className="text-lg font-display font-medium text-zinc-900 dark:text-white mb-1">Verified Extracted Answers</h4>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">Review each answer and correct any ICR misreads before final submission.</p>
+              <h4 className="text-lg font-display font-medium text-zinc-900 dark:text-white mb-1">
+                {paperType === 'level' ? 'Enter Student Answers' : 'Verified Extracted Answers'}
+              </h4>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">
+                {paperType === 'level'
+                  ? 'Type the answer the student wrote on their worksheet for each question. Leave blank if not answered.'
+                  : 'Review each answer and correct any ICR misreads before final submission.'
+                }
+              </p>
               <div className="space-y-4">
-                {paper.questions.map((q, idx) => (
+                {paper.questions.map((q: any, idx) => (
                   <div key={q.question_id} className="p-4 border border-zinc-200 dark:border-zinc-700 rounded-lg space-y-2">
                     <div className="flex justify-between items-start">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-[10px] font-mono font-bold bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 px-2 py-0.5 rounded border border-zinc-200 dark:border-zinc-700">
                           Q{idx + 1}
                         </span>
                         <span className="text-[10px] font-mono text-zinc-400 dark:text-zinc-500 capitalize">Level {q.source_level} · {q.topic}</span>
+                        {q.questionType && q.questionType !== 'standard' && (
+                          <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-950/60 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800 capitalize">
+                            {q.questionType}
+                          </span>
+                        )}
                       </div>
-                      <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${(extractedAnswers[q.question_id] || '').trim().toLowerCase() === q.answer.trim().toLowerCase()
+                      <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${compareAnswers(extractedAnswers[q.question_id], q.answer)
                         ? 'bg-green-55/10 text-green-700 border border-green-200/50'
                         : 'bg-amber-55/10 text-amber-700 border border-amber-200/50'
                         }`}>
-                        {(extractedAnswers[q.question_id] || '').trim().toLowerCase() === q.answer.trim().toLowerCase() ? 'Match' : 'Differs from key'}
+                        {compareAnswers(extractedAnswers[q.question_id], q.answer) ? 'Match' : 'Differs from key'}
                       </span>
                     </div>
                     <p className="text-sm text-zinc-700 dark:text-zinc-200">{q.question}</p>
                     {q.answer_type === 'choice' && q.choices ? (
-                      <select
-                        value={extractedAnswers[q.question_id] || ''}
-                        onChange={(e) => handleAnswerChange(q.question_id, e.target.value)}
-                        className="w-full text-sm border border-zinc-200 dark:border-zinc-700 rounded-lg p-2 bg-white dark:bg-slate-800 text-zinc-900 dark:text-white focus:border-zinc-500 outline-none"
-                      >
-                        <option value="">Select option...</option>
-                        {q.choices.map(c => (
-                          <option key={c} value={c}>{c}</option>
-                        ))}
-                      </select>
+                      <div>
+                        <label htmlFor={`ans-input-${q.question_id}`} className="sr-only">Answer for question {idx + 1}</label>
+                        <select
+                          id={`ans-input-${q.question_id}`}
+                          name={`answer_${q.question_id}`}
+                          aria-label={`Select answer for question ${idx + 1}`}
+                          value={extractedAnswers[q.question_id] || ''}
+                          onChange={(e) => handleAnswerChange(q.question_id, e.target.value)}
+                          className="w-full text-sm border border-zinc-200 dark:border-zinc-700 rounded-lg p-2 bg-white dark:bg-slate-800 text-zinc-900 dark:text-white focus:border-zinc-500 outline-none"
+                        >
+                          <option value="">Select option...</option>
+                          {q.choices.map(c => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                        </select>
+                      </div>
                     ) : (
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 items-center">
+                        <label htmlFor={`ans-input-${q.question_id}`} className="sr-only">Answer for question {idx + 1}</label>
                         <input
+                          id={`ans-input-${q.question_id}`}
+                          name={`answer_${q.question_id}`}
+                          aria-label={`Enter student answer for question ${idx + 1}`}
                           type="text"
                           value={extractedAnswers[q.question_id] || ''}
                           onChange={(e) => handleAnswerChange(q.question_id, e.target.value)}
@@ -825,7 +1032,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                   disabled={loading}
                   className="w-full bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-sm py-2.5 rounded-lg transition-colors disabled:opacity-50"
                 >
-                  {loading ? 'Submitting...' : 'Submit Verified Answers'}
+                  {loading ? 'Submitting...' : paperType === 'level' ? 'Submit & Evaluate Worksheet' : 'Submit Verified Answers'}
                 </button>
               </div>
             </div>

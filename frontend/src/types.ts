@@ -117,6 +117,9 @@ export interface EvaluationReport {
   id: string;
   studentId: string;
   worksheetId: string;
+  worksheetType?: 'diagnostic' | 'level';
+  levelId?: number;
+  sublevelId?: number;
   score: number;
   totalQuestions: number;
   conceptMastery: { [topic: string]: 'Strong' | 'Needs Practice' | 'Satisfactory' };

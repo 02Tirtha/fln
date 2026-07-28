@@ -54,6 +54,62 @@ export class RemediationController {
         return;
       }
 
+      // AUTO-FIX: if any response has empty practiceQuestions (stale old data), fill them now
+      if (ledger.remediationStatus === 'completed') {
+        let needsFix = false;
+        let qIdx = 0;
+        const responses = (ledger.responses || []).map((r: any) => {
+          const isWrongShapeAssigned = !/shape/i.test(r.originalQuestion || '') &&
+            r.practiceQuestions?.some((pq: any) => /corners on a square|Identify shape|pentagon|no straight sides/i.test(pq.question));
+
+          const isWrongDivisionAssigned = /greater than|less than|compare/i.test(r.originalQuestion || '') &&
+            r.practiceQuestions?.some((pq: any) => /Divide|quotient|÷/i.test(pq.question));
+
+          const isWrongMultiplicationAssigned = /frequency table|frequency|tally|clock|greater than|less than/i.test(r.originalQuestion || '') &&
+            r.practiceQuestions?.some((pq: any) => /Express as multiplication|factor of 12|multiple of 5/i.test(pq.question));
+
+          const isWrongEqualGroupsAssigned = /equal groups|count equal/i.test(r.originalQuestion || '') &&
+            r.practiceQuestions?.some((pq: any) => /What number comes AFTER|Which number is LARGER/i.test(pq.question));
+
+          const isWrongMeasurementAssigned = /measurement-mixed-mcq|mixed-mcq/i.test(r.originalQuestion || '') &&
+            r.practiceQuestions?.some((pq: any) => /Convert meters|Convert kilograms|Convert 500 cm/i.test(pq.question));
+
+          const isStaleOrInvalid = !r.practiceQuestions || r.practiceQuestions.length === 0 || isWrongShapeAssigned || isWrongDivisionAssigned || isWrongMultiplicationAssigned || isWrongEqualGroupsAssigned || isWrongMeasurementAssigned ||
+            r.practiceQuestions.some((pq: any) =>
+              /Numeric practice for/i.test(pq.question) ||
+              /Practice for/i.test(pq.question) ||
+              /Sample #/i.test(pq.question) ||
+              pq.question === r.originalQuestion
+            );
+
+          if (isStaleOrInvalid) {
+            needsFix = true;
+            const origQ = r.originalQuestion || `Question #${r.questionNumber}`;
+            const concept = r.conceptName || 'Mathematics';
+            const qType = r.questionType || 'standard';
+            const baseOffset = qIdx * 5;
+            qIdx++;
+            return {
+              ...r,
+              practiceQuestions: remediationService.getInlineFallback(origQ, concept, qType, baseOffset)
+                .map((b: any) => ({ question: b.question, answer: b.answer, generatedAt: new Date() }))
+            };
+          }
+          qIdx++;
+          return r;
+        });
+
+        if (needsFix) {
+          console.log(`[RemediationController] Auto-fixing stale empty practiceQuestions for ledger ${ledger.id}`);
+          ledger = { ...ledger, responses } as any;
+          // Save the fix back to DB asynchronously
+          RemediationLedger.updateOne(
+            { studentId, examId },
+            { $set: { responses } }
+          ).exec().catch(err => console.warn('[RemediationController] Could not save auto-fix:', err));
+        }
+      }
+
       res.status(200).json({ success: true, data: ledger });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });

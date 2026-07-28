@@ -1915,13 +1915,20 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
     );
   }
 
+  const [scannerStudentId, setScannerStudentId] = useState<string | undefined>(undefined);
+  const [scannerClassId, setScannerClassId] = useState<string | undefined>(undefined);
+
   if (showIcrScanner) {
     return (
       <IcrScanner
         token={token}
         user={user}
+        initialStudentId={scannerStudentId}
+        initialClassId={scannerClassId}
         onBack={() => {
           setShowIcrScanner(false);
+          setScannerStudentId(undefined);
+          setScannerClassId(undefined);
           fetchTeacherData();
         }}
       />
@@ -2412,6 +2419,17 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
                           >
                             🌐 Interactive
                           </a>
+                          <button
+                            onClick={() => {
+                              setScannerStudentId(s.id);
+                              setScannerClassId(activeClass?.id);
+                              setShowIcrScanner(true);
+                            }}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-[9px] font-bold px-2 py-0.5 rounded cursor-pointer transition-all active:scale-95"
+                            title="Automatically grade this student's worksheet using ICR Scanner"
+                          >
+                            Scan Worksheet
+                          </button>
                         </div>
                       )
                     }
@@ -2631,13 +2649,20 @@ export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) =>
     );
   }
 
+  const [scannerStudentId, setScannerStudentId] = useState<string | undefined>(undefined);
+  const [scannerClassId, setScannerClassId] = useState<string | undefined>(undefined);
+
   if (showIcrScanner) {
     return (
       <IcrScanner
         token={token}
         user={user}
+        initialStudentId={scannerStudentId}
+        initialClassId={scannerClassId}
         onBack={() => {
           setShowIcrScanner(false);
+          setScannerStudentId(undefined);
+          setScannerClassId(undefined);
           fetchVolunteerData();
         }}
       />
@@ -3074,6 +3099,17 @@ export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) =>
                           >
                             🌐 Interactive
                           </a>
+                          <button
+                            onClick={() => {
+                              setScannerStudentId(s.id);
+                              setScannerClassId(activeClass?.id);
+                              setShowIcrScanner(true);
+                            }}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-[9px] font-bold px-2 py-0.5 rounded cursor-pointer transition-all active:scale-95"
+                            title="Automatically grade this student's worksheet using ICR Scanner"
+                          >
+                            Scan Worksheet
+                          </button>
                         </div>
                       )
                     }

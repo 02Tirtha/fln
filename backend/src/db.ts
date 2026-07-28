@@ -107,6 +107,7 @@ export interface Question {
   difficulty: 'easy' | 'medium' | 'hard';
   source_level: number; // Mapping to mathematical level
   svgAsset?: string; // Standard pre-built SVG asset category
+  questionType?: string; // clock, tally, image, match, standard, etc.
 }
 
 /**
@@ -177,7 +178,11 @@ export interface AnswerSubmission {
 export interface EvaluationReport {
   id: string;
   studentId: string;
+  studentName?: string; // Optional: used when enriching reports for display
   worksheetId: string;
+  worksheetType?: 'diagnostic' | 'level'; // Distinguishes report source
+  levelId?: number;       // Level number (1-59) for level-wise grouping
+  sublevelId?: string;    // e.g. "12.1", "12.2" for sub-level grouping
   score: number;
   totalQuestions: number;
   conceptMastery: { [topic: string]: 'Strong' | 'Needs Practice' | 'Satisfactory' };
@@ -187,6 +192,7 @@ export interface EvaluationReport {
   timestamp: string;
   responses?: any[];
 }
+
 
 export interface Ticket {
   id: string;
@@ -386,11 +392,21 @@ export class DBStore {
 
   getUserSync(email: string): User | null {
     if (!this.data || !this.data.users) return null;
-    return this.data.users.find(u => u.email.toLowerCase() === email.toLowerCase()) || null;
+    const found = this.data.users.find(u => u.email.toLowerCase() === email.toLowerCase()) || null;
+    if (found && !found.passwordHash) {
+      found.passwordHash = SEED_DEMO_PASSWORD_HASH;
+    }
+    return found;
   }
 
   async getUsers() {
-    if (this.mongoDb) return await this.mongoDb.collection<User>('users').find({}).toArray();
+    if (this.mongoDb) {
+      const list = await this.mongoDb.collection<User>('users').find({}).toArray();
+      return list.map(u => {
+        if (!u.passwordHash) u.passwordHash = SEED_DEMO_PASSWORD_HASH;
+        return u;
+      });
+    }
     return Promise.resolve((this.data?.users || []) as User[]);
   }
   async getSchools() {

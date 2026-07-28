@@ -508,6 +508,9 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
     }
   };
   const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
+  const [expandedLevelReportId, setExpandedLevelReportId] = useState<string | null>(null);
+  const [reportSubTab, setReportSubTab] = useState<'diagnostic' | 'worksheet'>('diagnostic');
+  const [evalReportTab, setEvalReportTab] = useState<'diagnostic' | 'worksheet'>('diagnostic');
   const [sel, setSel] = useState('');
   const [profileTab, setProfileTab] = useState<'overview' | 'academic' | 'personal' | 'activity'>('overview');
   const [searchQuery, setSearchQuery] = useState('');
@@ -1069,7 +1072,7 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
                   <div className="fixed inset-0 z-10" onClick={() => setShowDropdown(false)} />
                   <div className="absolute right-0 top-full mt-1 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-20 overflow-hidden">
                     <div className="p-2 border-b border-slate-100 dark:border-slate-800">
-                      <input autoFocus value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search students..." className="w-full text-sm border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 outline-none focus:border-indigo-400 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
+                      <input id="student-search-input" name="studentSearch" aria-label="Search students" autoFocus value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search students..." className="w-full text-sm border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 outline-none focus:border-indigo-400 bg-white dark:bg-slate-800 text-slate-900 dark:text-white" />
                     </div>
                     <div className="max-h-56 overflow-y-auto">
                       {filteredStudents.length === 0 ? (
@@ -1349,188 +1352,430 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
               </div>
             </div>
             <div className="lg:col-span-2 space-y-4">
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm">
-                <h3 className="text-xs font-mono font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-4">All Assessment Reports</h3>
-                {reports.length > 0 ? <div className="space-y-4">{reports.map(r => {
-                    const scorePct = Math.min(100, Math.max(0, Number(r.score) || 0));                  return (
-                    <div key={r.id} className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-3 hover:border-slate-300 dark:hover:border-slate-600 transition-colors">
-                      <div className="flex justify-between items-center">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs ${scorePct >= 80 ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300' : scorePct >= 60 ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300' : 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300'}`}>{scorePct}%</div>
-                          <div><span className="text-sm font-semibold text-slate-900 dark:text-white">{r.worksheetId}</span><div className="text-[10px] text-slate-400 dark:text-slate-500">{new Date(r.timestamp).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</div></div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${scorePct >= 80 ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' : scorePct >= 60 ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800' : 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'}`}>{r.score}/{r.totalQuestions}</span>
-                        </div>
-                      </div>
-                      <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">{r.narrative}</p>
-                      <div className="flex flex-wrap gap-1.5">{Object.entries(r.conceptMastery).map(([t, m]) => (
-                        <span key={t} className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded ${m === 'Strong' ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' : m === 'Satisfactory' ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800' : 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'}`}>{t}: {m}</span>
-                      ))}</div>
+              {/* Report Sub-Tabs Bar */}
+              <div className="flex border-b border-slate-200 dark:border-slate-700 gap-2">
+                <button
+                  id="report-diagnostic-tab-btn"
+                  name="reportDiagnosticTab"
+                  onClick={() => setReportSubTab('diagnostic')}
+                  className={`px-4 py-2.5 text-xs font-bold font-mono rounded-t-lg border-b-2 transition-all flex items-center gap-2 ${
+                    reportSubTab === 'diagnostic'
+                      ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/40'
+                      : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <span>📊 Diagnostic Reports</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 font-bold">
+                    {reports.filter(r => r.worksheetType !== 'level' && !r.worksheetId?.startsWith('WS-L')).length}
+                  </span>
+                </button>
 
-                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
-                        <button onClick={() => setExpandedReportId(expandedReportId === r.id ? null : r.id)} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
-                          {expandedReportId === r.id ? 'Hide Exam Sheet' : '📋 View Student Exam Responses'}
-                        </button>
-                        <div className="flex gap-4">
-                          <button onClick={() => {
-                            const examResponses = r.responses || (s.id === 's1' ? [
-                              { question: 'Q1: Match objects one-to-one (One-to-One Correspondence)', studentAnswer: '3 (incorrect match count)', correctAnswer: 'Matched all 5 items', status: 'Incorrect' },
-                              { question: 'Q2: Odd One Out - Select non-conforming object from [ball, book, table, pen]', studentAnswer: 'B (Book)', correctAnswer: 'table (furniture classification)', status: 'Incorrect' },
-                              { question: 'Q3: Single Digit Addition - Solve: 5 + 4 = ?', studentAnswer: '9', correctAnswer: '9', status: 'Correct' },
-                              { question: 'Q4: Single Digit Subtraction - Solve: 8 - 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' },
-                              { question: 'Q5: Identify shape with 3 corners and 3 straight sides', studentAnswer: 'Triangle', correctAnswer: 'Triangle', status: 'Correct' }
-                            ] : s.id === 's2' ? [
-                              { question: 'Q1: Counting up to 10 - Count the apples: 🍎🍎🍎🍎', studentAnswer: '4', correctAnswer: '4', status: 'Correct' },
-                              { question: 'Q2: Odd One Out - Select non-matching item: [square, circle, red-block, triangle]', studentAnswer: 'red-block', correctAnswer: 'red-block', status: 'Correct' },
-                              { question: 'Q3: Pattern recognition - What comes next in sequence: 🔴🔵🔴🔵 ?', studentAnswer: '🔵', correctAnswer: '🔴', status: 'Incorrect' },
-                              { question: 'Q4: Simple Addition - Solve: 3 + 2 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
-                            ] : [
-                              { question: 'Q1: Place Value Designation - What is the value of 7 in 372?', studentAnswer: '70 (7 tens)', correctAnswer: '70', status: 'Correct' },
-                              { question: 'Q2: Single-Digit Multiplication - Solve: 6 × 3 = ?', studentAnswer: '18', correctAnswer: '18', status: 'Correct' },
-                              { question: 'Q3: Double-Digit Subtraction with Borrowing - Solve: 42 - 17 = ?', studentAnswer: '25', correctAnswer: '25', status: 'Correct' },
-                              { question: 'Q4: Simple Division - Solve: 15 ÷ 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
-                            ]);
-                            handleDownloadPDF(s, r, examResponses);
-                          }} className="text-xs font-semibold text-emerald-650 hover:text-emerald-850 flex items-center gap-1">
-                            📥 Download PDF Report
-                          </button>
-                          {(() => {
-                            const ledger = remediationLedgers.find(l => l.examId === r.worksheetId);
-                            if (scorePct >= 100) {
-                              return <span className="text-[10px] text-slate-400 font-mono">100% Mastery - No Remediation Needed</span>;
-                            }
-                            if (!ledger) {
-                              return (
-                                <button
-                                  onClick={async () => {
-                                    try {
-                                      const res = await fetch('/api/remediation/generate', {
-                                        method: 'POST',
-                                        headers: {
-                                          'Content-Type': 'application/json',
-                                          'Authorization': `Bearer ${token}`
-                                        },
-                                        body: JSON.stringify({
-                                          studentId: s.id,
-                                          examId: r.worksheetId,
-                                          failedQuestionNums: (r.responses || []).filter((x: any) => x.status === 'Incorrect' || !x.isCorrect).map((_: any, idx: number) => idx + 1)
-                                        })
-                                      });
-                                      const d = await res.json();
-                                      if (d.success) {
-                                        fetchLedgers();
-                                      } else {
-                                        alert(d.error || 'Failed to trigger remediation');
-                                      }
-                                    } catch (err) {
-                                      console.error(err);
-                                    }
-                                  }}
-                                  className="text-xs font-semibold text-indigo-650 hover:text-indigo-850 flex items-center gap-1"
-                                >
-                                  🚀 Start Remediation
-                                </button>
-                              );
-                            }
-                            if (ledger.remediationStatus === 'generating' || ledger.remediationStatus === 'pending') {
-                              return (
-                                <span className="text-xs font-semibold text-amber-600 animate-pulse flex items-center gap-1">
-                                  ⏳ Generating Practice...
-                                </span>
-                              );
-                            }
-                            if (ledger.remediationStatus === 'failed') {
-                              return (
-                                <button
-                                  onClick={async () => {
-                                    try {
-                                      const res = await fetch(`/api/remediation/ledgers/${ledger.id}/generate`, {
-                                        method: 'POST',
-                                        headers: { 'Authorization': `Bearer ${token}` }
-                                      });
-                                      const d = await res.json();
-                                      if (d.success) {
-                                        fetchLedgers();
-                                      }
-                                    } catch (err) {
-                                      console.error(err);
-                                    }
-                                  }}
-                                  className="text-xs font-semibold text-red-650 hover:text-red-800"
-                                >
-                                  ⚠️ Retry Remediation
-                                </button>
-                              );
-                            }
-                            return (
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={() => handleViewRemediationNotes(s.name, s.id, r.worksheetId)}
-                                  className="text-xs font-semibold text-blue-650 hover:text-blue-850 flex items-center gap-1"
-                                >
-                                  📋 View Remediation Notes
-                                </button>
-                                <button
-                                  onClick={() => handlePrintRemediationSlip(s, ledger)}
-                                  className="text-xs font-semibold text-indigo-650 hover:text-indigo-850 flex items-center gap-1"
-                                >
-                                  🖨️ Print Remediation Slip
-                                </button>
-                              </div>
-                            );
-                          })()}
-                          <button onClick={() => handleDeleteReport(r.id)} className="text-xs font-semibold text-red-650 hover:text-red-800 flex items-center gap-1">
-                            🗑️ Clear Report
-                          </button>
-                        </div>
-                      </div>
-
-                      {expandedReportId === r.id && (
-                        <div className="mt-3 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden bg-slate-50 dark:bg-slate-800 text-xs">
-                          <div className="bg-slate-100 dark:bg-slate-800 px-3 py-2 font-bold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700">Side-by-Side Exam Grader Report</div>
-                          <div className="divide-y divide-slate-200 dark:divide-slate-700">
-                            {(r.responses || (s.id === 's1' ? [
-                              { question: 'Q1: Match objects one-to-one (One-to-One Correspondence)', studentAnswer: '3 (incorrect match count)', correctAnswer: 'Matched all 5 items', status: 'Incorrect' },
-                              { question: 'Q2: Odd One Out - Select non-conforming object from [ball, book, table, pen]', studentAnswer: 'B (Book)', correctAnswer: 'table (furniture classification)', status: 'Incorrect' },
-                              { question: 'Q3: Single Digit Addition - Solve: 5 + 4 = ?', studentAnswer: '9', correctAnswer: '9', status: 'Correct' },
-                              { question: 'Q4: Single Digit Subtraction - Solve: 8 - 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' },
-                              { question: 'Q5: Identify shape with 3 corners and 3 straight sides', studentAnswer: 'Triangle', correctAnswer: 'Triangle', status: 'Correct' }
-                            ] : s.id === 's2' ? [
-                              { question: 'Q1: Counting up to 10 - Count the apples: 🍎🍎🍎🍎', studentAnswer: '4', correctAnswer: '4', status: 'Correct' },
-                              { question: 'Q2: Odd One Out - Select non-matching item: [square, circle, red-block, triangle]', studentAnswer: 'red-block', correctAnswer: 'red-block', status: 'Correct' },
-                              { question: 'Q3: Pattern recognition - What comes next in sequence: 🔴🔵🔴🔵 ?', studentAnswer: '🔵', correctAnswer: '🔴', status: 'Incorrect' },
-                              { question: 'Q4: Simple Addition - Solve: 3 + 2 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
-                            ] : [
-                              { question: 'Q1: Place Value Designation - What is the value of 7 in 372?', studentAnswer: '70 (7 tens)', correctAnswer: '70', status: 'Correct' },
-                              { question: 'Q2: Single-Digit Multiplication - Solve: 6 × 3 = ?', studentAnswer: '18', correctAnswer: '18', status: 'Correct' },
-                              { question: 'Q3: Double-Digit Subtraction with Borrowing - Solve: 42 - 17 = ?', studentAnswer: '25', correctAnswer: '25', status: 'Correct' },
-                              { question: 'Q4: Simple Division - Solve: 15 ÷ 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
-                            ])).map((item: any, idx: number) => (
-                              <div key={idx} className="p-3 space-y-1">
-                                <div className="font-semibold text-slate-800 dark:text-slate-100">{item.question}</div>
-                                <div className="grid grid-cols-2 gap-2 mt-1 pt-1 border-t border-dotted border-slate-200 dark:border-slate-700">
-                                  <div>
-                                    <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-mono block">Student Response</span>
-                                    <span className={`font-medium ${item.status === 'Correct' ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>{item.studentAnswer}</span>
-                                  </div>
-                                  <div>
-                                    <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-mono block">Correct Keys</span>
-                                    <span className="font-medium text-slate-800 dark:text-slate-100">{item.correctAnswer}</span>
-                                  </div>
-                                </div>
-                                <div className="pt-1">
-                                  <span className={`inline-block px-1.5 py-0.5 text-[9px] font-bold font-mono rounded ${item.status === 'Correct' ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200' : 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200'}`}>{item.status === 'Correct' ? 'PASS' : 'FAIL'}</span>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}</div> : <div className="text-center py-8"><p className="text-xs text-slate-400 dark:text-slate-500">No assessment reports yet.</p></div>}
+                <button
+                  id="report-worksheet-tab-btn"
+                  name="reportWorksheetTab"
+                  onClick={() => setReportSubTab('worksheet')}
+                  className={`px-4 py-2.5 text-xs font-bold font-mono rounded-t-lg border-b-2 transition-all flex items-center gap-2 ${
+                    reportSubTab === 'worksheet'
+                      ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/40'
+                      : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <span>📝 Level Worksheet Results</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 font-bold">
+                    {reports.filter(r => r.worksheetType === 'level' || r.worksheetId?.startsWith('WS-L')).length}
+                  </span>
+                </button>
               </div>
+
+              {/* TAB 1: Diagnostic Assessment Reports */}
+              {reportSubTab === 'diagnostic' && (
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-xs font-mono font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                        Diagnostic Assessment Reports
+                      </h3>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        Baseline diagnostic exams, placement level assessments, and diagnostic grader results.
+                      </p>
+                    </div>
+                  </div>
+
+                  {(() => {
+                    const diagRpts = reports.filter(r => r.worksheetType !== 'level' && !r.worksheetId?.startsWith('WS-L'));
+                    if (diagRpts.length === 0) {
+                      return (
+                        <div className="text-center py-8 border border-dashed border-slate-200 dark:border-slate-800 rounded-lg">
+                          <p className="text-xs text-slate-400 dark:text-slate-500">No diagnostic assessment reports recorded yet.</p>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="space-y-4">
+                        {diagRpts.map(r => {
+                          const scorePct = Math.min(100, Math.max(0, Number(r.score) || 0));
+                          return (
+                            <div key={r.id} className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-3 hover:border-slate-300 dark:hover:border-slate-600 transition-colors">
+                              <div className="flex justify-between items-center">
+                                <div className="flex items-center gap-3">
+                                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs ${scorePct >= 80 ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300' : scorePct >= 60 ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300' : 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300'}`}>{scorePct}%</div>
+                                  <div><span className="text-sm font-semibold text-slate-900 dark:text-white">{r.worksheetId}</span><div className="text-[10px] text-slate-400 dark:text-slate-500">{new Date(r.timestamp).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</div></div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${scorePct >= 80 ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' : scorePct >= 60 ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800' : 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'}`}>{r.score}/{r.totalQuestions}</span>
+                                </div>
+                              </div>
+                              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">{r.narrative}</p>
+                              <div className="flex flex-wrap gap-1.5">{Object.entries(r.conceptMastery).map(([t, m]) => (
+                                <span key={t} className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded ${m === 'Strong' ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' : m === 'Satisfactory' ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800' : 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'}`}>{t}: {m}</span>
+                              ))}</div>
+
+                              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                                <button onClick={() => setExpandedReportId(expandedReportId === r.id ? null : r.id)} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
+                                  {expandedReportId === r.id ? 'Hide Exam Sheet' : '📋 View Student Exam Responses'}
+                                </button>
+                                <div className="flex gap-4">
+                                  <button onClick={() => {
+                                    const examResponses = r.responses || (s.id === 's1' ? [
+                                      { question: 'Q1: Match objects one-to-one (One-to-One Correspondence)', studentAnswer: '3 (incorrect match count)', correctAnswer: 'Matched all 5 items', status: 'Incorrect' },
+                                      { question: 'Q2: Odd One Out - Select non-conforming object from [ball, book, table, pen]', studentAnswer: 'B (Book)', correctAnswer: 'table (furniture classification)', status: 'Incorrect' },
+                                      { question: 'Q3: Single Digit Addition - Solve: 5 + 4 = ?', studentAnswer: '9', correctAnswer: '9', status: 'Correct' },
+                                      { question: 'Q4: Single Digit Subtraction - Solve: 8 - 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' },
+                                      { question: 'Q5: Identify shape with 3 corners and 3 straight sides', studentAnswer: 'Triangle', correctAnswer: 'Triangle', status: 'Correct' }
+                                    ] : s.id === 's2' ? [
+                                      { question: 'Q1: Counting up to 10 - Count the apples: 🍎🍎🍎🍎', studentAnswer: '4', correctAnswer: '4', status: 'Correct' },
+                                      { question: 'Q2: Odd One Out - Select non-matching item: [square, circle, red-block, triangle]', studentAnswer: 'red-block', correctAnswer: 'red-block', status: 'Correct' },
+                                      { question: 'Q3: Pattern recognition - What comes next in sequence: 🔴🔵🔴🔵 ?', studentAnswer: '🔵', correctAnswer: '🔴', status: 'Incorrect' },
+                                      { question: 'Q4: Simple Addition - Solve: 3 + 2 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
+                                    ] : [
+                                      { question: 'Q1: Place Value Designation - What is the value of 7 in 372?', studentAnswer: '70 (7 tens)', correctAnswer: '70', status: 'Correct' },
+                                      { question: 'Q2: Single-Digit Multiplication - Solve: 6 × 3 = ?', studentAnswer: '18', correctAnswer: '18', status: 'Correct' },
+                                      { question: 'Q3: Double-Digit Subtraction with Borrowing - Solve: 42 - 17 = ?', studentAnswer: '25', correctAnswer: '25', status: 'Correct' },
+                                      { question: 'Q4: Simple Division - Solve: 15 ÷ 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
+                                    ]);
+                                    handleDownloadPDF(s, r, examResponses);
+                                  }} className="text-xs font-semibold text-emerald-650 hover:text-emerald-850 flex items-center gap-1">
+                                    📥 Download PDF Report
+                                  </button>
+                                  {(() => {
+                                    const ledger = remediationLedgers.find(l => l.examId === r.worksheetId);
+                                    if (scorePct >= 100) {
+                                      return <span className="text-[10px] text-slate-400 font-mono">100% Mastery - No Remediation Needed</span>;
+                                    }
+                                    if (!ledger) {
+                                      return (
+                                        <button
+                                          onClick={async () => {
+                                            try {
+                                              const res = await fetch('/api/remediation/generate', {
+                                                method: 'POST',
+                                                headers: {
+                                                  'Content-Type': 'application/json',
+                                                  'Authorization': `Bearer ${token}`
+                                                },
+                                                body: JSON.stringify({
+                                                  studentId: s.id,
+                                                  examId: r.worksheetId,
+                                                  failedQuestionNums: (r.responses || []).filter((x: any) => x.status === 'Incorrect' || !x.isCorrect).map((_: any, idx: number) => idx + 1)
+                                                })
+                                              });
+                                              const d = await res.json();
+                                              if (d.success) {
+                                                fetchLedgers();
+                                              } else {
+                                                alert(d.error || 'Failed to trigger remediation');
+                                              }
+                                            } catch (err) {
+                                              console.error(err);
+                                            }
+                                          }}
+                                          className="text-xs font-semibold text-indigo-650 hover:text-indigo-850 flex items-center gap-1"
+                                        >
+                                          🚀 Start Remediation
+                                        </button>
+                                      );
+                                    }
+                                    if (ledger.remediationStatus === 'generating' || ledger.remediationStatus === 'pending') {
+                                      return (
+                                        <span className="text-xs font-semibold text-amber-600 animate-pulse flex items-center gap-1">
+                                          ⏳ Generating Practice...
+                                        </span>
+                                      );
+                                    }
+                                    if (ledger.remediationStatus === 'failed') {
+                                      return (
+                                        <button
+                                          onClick={async () => {
+                                            try {
+                                              const res = await fetch(`/api/remediation/ledgers/${ledger.id}/generate`, {
+                                                method: 'POST',
+                                                headers: { 'Authorization': `Bearer ${token}` }
+                                              });
+                                              const d = await res.json();
+                                              if (d.success) {
+                                                fetchLedgers();
+                                              }
+                                            } catch (err) {
+                                              console.error(err);
+                                            }
+                                          }}
+                                          className="text-xs font-semibold text-red-650 hover:text-red-800"
+                                        >
+                                          ⚠️ Retry Remediation
+                                        </button>
+                                      );
+                                    }
+                                    return (
+                                      <div className="flex items-center gap-2">
+                                        <button
+                                          onClick={() => handleViewRemediationNotes(s.name, s.id, r.worksheetId)}
+                                          className="text-xs font-semibold text-blue-650 hover:text-blue-850 flex items-center gap-1"
+                                        >
+                                          📋 View Remediation Notes
+                                        </button>
+                                        <button
+                                          onClick={() => handlePrintRemediationSlip(s, ledger)}
+                                          className="text-xs font-semibold text-indigo-650 hover:text-indigo-850 flex items-center gap-1"
+                                        >
+                                          🖨️ Print Remediation Slip
+                                        </button>
+                                      </div>
+                                    );
+                                  })()}
+                                  <button onClick={() => handleDeleteReport(r.id)} className="text-xs font-semibold text-red-650 hover:text-red-800 flex items-center gap-1">
+                                    🗑️ Clear Report
+                                  </button>
+                                </div>
+                              </div>
+
+                              {expandedReportId === r.id && (
+                                <div className="mt-3 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden bg-slate-50 dark:bg-slate-800 text-xs">
+                                  <div className="bg-slate-100 dark:bg-slate-800 px-3 py-2 font-bold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700">Side-by-Side Exam Grader Report</div>
+                                  <div className="divide-y divide-slate-200 dark:divide-slate-700">
+                                    {(r.responses || (s.id === 's1' ? [
+                                      { question: 'Q1: Match objects one-to-one (One-to-One Correspondence)', studentAnswer: '3 (incorrect match count)', correctAnswer: 'Matched all 5 items', status: 'Incorrect' },
+                                      { question: 'Q2: Odd One Out - Select non-conforming object from [ball, book, table, pen]', studentAnswer: 'B (Book)', correctAnswer: 'table (furniture classification)', status: 'Incorrect' },
+                                      { question: 'Q3: Single Digit Addition - Solve: 5 + 4 = ?', studentAnswer: '9', correctAnswer: '9', status: 'Correct' },
+                                      { question: 'Q4: Single Digit Subtraction - Solve: 8 - 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' },
+                                      { question: 'Q5: Identify shape with 3 corners and 3 straight sides', studentAnswer: 'Triangle', correctAnswer: 'Triangle', status: 'Correct' }
+                                    ] : s.id === 's2' ? [
+                                      { question: 'Q1: Counting up to 10 - Count the apples: 🍎🍎🍎🍎', studentAnswer: '4', correctAnswer: '4', status: 'Correct' },
+                                      { question: 'Q2: Odd One Out - Select non-matching item: [square, circle, red-block, triangle]', studentAnswer: 'red-block', correctAnswer: 'red-block', status: 'Correct' },
+                                      { question: 'Q3: Pattern recognition - What comes next in sequence: 🔴🔵🔴🔵 ?', studentAnswer: '🔵', correctAnswer: '🔴', status: 'Incorrect' },
+                                      { question: 'Q4: Simple Addition - Solve: 3 + 2 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
+                                    ] : [
+                                      { question: 'Q1: Place Value Designation - What is the value of 7 in 372?', studentAnswer: '70 (7 tens)', correctAnswer: '70', status: 'Correct' },
+                                      { question: 'Q2: Single-Digit Multiplication - Solve: 6 × 3 = ?', studentAnswer: '18', correctAnswer: '18', status: 'Correct' },
+                                      { question: 'Q3: Double-Digit Subtraction with Borrowing - Solve: 42 - 17 = ?', studentAnswer: '25', correctAnswer: '25', status: 'Correct' },
+                                      { question: 'Q4: Simple Division - Solve: 15 ÷ 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
+                                    ])).map((item: any, idx: number) => (
+                                      <div key={idx} className="p-3 space-y-1">
+                                        <div className="font-semibold text-slate-800 dark:text-slate-100">{item.question}</div>
+                                        <div className="grid grid-cols-2 gap-2 mt-1 pt-1 border-t border-dotted border-slate-200 dark:border-slate-700">
+                                          <div>
+                                            <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-mono block">Student Response</span>
+                                            <span className={`font-medium ${item.status === 'Correct' ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>{item.studentAnswer}</span>
+                                          </div>
+                                          <div>
+                                            <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-mono block">Correct Keys</span>
+                                            <span className="font-medium text-slate-800 dark:text-slate-100">{item.correctAnswer}</span>
+                                          </div>
+                                        </div>
+                                        <div className="pt-1">
+                                          <span className={`inline-block px-1.5 py-0.5 text-[9px] font-bold font-mono rounded ${item.status === 'Correct' ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200' : 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200'}`}>{item.status === 'Correct' ? 'PASS' : 'FAIL'}</span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* TAB 2: Level Worksheet Scan Results */}
+              {reportSubTab === 'worksheet' && (
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-xs font-mono font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                        Level Worksheet Scan Results (Levels 1–59)
+                      </h3>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        Evaluations submitted via manual entry or ICR scanner for assigned curriculum worksheets.
+                      </p>
+                    </div>
+                    {(() => {
+                      const levelRpts = reports.filter(r => r.worksheetType === 'level' || r.worksheetId?.startsWith('WS-L'));
+                      return levelRpts.length > 0 ? (
+                        <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                          {levelRpts.length} {levelRpts.length === 1 ? 'Worksheet' : 'Worksheets'}
+                        </span>
+                      ) : null;
+                    })()}
+                  </div>
+
+                  {(() => {
+                    const levelRpts = reports.filter(r => r.worksheetType === 'level' || r.worksheetId?.startsWith('WS-L'));
+                    if (levelRpts.length === 0) {
+                      return (
+                        <div className="text-center py-8 border border-dashed border-slate-200 dark:border-slate-800 rounded-lg">
+                          <p className="text-xs text-slate-400 dark:text-slate-500">
+                            No level worksheet evaluations recorded for {s.name} yet.
+                          </p>
+                          <p className="text-[10px] text-slate-400 dark:text-slate-600 mt-1">
+                            Use the ICR & Level Worksheet Scanner to evaluate physical worksheets.
+                          </p>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="space-y-4">
+                        {levelRpts.map(r => {
+                          const scorePct = Math.min(100, Math.max(0, Number(r.score) || 0));
+                          const isExpanded = expandedLevelReportId === r.id;
+
+                          return (
+                            <div key={r.id} className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-3 hover:border-slate-300 dark:hover:border-slate-600 transition-colors">
+                              <div className="flex justify-between items-start flex-wrap gap-2">
+                                <div className="flex items-center gap-3">
+                                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-xs ${scorePct >= 80 ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' : scorePct >= 60 ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800' : 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'}`}>
+                                    {scorePct}%
+                                  </div>
+                                  <div>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="text-sm font-bold text-slate-900 dark:text-white">
+                                        Level {r.levelId ?? 'N/A'}{r.sublevelId !== undefined ? ` (Sub-level ${r.sublevelId})` : ''}
+                                      </span>
+                                      <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                        {r.worksheetId}
+                                      </span>
+                                    </div>
+                                    <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                                      Evaluated on {new Date(r.timestamp).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-xs font-mono font-bold px-2.5 py-1 rounded-md ${scorePct >= 80 ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' : scorePct >= 60 ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800' : 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'}`}>
+                                    Score: {r.score} / {r.totalQuestions}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {r.narrative && (
+                                <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-md border border-slate-100 dark:border-slate-800">
+                                  {r.narrative}
+                                </p>
+                              )}
+
+                              {r.conceptMastery && Object.keys(r.conceptMastery).length > 0 && (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {Object.entries(r.conceptMastery).map(([topic, mastery]) => (
+                                    <span key={topic} className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded ${mastery === 'Strong' ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' : mastery === 'Satisfactory' ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800' : 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'}`}>
+                                      {topic}: {mastery}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+
+                              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center flex-wrap gap-2">
+                                <button
+                                  onClick={() => setExpandedLevelReportId(isExpanded ? null : r.id)}
+                                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 flex items-center gap-1"
+                                >
+                                  {isExpanded ? '▲ Hide Per-Question Results' : '▼ View Per-Question Breakdown'}
+                                </button>
+
+                                <div className="flex items-center gap-3">
+                                  {scorePct < 100 && (
+                                    <button
+                                      onClick={() => handleRequestRemediation(s, r, r.responses || [])}
+                                      className="text-xs font-semibold text-amber-650 hover:text-amber-850 dark:text-amber-400 flex items-center gap-1"
+                                    >
+                                      💡 Remediation Notes
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => handleDownloadPDF(s, r, r.responses || [])}
+                                    className="text-xs font-semibold text-emerald-650 hover:text-emerald-850 dark:text-emerald-400 flex items-center gap-1"
+                                  >
+                                    📥 Download PDF
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Detailed Per-Question Breakdown */}
+                              {isExpanded && (
+                                <div className="mt-3 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden bg-slate-50 dark:bg-slate-800 text-xs">
+                                  <div className="bg-slate-100 dark:bg-slate-800/80 px-3 py-2 font-bold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center">
+                                    <span>Worksheet Level {r.levelId ?? 'N/A'} — Question Responses ({r.responses?.length || 0})</span>
+                                    <span className="text-[10px] font-mono text-slate-400">ID: {r.worksheetId}</span>
+                                  </div>
+
+                                  <div className="divide-y divide-slate-200 dark:divide-slate-700">
+                                    {(r.responses && r.responses.length > 0) ? (
+                                      r.responses.map((item: any, idx: number) => (
+                                        <div key={idx} className="p-3 space-y-1.5">
+                                          <div className="flex justify-between items-start gap-2">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                              <span className="text-[10px] font-mono font-bold bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-200 px-1.5 py-0.5 rounded">
+                                                Q{idx + 1}
+                                              </span>
+                                              <span className="font-semibold text-slate-800 dark:text-slate-100">
+                                                {item.question}
+                                              </span>
+                                              {item.questionType && item.questionType !== 'standard' && (
+                                                <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-violet-100 dark:bg-violet-950/60 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800 capitalize">
+                                                  {item.questionType}
+                                                </span>
+                                              )}
+                                            </div>
+                                            <span className={`inline-block px-2 py-0.5 text-[9px] font-bold font-mono rounded shrink-0 ${item.status === 'Correct' || item.isCorrect ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-200 border border-green-200' : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-200 border border-red-200'}`}>
+                                              {item.status === 'Correct' || item.isCorrect ? 'PASS' : 'FAIL'}
+                                            </span>
+                                          </div>
+
+                                          <div className="grid grid-cols-2 gap-2 pt-1 border-t border-dotted border-slate-200 dark:border-slate-700">
+                                            <div>
+                                              <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-mono block">Student Response</span>
+                                              <span className={`font-medium ${item.status === 'Correct' || item.isCorrect ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>
+                                                {item.studentAnswer || item.userAnswer || '(Blank / No answer)'}
+                                              </span>
+                                            </div>
+                                            <div>
+                                              <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-mono block">Expected Answer Key</span>
+                                              <span className="font-medium text-slate-800 dark:text-slate-100">
+                                                {item.correctAnswer}
+                                              </span>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      ))
+                                    ) : (
+                                      <div className="p-4 text-center text-slate-400 text-xs">
+                                        Detailed question responses not stored for this entry.
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1830,6 +2075,10 @@ allReports.forEach(r => {
 });
 console.log(allReports[0]);
 const avgScore = calculateAveragePercentage(allReports);
+    const diagReports = allReports.filter(r => r.worksheetType !== 'level' && !r.worksheetId?.startsWith('WS-L') && !(r as any).isLevelWorksheet);
+    const worksheetReports = allReports.filter(r => r.worksheetType === 'level' || r.worksheetId?.startsWith('WS-L') || (r as any).isLevelWorksheet);
+    const displayReports = evalReportTab === 'worksheet' ? worksheetReports : diagReports;
+
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1844,7 +2093,7 @@ const avgScore = calculateAveragePercentage(allReports);
           <MetricCard title="Strong Concepts" value={allReports.reduce((a, r) => a + Object.values(r.conceptMastery).filter(v => v === 'Strong').length, 0)} subtext="Mastered topics" icon={Award} />
         </div>
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm space-y-4">
-          <div className="flex justify-between items-start border-b border-slate-200 dark:border-slate-700 pb-4">
+          <div className="flex justify-between items-start border-b border-slate-200 dark:border-slate-700 pb-4 flex-wrap gap-2">
             <div>
               <h2 className="text-lg font-bold text-slate-900 dark:text-white">Evaluation Reports</h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">Detailed assessment narratives and concept mastery breakdowns</p>
@@ -1858,109 +2107,167 @@ const avgScore = calculateAveragePercentage(allReports);
               </button>
             )}
           </div>
-          {allReports.map(r => {
-            const student = students.find(s => s.id === r.studentId);
-            const isExpanded = expandedReportId === r.id;
 
-            // Mock exam questions and student responses for side-by-side preview
-            const examResponses = r.responses || (student ? (
-              student.id === 's1' ? [
-                { question: 'Q1: Match objects one-to-one (One-to-One Correspondence)', studentAnswer: '3 (incorrect match count)', correctAnswer: 'Matched all 5 items', status: 'Incorrect' },
-                { question: 'Q2: Odd One Out - Select non-conforming object from [ball, book, table, pen]', studentAnswer: 'B (Book)', correctAnswer: 'table (furniture classification)', status: 'Incorrect' },
-                { question: 'Q3: Single Digit Addition - Solve: 5 + 4 = ?', studentAnswer: '9', correctAnswer: '9', status: 'Correct' },
-                { question: 'Q4: Single Digit Subtraction - Solve: 8 - 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' },
-                { question: 'Q5: Identify shape with 3 corners and 3 straight sides', studentAnswer: 'Triangle', correctAnswer: 'Triangle', status: 'Correct' }
-              ] : student.id === 's2' ? [
-                { question: 'Q1: Counting up to 10 - Count the apples: 🍎🍎🍎🍎', studentAnswer: '4', correctAnswer: '4', status: 'Correct' },
-                { question: 'Q2: Odd One Out - Select non-matching item: [square, circle, red-block, triangle]', studentAnswer: 'red-block', correctAnswer: 'red-block', status: 'Correct' },
-                { question: 'Q3: Pattern recognition - What comes next in sequence: 🔴🔵🔴🔵 ?', studentAnswer: '🔵', correctAnswer: '🔴', status: 'Incorrect' },
-                { question: 'Q4: Simple Addition - Solve: 3 + 2 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
-              ] : [
-                { question: 'Q1: Place Value Designation - What is the value of 7 in 372?', studentAnswer: '70 (7 tens)', correctAnswer: '70', status: 'Correct' },
-                { question: 'Q2: Single-Digit Multiplication - Solve: 6 × 3 = ?', studentAnswer: '18', correctAnswer: '18', status: 'Correct' },
-                { question: 'Q3: Double-Digit Subtraction with Borrowing - Solve: 42 - 17 = ?', studentAnswer: '25', correctAnswer: '25', status: 'Correct' },
-                { question: 'Q4: Simple Division - Solve: 15 ÷ 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
-              ]
-            ) : []);
-           // 2. Calculate scorePct and needsRemediation here
-            const scorePct = safePercent(r.score, r.totalQuestions, examResponses.length);
-            const needsRemediation = examResponses.some((item: any) => item.status === 'Incorrect' || item.isCorrect === false);
-          return (
-    <div key={r.id} className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-3 hover:border-slate-300 dark:hover:border-slate-600 transition-all">
-      <div className="flex justify-between items-center">
-        <span className="font-semibold text-sm">{student?.name || 'Unknown'}</span>
-        <span className="text-xs text-slate-400 dark:text-slate-500">{new Date(r.timestamp).toLocaleDateString()}</span>
-      </div>
-
-      {/* Mastery Badges */}
-      <div className="flex flex-wrap gap-2">
-        {Object.entries(r.conceptMastery).map(([t, m]) => (
-          <span key={t} className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${m === 'Strong' ? 'bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800' : m === 'Satisfactory' ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800' : 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'}`}>{t}: {m}</span>
-        ))}
-      </div>
-
-      <div className="pt-2 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center">
-        <div className="flex gap-3">
-          <button onClick={() => setExpandedReportId(isExpanded ? null : r.id)} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
-            {isExpanded ? 'Hide Exam Sheet' : '📋 View Student Exam Responses'}
-          </button>
-          
-          {student && (
-            <button onClick={() => handleDownloadPDF(student, r, examResponses)} className="text-xs font-semibold text-emerald-600 hover:text-emerald-800 flex items-center gap-1">
-              📥 Download PDF Report
-            </button>
-          )}
-
-          {/* Conditional Remediation Button */}
-          {needsRemediation ? (
+          {/* Evaluation Reports Sub-Tabs */}
+          <div className="flex border-b border-slate-200 dark:border-slate-700 gap-2">
             <button
-              onClick={() => handleRequestRemediation(student, r, examResponses)}
-              className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 transition"
+              id="eval-diagnostic-tab-btn"
+              name="evalDiagnosticTab"
+              onClick={() => setEvalReportTab('diagnostic')}
+              className={`px-4 py-2.5 text-xs font-bold font-mono rounded-t-lg border-b-2 transition-all flex items-center gap-2 ${
+                evalReportTab === 'diagnostic'
+                  ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/40'
+                  : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
             >
-              📝 Generate Remediation Note
+              <span>📊 Diagnostic Reports</span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 font-bold">
+                {diagReports.length}
+              </span>
             </button>
+
+            <button
+              id="eval-worksheet-tab-btn"
+              name="evalWorksheetTab"
+              onClick={() => setEvalReportTab('worksheet')}
+              className={`px-4 py-2.5 text-xs font-bold font-mono rounded-t-lg border-b-2 transition-all flex items-center gap-2 ${
+                evalReportTab === 'worksheet'
+                  ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/40'
+                  : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              <span>📝 Level Worksheet Results</span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 font-bold">
+                {worksheetReports.length}
+              </span>
+            </button>
+          </div>
+
+          {displayReports.length === 0 ? (
+            <div className="text-center py-10 border border-dashed border-slate-200 dark:border-slate-800 rounded-lg">
+              <p className="text-xs text-slate-400 dark:text-slate-500">
+                {evalReportTab === 'worksheet'
+                  ? 'No Level Worksheet scan results recorded yet. Use the ICR & Level Worksheet Scanner to evaluate physical worksheets.'
+                  : 'No Diagnostic Assessment reports recorded yet.'}
+              </p>
+            </div>
           ) : (
-            <span className="text-emerald-600 text-xs font-bold flex items-center gap-1">
-              ✅ All answers correct
-            </span>
-          )}
+            displayReports.map(r => {
+              const student = students.find(s => s.id === r.studentId);
+              const isExpanded = expandedReportId === r.id;
+              const isWorksheet = r.worksheetType === 'level' || r.worksheetId?.startsWith('WS-L') || (r as any).isLevelWorksheet;
 
-          <button onClick={() => handleDeleteReport(r.id)} className="text-xs font-semibold text-red-600 hover:text-red-800 flex items-center gap-1">
-            🗑️ Clear Report
-          </button>
-        </div>
-      
-                  <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">Assigned from Diagnostic Pipeline</span>
-                </div>
+              const examResponses = r.responses || (student ? (
+                student.id === 's1' ? [
+                  { question: 'Q1: Match objects one-to-one (One-to-One Correspondence)', studentAnswer: '3 (incorrect match count)', correctAnswer: 'Matched all 5 items', status: 'Incorrect' },
+                  { question: 'Q2: Odd One Out - Select non-conforming object from [ball, book, table, pen]', studentAnswer: 'B (Book)', correctAnswer: 'table (furniture classification)', status: 'Incorrect' },
+                  { question: 'Q3: Single Digit Addition - Solve: 5 + 4 = ?', studentAnswer: '9', correctAnswer: '9', status: 'Correct' },
+                  { question: 'Q4: Single Digit Subtraction - Solve: 8 - 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' },
+                  { question: 'Q5: Identify shape with 3 corners and 3 straight sides', studentAnswer: 'Triangle', correctAnswer: 'Triangle', status: 'Correct' }
+                ] : student.id === 's2' ? [
+                  { question: 'Q1: Counting up to 10 - Count the apples: 🍎🍎🍎🍎', studentAnswer: '4', correctAnswer: '4', status: 'Correct' },
+                  { question: 'Q2: Odd One Out - Select non-matching item: [square, circle, red-block, triangle]', studentAnswer: 'red-block', correctAnswer: 'red-block', status: 'Correct' },
+                  { question: 'Q3: Pattern recognition - What comes next in sequence: 🔴🔵🔴🔵 ?', studentAnswer: '🔵', correctAnswer: '🔴', status: 'Incorrect' },
+                  { question: 'Q4: Simple Addition - Solve: 3 + 2 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
+                ] : [
+                  { question: 'Q1: Place Value Designation - What is the value of 7 in 372?', studentAnswer: '70 (7 tens)', correctAnswer: '70', status: 'Correct' },
+                  { question: 'Q2: Single-Digit Multiplication - Solve: 6 × 3 = ?', studentAnswer: '18', correctAnswer: '18', status: 'Correct' },
+                  { question: 'Q3: Double-Digit Subtraction with Borrowing - Solve: 42 - 17 = ?', studentAnswer: '25', correctAnswer: '25', status: 'Correct' },
+                  { question: 'Q4: Simple Division - Solve: 15 ÷ 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
+                ]
+              ) : []);
 
-                {isExpanded && (
-                  <div className="mt-3 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden bg-slate-50 dark:bg-slate-800 text-xs">
-                    <div className="bg-slate-100 dark:bg-slate-800 px-3 py-2 font-bold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700">Side-by-Side Exam Grader Report</div>
-                    <div className="divide-y divide-slate-200 dark:divide-slate-700">
-                      {examResponses.map((item, idx) => (
-                        <div key={idx} className="p-3 space-y-1">
-                          <div className="font-semibold text-slate-800 dark:text-slate-100">{item.question}</div>
-                          <div className="grid grid-cols-[1fr_1fr_auto] items-center gap-4 mt-1 pt-1 border-t border-dotted border-slate-200 dark:border-slate-700">
-                            <div>
-                              <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-mono block">Student Response</span>
-                              <span className={`font-medium ${item.status === 'Correct' ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>{item.studentAnswer}</span>
-                            </div>
-                            <div>
-                              <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-mono block">Correct Keys</span>
-                              <span className="font-medium text-slate-800 dark:text-slate-100">{item.correctAnswer}</span>
-                            </div>
-                            <div className="pt-1">
-                              <span className={`inline-block px-1.5 py-0.5 text-[9px] font-bold font-mono rounded ${item.status === 'Correct' ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200' : 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200'}`}>{item.status === 'Correct' ? 'PASS' : 'FAIL'}</span>
+              const scorePct = safePercent(r.score, r.totalQuestions, examResponses.length);
+              const needsRemediation = examResponses.some((item: any) => item.status === 'Incorrect' || item.isCorrect === false);
+              return (
+                <div key={r.id} className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-3 hover:border-slate-300 dark:hover:border-slate-600 transition-all">
+                  <div className="flex justify-between items-center flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-sm">{student?.name || (r as any).studentName || 'Unknown Student'}</span>
+                      <span className="text-xs font-mono font-semibold text-slate-400">({r.worksheetId})</span>
+                    </div>
+                    <span className="text-xs text-slate-400 dark:text-slate-500">{new Date(r.timestamp).toLocaleDateString()}</span>
+                  </div>
+
+                  {/* Mastery Badges */}
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(r.conceptMastery || {}).map(([t, m]) => (
+                      <span key={t} className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${m === 'Strong' ? 'bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800' : m === 'Satisfactory' ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800' : 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'}`}>{t}: {m}</span>
+                    ))}
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center flex-wrap gap-2">
+                    <div className="flex gap-3 flex-wrap items-center">
+                      <button onClick={() => setExpandedReportId(isExpanded ? null : r.id)} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
+                        {isExpanded ? 'Hide Exam Sheet' : '📋 View Student Exam Responses'}
+                      </button>
+                      
+                      {student && (
+                        <button onClick={() => handleDownloadPDF(student, r, examResponses)} className="text-xs font-semibold text-emerald-600 hover:text-emerald-850 flex items-center gap-1">
+                          📥 Download PDF Report
+                        </button>
+                      )}
+
+                      {/* Conditional Remediation Button */}
+                      {needsRemediation ? (
+                        <button
+                          onClick={() => handleRequestRemediation(student || ({ id: r.studentId, name: (r as any).studentName || 'Student' } as any), r, examResponses)}
+                          className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 transition"
+                        >
+                          📝 Generate Remediation Note
+                        </button>
+                      ) : (
+                        <span className="text-emerald-600 text-xs font-bold flex items-center gap-1">
+                          ✅ All answers correct
+                        </span>
+                      )}
+
+                      <button onClick={() => handleDeleteReport(r.id)} className="text-xs font-semibold text-red-600 hover:text-red-800 flex items-center gap-1">
+                        🗑️ Clear Report
+                      </button>
+                    </div>
+                  
+                    <span className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded ${
+                      isWorksheet
+                        ? 'text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800'
+                        : 'text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700'
+                    }`}>
+                      {isWorksheet ? 'Evaluated via Worksheet Scanner' : 'Assigned from Diagnostic Pipeline'}
+                    </span>
+                  </div>
+
+                  {isExpanded && (
+                    <div className="mt-3 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden bg-slate-50 dark:bg-slate-800 text-xs">
+                      <div className="bg-slate-100 dark:bg-slate-800 px-3 py-2 font-bold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center">
+                        <span>Side-by-Side Exam Grader Report</span>
+                        <span className="text-[10px] font-mono text-slate-400">ID: {r.worksheetId}</span>
+                      </div>
+                      <div className="divide-y divide-slate-200 dark:divide-slate-700">
+                        {examResponses.map((item, idx) => (
+                          <div key={idx} className="p-3 space-y-1">
+                            <div className="font-semibold text-slate-800 dark:text-slate-100">{item.question}</div>
+                            <div className="grid grid-cols-[1fr_1fr_auto] items-center gap-4 mt-1 pt-1 border-t border-dotted border-slate-200 dark:border-slate-700">
+                              <div>
+                                <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-mono block">Student Response</span>
+                                <span className={`font-medium ${item.status === 'Correct' || item.isCorrect ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>{item.studentAnswer}</span>
+                              </div>
+                              <div>
+                                <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-mono block">Correct Keys</span>
+                                <span className="font-medium text-slate-800 dark:text-slate-100">{item.correctAnswer}</span>
+                              </div>
+                              <div className="pt-1">
+                                <span className={`inline-block px-1.5 py-0.5 text-[9px] font-bold font-mono rounded ${item.status === 'Correct' || item.isCorrect ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200' : 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200'}`}>{item.status === 'Correct' || item.isCorrect ? 'PASS' : 'FAIL'}</span>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+                  )}
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
     );
@@ -2074,9 +2381,9 @@ const avgScore = calculateAveragePercentage(allReports);
     return (
       <div className="space-y-6">
         <div className="flex flex-wrap gap-3 items-end">
-          <div><label className="block text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">State</label><select value={stateFilter} onChange={e => { setStateFilter(e.target.value); setDistFilter('all'); setBlockFilter('all'); }} className="text-sm border border-slate-200 dark:border-slate-700 rounded-lg p-2 outline-none bg-white dark:bg-slate-800 text-slate-900 dark:text-white min-w-[180px]">{stateOpts.map(s => <option key={s.code} value={s.code}>{s.name} ({s.code})</option>)}<option value="all">All States</option></select></div>
-          <div><label className="block text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">District</label><select value={distFilter} onChange={e => { setDistFilter(e.target.value); setBlockFilter('all'); }} className="text-sm border border-slate-200 dark:border-slate-700 rounded-lg p-2 outline-none bg-white dark:bg-slate-800 text-slate-900 dark:text-white min-w-[180px]"><option value="all">All Districts</option>{distOpts.map(d => <option key={d.code} value={d.code}>{d.name} ({d.code})</option>)}</select></div>
-          <div><label className="block text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">Block</label><select value={blockFilter} onChange={e => setBlockFilter(e.target.value)} className="text-sm border border-slate-200 dark:border-slate-700 rounded-lg p-2 outline-none bg-white dark:bg-slate-800 text-slate-900 dark:text-white min-w-[180px]"><option value="all">All Blocks</option>{blockOpts.map(b => <option key={b.code} value={b.code}>{b.name} ({b.code})</option>)}</select></div>
+          <div><label htmlFor="filter-state-select" className="block text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">State</label><select id="filter-state-select" name="stateFilter" value={stateFilter} onChange={e => { setStateFilter(e.target.value); setDistFilter('all'); setBlockFilter('all'); }} className="text-sm border border-slate-200 dark:border-slate-700 rounded-lg p-2 outline-none bg-white dark:bg-slate-800 text-slate-900 dark:text-white min-w-[180px]">{stateOpts.map(s => <option key={s.code} value={s.code}>{s.name} ({s.code})</option>)}<option value="all">All States</option></select></div>
+          <div><label htmlFor="filter-dist-select" className="block text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">District</label><select id="filter-dist-select" name="distFilter" value={distFilter} onChange={e => { setDistFilter(e.target.value); setBlockFilter('all'); }} className="text-sm border border-slate-200 dark:border-slate-700 rounded-lg p-2 outline-none bg-white dark:bg-slate-800 text-slate-900 dark:text-white min-w-[180px]"><option value="all">All Districts</option>{distOpts.map(d => <option key={d.code} value={d.code}>{d.name} ({d.code})</option>)}</select></div>
+          <div><label htmlFor="filter-block-select" className="block text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">Block</label><select id="filter-block-select" name="blockFilter" value={blockFilter} onChange={e => setBlockFilter(e.target.value)} className="text-sm border border-slate-200 dark:border-slate-700 rounded-lg p-2 outline-none bg-white dark:bg-slate-800 text-slate-900 dark:text-white min-w-[180px]"><option value="all">All Blocks</option>{blockOpts.map(b => <option key={b.code} value={b.code}>{b.name} ({b.code})</option>)}</select></div>
           <div className="text-xs text-slate-400 dark:text-slate-500 pb-1">Showing {filteredSchools.length} of {schools.length} schools</div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">{filteredSchools.map(s => (
@@ -2234,8 +2541,8 @@ const avgScore = calculateAveragePercentage(allReports);
         <PageHeader title="User Management" desc={`All registered users across the FLN system (${usersList.length} total)`} icon={<Users className="h-5 w-5" />} />
         <div className="flex flex-wrap gap-3 items-end">
           <div>
-            <label className="block text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">Role</label>
-            <select value={userRoleFilter} onChange={e => setUserRoleFilter(e.target.value)} className="text-sm border border-slate-200 dark:border-slate-700 rounded-lg p-2 outline-none bg-white dark:bg-slate-800 text-slate-900 dark:text-white min-w-[160px]">
+            <label htmlFor="user-role-filter-select" className="block text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">Role</label>
+            <select id="user-role-filter-select" name="userRoleFilter" value={userRoleFilter} onChange={e => setUserRoleFilter(e.target.value)} className="text-sm border border-slate-200 dark:border-slate-700 rounded-lg p-2 outline-none bg-white dark:bg-slate-800 text-slate-900 dark:text-white min-w-[160px]">
               <option value="all">All Roles</option>
               {roleOrder.filter(r => roleCounts[r] > 0).map(r => (
                 <option key={r} value={r}>{roleFilterLabel(r)} ({roleCounts[r]})</option>
@@ -2243,8 +2550,8 @@ const avgScore = calculateAveragePercentage(allReports);
             </select>
           </div>
           <div>
-            <label className="block text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">Search</label>
-            <input type="text" value={userSearch} onChange={e => setUserSearch(e.target.value)} placeholder="Name or email..." className="text-sm border border-slate-200 dark:border-slate-700 rounded-lg p-2 outline-none bg-white dark:bg-slate-800 text-slate-900 dark:text-white min-w-[200px]" />
+            <label htmlFor="user-search-input" className="block text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">Search</label>
+            <input id="user-search-input" name="userSearch" type="text" value={userSearch} onChange={e => setUserSearch(e.target.value)} placeholder="Name or email..." className="text-sm border border-slate-200 dark:border-slate-700 rounded-lg p-2 outline-none bg-white dark:bg-slate-800 text-slate-900 dark:text-white min-w-[200px]" />
           </div>
           <div className="text-xs text-slate-400 dark:text-slate-500 pb-1">Showing {filteredUsers.length} of {usersList.length} users</div>
         </div>

@@ -214,12 +214,12 @@ export default function App() {
                       <div className="space-y-4">
                         <h3 className="font-mono text-xs font-bold uppercase text-slate-800">Accessibility Configuration</h3>
                         <div className="space-y-3 rounded-lg border border-slate-150 bg-slate-50 p-4">
-                          <label className="flex items-center gap-2 font-medium">
-                            <input type="checkbox" defaultChecked className="rounded border-slate-300 text-indigo-650" />
+                          <label htmlFor="high-contrast-checkbox" className="flex items-center gap-2 font-medium">
+                            <input id="high-contrast-checkbox" name="highContrast" type="checkbox" defaultChecked className="rounded border-slate-300 text-indigo-650" />
                             <span>Enable High-Contrast Border Outlines</span>
                           </label>
-                          <label className="flex items-center gap-2 font-medium">
-                            <input type="checkbox" className="rounded border-slate-300 text-indigo-650" />
+                          <label htmlFor="voice-narration-checkbox" className="flex items-center gap-2 font-medium">
+                            <input id="voice-narration-checkbox" name="voiceNarration" type="checkbox" className="rounded border-slate-300 text-indigo-650" />
                             <span>Audio voice narration on hover (SLA §2.3)</span>
                           </label>
                         </div>
