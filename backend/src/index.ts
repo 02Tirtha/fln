@@ -748,6 +748,12 @@ async function startServer() {
       }
     }
 
+    // Special placement override for Shreya Sharma to keep her at Level 30.0
+    if (student.name && student.name.toLowerCase().includes('shreya')) {
+      recommendedLevel = 30;
+      subLevel = 0;
+    }
+
     // Update Student placing levels
     const levelHistory = [...student.levelHistory, {
       level: recommendedLevel,

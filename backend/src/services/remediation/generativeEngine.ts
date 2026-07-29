@@ -1,6 +1,6 @@
 import { Type } from "@google/genai";
 import { getAiClient, generateContentWithRetry } from '../../gemini';
-import { blueprintEngine } from './blueprintEngine';
+import { blueprintEngine, generateRemediationVariants } from './blueprintEngine';
 import { numericEngine } from './numericEngine';
 import { matrixEngine } from './matrixEngine';
 
@@ -120,10 +120,13 @@ export class GenerativeEngine {
       }
     }
 
-    return Array.from({ length: 5 }, (_, i) => {
-      const bp = blueprintEngine.generate(originalQuestion, conceptName, questionType, '', baseOffset + i);
-      return { question: bp.question, answer: bp.answer, aiGenerated: bp.aiGenerated };
-    });
+    const variants = generateRemediationVariants(originalQuestion, '', 5, conceptName);
+    return variants.map(bp => ({
+      question: bp.question,
+      options: bp.options,
+      answer: bp.answer,
+      aiGenerated: bp.aiGenerated ?? false
+    }));
   }
 
   /**
@@ -300,12 +303,17 @@ export class GenerativeEngine {
     questionType: string,
     baseOffset: number = 0
   ): Array<{ question: string; answer: string; aiGenerated: boolean }> {
-    const resolvedType = this.resolveQuestionType(originalQuestion, questionType);
-    return Array.from({ length: 5 }, (_, i) => ({
-      ...blueprintEngine.generate(originalQuestion, conceptName, resolvedType, '', baseOffset + i),
-      aiGenerated: false
+    const variants = generateRemediationVariants(originalQuestion, '', 5, conceptName);
+    return variants.map(v => ({
+      question: v.question,
+      options: v.options,
+      answer: v.answer,
+      remediation: v.remediation,
+      aiGenerated: false,
+      needsReview: v.needsReview ?? false
     }));
   }
+
 
   public generateFallback(
     originalQuestion: string,

@@ -451,22 +451,14 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
       .filter(({ item }) => item.status !== 'Correct')
       .map(({ idx }) => idx + 1);
 
+    // 1. Immediately open the remediation note view so user doesn't wait
+    handleGoToRemediationNote(student.id, report.worksheetId, student.name);
+
     if (failedQuestionNums.length === 0) {
-      handleGoToRemediationNote(student.id, report.worksheetId, student.name);
       return;
     }
 
     const originalQuestions = examResponses.map((item: any) => {
-      const questionText = String(item.question || '');
-      const lower = questionText.toLowerCase();
-      let topic = 'Number Sense';
-      if (lower.includes('addition') || lower.includes('+')) topic = 'Addition';
-      else if (lower.includes('subtraction') || lower.includes('-')) topic = 'Subtraction';
-      else if (lower.includes('place value') || lower.includes('value of')) topic = 'Place Value';
-      else if (lower.includes('pattern') || lower.includes('sequence')) topic = 'Patterns';
-      else if (lower.includes('multiply') || lower.includes('×') || lower.includes('*')) topic = 'Multiplication';
-      else if (lower.includes('divide') || lower.includes('÷') || lower.includes('/')) topic = 'Division';
-
       const answerValue = item.correctAnswer ?? '';
       const isNumberAnswer =
         typeof answerValue === 'number' ||
@@ -475,37 +467,24 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
       return {
         question: item.question,
         answer: String(answerValue),
-        topic,
+        topic: item.topic || item.sectionName || item.conceptName || item.concept || '',
         answer_type: isNumberAnswer ? 'number' : 'choice',
       };
     });
 
-    try {
-      const res = await fetch(buildUrl('/api/remediation/generate'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          studentId: student.id,
-          examId: report.worksheetId,
-          failedQuestionNums,
-          originalQuestions,
-        }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        window.alert(data?.error || 'Failed to request remediation note. Please try again.');
-        return;
-      }
-
-      handleGoToRemediationNote(student.id, report.worksheetId, student.name);
-    } catch (err) {
-      console.error('Remediation request failed', err);
-      window.alert('Unable to request remediation note. Please try again.');
-    }
+    fetch(buildUrl('/api/remediation/generate'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        studentId: student.id,
+        examId: report.worksheetId,
+        failedQuestionNums,
+        originalQuestions,
+      }),
+    }).catch(err => console.error('Background remediation generate error:', err));
   };
   const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
   const [expandedLevelReportId, setExpandedLevelReportId] = useState<string | null>(null);
@@ -1490,15 +1469,15 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
                                               console.error(err);
                                             }
                                           }}
-                                          className="text-xs font-semibold text-indigo-650 hover:text-indigo-850 flex items-center gap-1"
+                                          className="px-3 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-950/40 dark:hover:bg-amber-950/60 dark:text-amber-300 dark:border-amber-700/60 font-mono font-bold text-xs transition-all flex items-center gap-1.5 shadow-sm"
                                         >
-                                          🚀 Start Remediation
+                                          📝 Generate Remediation Note
                                         </button>
                                       );
                                     }
                                     if (ledger.remediationStatus === 'generating' || ledger.remediationStatus === 'pending') {
                                       return (
-                                        <span className="text-xs font-semibold text-amber-600 animate-pulse flex items-center gap-1">
+                                        <span className="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-900 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-700/60 font-mono font-bold text-xs animate-pulse flex items-center gap-1.5">
                                           ⏳ Generating Practice...
                                         </span>
                                       );
@@ -1520,7 +1499,7 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
                                               console.error(err);
                                             }
                                           }}
-                                          className="text-xs font-semibold text-red-650 hover:text-red-800"
+                                          className="px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-300 dark:bg-red-950/40 dark:text-red-300 font-mono font-semibold text-xs"
                                         >
                                           ⚠️ Retry Remediation
                                         </button>
@@ -1530,15 +1509,15 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
                                       <div className="flex items-center gap-2">
                                         <button
                                           onClick={() => handleViewRemediationNotes(s.name, s.id, r.worksheetId)}
-                                          className="text-xs font-semibold text-blue-650 hover:text-blue-850 flex items-center gap-1"
+                                          className="px-3 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-950/40 dark:hover:bg-amber-950/60 dark:text-amber-300 dark:border-amber-700/60 font-mono font-bold text-xs transition-all flex items-center gap-1.5 shadow-sm"
                                         >
-                                          📋 View Remediation Notes
+                                          📝 View Remediation Note
                                         </button>
                                         <button
                                           onClick={() => handlePrintRemediationSlip(s, ledger)}
-                                          className="text-xs font-semibold text-indigo-650 hover:text-indigo-850 flex items-center gap-1"
+                                          className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 dark:border-slate-700 font-mono font-semibold text-xs transition-all flex items-center gap-1 shadow-sm"
                                         >
-                                          🖨️ Print Remediation Slip
+                                          🖨️ Print Slip
                                         </button>
                                       </div>
                                     );
@@ -2212,7 +2191,7 @@ const avgScore = calculateAveragePercentage(allReports);
                       {needsRemediation ? (
                         <button
                           onClick={() => handleRequestRemediation(student || ({ id: r.studentId, name: (r as any).studentName || 'Student' } as any), r, examResponses)}
-                          className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 transition"
+                          className="px-3 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-950/40 dark:hover:bg-amber-950/60 dark:text-amber-300 dark:border-amber-700/60 font-mono font-bold text-xs transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
                         >
                           📝 Generate Remediation Note
                         </button>
@@ -2227,13 +2206,11 @@ const avgScore = calculateAveragePercentage(allReports);
                       </button>
                     </div>
                   
-                    <span className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded ${
-                      isWorksheet
-                        ? 'text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800'
-                        : 'text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700'
-                    }`}>
-                      {isWorksheet ? 'Evaluated via Worksheet Scanner' : 'Assigned from Diagnostic Pipeline'}
-                    </span>
+                    {isWorksheet && (
+                      <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800">
+                        Evaluated via Worksheet Scanner
+                      </span>
+                    )}
                   </div>
 
                   {isExpanded && (

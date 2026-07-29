@@ -1,13 +1,15 @@
 import { dbStore } from '../../db';
 import { RemediationLedger } from '../../models/RemediationLedger.model';
+import mongoose from 'mongoose';
 import { ExamBlueprint } from '../../models/ExamBlueprint.model';
 import { routerService } from './router.service';
 import { IRemediationLedger, IGeneratedPracticeQuestion } from '../../interfaces/remediationLedger.interface';
 import { randomUUID } from 'crypto';
 import { generativeEngine } from './generativeEngine';
 import { blueprintService } from './blueprintService';
-import { blueprintEngine } from './blueprintEngine';
+import { blueprintEngine, detectConcept } from './blueprintEngine';
 import { generateQuestionsForLevel } from '../../levelGenerator';
+import { processPaper, processAllPapers, PaperInput, PaperOutput } from './paperBatchProcessor';
 
 export class RemediationService {
   /**
@@ -64,9 +66,22 @@ export class RemediationService {
           questionType: originalInfo.questionType || 'standard', // passed to generative engine
           originalQuestion: originalInfo.questionText || `Question text for Q#${qNo}`,
           originalAnswer: originalInfo.answer || '',
-          studentAnswer: '', // Filled in later or left blank for remediation practice context
+          studentAnswer: '',
           isCorrect: false,
-          practiceQuestions: []
+          practiceQuestions: this.getInlineFallback(
+            originalInfo.questionText || `Question text for Q#${qNo}`,
+            originalInfo.conceptName || `Concept for Q#${qNo}`,
+            originalInfo.questionType || 'standard',
+            failedQuestionNums.indexOf(qNo) * 5
+          ).map((b: any) => ({
+            question: b.question,
+            options: b.options,
+            answer: b.answer,
+            remediation: b.remediation,
+            generatedAt: new Date(),
+            aiGenerated: b.aiGenerated ?? false,
+            needsReview: b.needsReview ?? false
+          }))
         };
       })
     );
@@ -214,6 +229,7 @@ export class RemediationService {
 
           const practiceQuestions: IGeneratedPracticeQuestion[] = batch.map(b => ({
             question: b.question,
+            options: (b as any).options,
             answer: b.answer,
             generatedAt: new Date(),
             aiGenerated: b.aiGenerated ?? false,
@@ -386,10 +402,17 @@ export class RemediationService {
     conceptName: string,
     questionType: string,
     baseOffset: number = 0
-  ): Array<{ question: string; answer: string; aiGenerated?: boolean; needsReview?: boolean }> {
+  ): Array<{ question: string; options?: string[]; answer: string; remediation?: string; aiGenerated?: boolean; needsReview?: boolean }> {
     return Array.from({ length: 5 }, (_, i) => {
       const bp = blueprintEngine.generate(originalQuestion, conceptName, questionType, '', baseOffset + i);
-      return { question: bp.question, answer: bp.answer, aiGenerated: bp.aiGenerated, needsReview: bp.needsReview };
+      return {
+        question: bp.question,
+        options: bp.options,
+        answer: bp.answer,
+        remediation: bp.remediation,
+        aiGenerated: bp.aiGenerated,
+        needsReview: bp.needsReview
+      };
     });
   }
 
@@ -401,10 +424,12 @@ export class RemediationService {
     console.log('[RemediationService] Starting full database migration to refresh all previous remediation ledgers...');
     try {
       let mongoLedgers: any[] = [];
-      try {
-        mongoLedgers = await RemediationLedger.find({}).exec();
-      } catch (err: any) {
-        console.warn('MongoDB ledger query warning:', err.message);
+      if (mongoose && mongoose.connection && mongoose.connection.readyState === 1) {
+        try {
+          mongoLedgers = await RemediationLedger.find({}).exec();
+        } catch (err: any) {
+          console.warn('MongoDB ledger query warning:', err.message);
+        }
       }
 
       const cachedLedgers = (await dbStore.getRemediationLedgers()) || [];
@@ -441,12 +466,17 @@ export class RemediationService {
             } catch { }
           }
 
+          const detectedConcept = detectConcept(origQ, r.conceptName || '');
+          concept = (r.conceptName === 'Number Sense' && detectedConcept !== 'Number Sense')
+            ? detectedConcept
+            : (detectedConcept || r.conceptName || 'Mathematics');
+
           const conceptLower = concept.toLowerCase();
           const isSubtractionTopic = /subtra|minus|difference|diff|take away|change|paid|spent|left|remaining|fewer/i.test(conceptLower + ' ' + origQ);
           const isDivisionTopic = /divis|divide|quotient|sharing|grouping|equal groups/i.test(conceptLower + ' ' + origQ);
           const isMultiplyTopic = /multipl|times|product/i.test(conceptLower + ' ' + origQ);
 
-          const isStale = !r.practiceQuestions || r.practiceQuestions.length === 0 ||
+          const isStale = !r.practiceQuestions || r.practiceQuestions.length === 0 || concept !== r.conceptName ||
             r.practiceQuestions.some((pq: any) => {
               const pqQ = pq.question || '';
               if (/Numeric practice for/i.test(pqQ)) return true;
@@ -458,10 +488,15 @@ export class RemediationService {
               if (/Solve calculation: \d+ \+ \d+/i.test(pqQ)) return true;
               if (/Solve the .+ calculation: \d+ \+ \d+/i.test(pqQ)) return true;
               if (/^Solve (subtraction|division|multiplication): /i.test(pqQ)) return true;
+              if (/Based on the concept/i.test(pqQ)) return true;
+              if (pqQ.includes('comparison-boxed-3col') || pqQ.includes('ordinal-circle-write') || pqQ.includes('measurement-mixed-mcq') || pqQ.includes('ruler-measure-objects') || pqQ.includes('write-position') || pqQ.includes('write position') || pqQ.includes('identify-position') || pqQ.includes('identify position')) return true;
+              if (pqQ.trim() === concept.trim()) return true;
               if (pqQ === r.originalQuestion) return true;
               if (isSubtractionTopic && /\d+ \+ \d+/.test(pqQ)) return true;
               if (isDivisionTopic && /\d+ \+ \d+/.test(pqQ)) return true;
               if (isMultiplyTopic && /\d+ \+ \d+/.test(pqQ)) return true;
+              if (concept === 'Add and Match' && !/match/i.test(pqQ)) return true;
+              if (concept === 'MatchFingersToFruits' && !/fruit/i.test(pqQ)) return true;
               return false;
             });
 
@@ -472,7 +507,15 @@ export class RemediationService {
               originalQuestion: origQ,
               conceptName: concept,
               practiceQuestions: this.getInlineFallback(origQ, concept, qType, baseOffset)
-                .map((b: any) => ({ question: b.question, answer: b.answer, generatedAt: new Date() }))
+                .map((b: any) => ({
+                  question: b.question,
+                  options: b.options,
+                  answer: b.answer,
+                  remediation: b.remediation,
+                  generatedAt: new Date(),
+                  aiGenerated: b.aiGenerated ?? false,
+                  needsReview: b.needsReview ?? false
+                }))
             };
           }
           return r;

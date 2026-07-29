@@ -754,24 +754,49 @@ export class DBStore {
 
   // --- Remediation Ledger Methods ---
   async getRemediationLedgers() {
-    return await this.mongoDb!.collection<IRemediationLedger>('remediation_ledgers').find({}).toArray();
+    if (this.mongoDb) {
+      try {
+        return await this.mongoDb.collection<IRemediationLedger>('remediation_ledgers').find({}).toArray();
+      } catch (err) {
+        console.warn('MongoDB getRemediationLedgers error, using cache:', err);
+      }
+    }
+    if (!this.data.remediationLedgers) this.data.remediationLedgers = [];
+    return this.data.remediationLedgers;
   }
 
   async addRemediationLedger(ledger: IRemediationLedger) {
-    await this.mongoDb!.collection('remediation_ledgers').insertOne(ledger);
+    if (this.mongoDb) {
+      try {
+        await this.mongoDb.collection('remediation_ledgers').insertOne(ledger);
+      } catch (err) {
+        console.warn('MongoDB addRemediationLedger error:', err);
+      }
+    }
     if (this.data) {
       if (!this.data.remediationLedgers) this.data.remediationLedgers = [];
       this.data.remediationLedgers.push(ledger);
+      await this.save();
     }
     return ledger;
   }
 
   async updateRemediationLedger(id: string, updates: Partial<IRemediationLedger>) {
-    await this.mongoDb!.collection('remediation_ledgers').updateOne({ id }, { $set: updates });
-    const ledger = await this.mongoDb!.collection<IRemediationLedger>('remediation_ledgers').findOne({ id });
-    if (ledger && this.data) {
+    if (this.mongoDb) {
+      try {
+        await this.mongoDb.collection('remediation_ledgers').updateOne({ id }, { $set: updates });
+      } catch (err) {
+        console.warn('MongoDB updateRemediationLedger error:', err);
+      }
+    }
+    let ledger: any = null;
+    if (this.data && this.data.remediationLedgers) {
       const idx = this.data.remediationLedgers.findIndex(x => x.id === id);
-      if (idx !== -1) this.data.remediationLedgers[idx] = ledger;
+      if (idx !== -1) {
+        this.data.remediationLedgers[idx] = { ...this.data.remediationLedgers[idx], ...updates };
+        ledger = this.data.remediationLedgers[idx];
+      }
+      await this.save();
     }
     return ledger || undefined;
   }

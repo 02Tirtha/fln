@@ -582,6 +582,72 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack, ini
     setExtractedAnswers(prev => ({ ...prev, [qId]: value }));
   };
 
+  const fetchRemediationLedger = async (studentId: string, examId: string, responses: any[], questions: any[]) => {
+    setRemediationLedger({ remediationStatus: 'generating' });
+
+    const failedQuestionNums: number[] = [];
+    const originalQuestions: Array<{ qNo: number; text: string; answer?: string }> = [];
+
+    (responses || []).forEach((r: any, idx: number) => {
+      if (r.status !== 'Correct') {
+        const qNo = idx + 1;
+        failedQuestionNums.push(qNo);
+        const matchingQ = questions ? questions.find((q: any) => q.question_id === r.questionId) || questions[idx] : null;
+        originalQuestions.push({
+          qNo,
+          text: r.question || matchingQ?.question || `Question #${qNo}`,
+          answer: r.correctAnswer || matchingQ?.answer || ''
+        });
+      }
+    });
+
+    if (failedQuestionNums.length === 0) {
+      setRemediationLedger(null);
+      return;
+    }
+
+    try {
+      await apiFetch('/api/remediation/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          studentId,
+          examId,
+          failedQuestionNums,
+          originalQuestions
+        })
+      });
+
+      let attempts = 0;
+      const pollInterval = setInterval(async () => {
+        attempts++;
+        try {
+          const res = await apiFetch(`/api/remediation/${studentId}/${encodeURIComponent(examId)}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const ledgerData = data.data || data;
+            if (ledgerData && ledgerData.remediationStatus === 'completed') {
+              setRemediationLedger(ledgerData);
+              clearInterval(pollInterval);
+            }
+          }
+        } catch (err) {
+          console.error('Error polling remediation ledger:', err);
+        }
+        if (attempts > 15) {
+          clearInterval(pollInterval);
+        }
+      }, 1200);
+    } catch (err) {
+      console.error('Failed to trigger remediation generation:', err);
+    }
+  };
+
   const submitEvaluation = async () => {
     if (!currentSelectedStudent || !paper) return;
     setLoading(true);
@@ -607,6 +673,13 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack, ini
         setReport(data.report);
         setStep('result');
         setSuccess(`Worksheet evaluated for ${currentSelectedStudent.name}. Score: ${data.score}/${data.totalQuestions}.`);
+
+        const responsesList = data.report?.responses || [];
+        const hasFailed = responsesList.some((r: any) => r.status !== 'Correct');
+        if (hasFailed) {
+          const examId = worksheetId || (paperType === 'level' ? data.report.worksheetId : 'diagnostic');
+          fetchRemediationLedger(currentSelectedStudent.id, examId, responsesList, paper.questions);
+        }
       } else {
         setError(data.error || 'Evaluation failed.');
       }
@@ -1083,37 +1156,6 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack, ini
                 ))}
               </div>
             </div>
-            {/* {hasFailedQuestions && currentSelectedStudent && (
-              <div className="bg-gradient-to-r from-amber-50/50 to-orange-50/50 dark:from-amber-950/20 dark:to-orange-950/20 border border-amber-200 dark:border-amber-900/60 rounded-xl p-4.5 space-y-4">
-                <div className="flex items-start gap-3">
-                  <div className="h-9 w-9 rounded-full bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center text-base">
-                    💊
-                  </div>
-                  <div className="flex-1">
-                    <h5 className="text-xs font-bold text-amber-900 dark:text-amber-400">Remediation Practice Slip</h5>
-                    <p className="text-[10px] text-amber-700/80 dark:text-amber-500/80 mt-0.5">Incorrect answers detected. Custom practice exercises generated using AI engine.</p>
-                  </div>
-                </div>
-                <div>
-                  {!remediationLedger || remediationLedger.remediationStatus === 'pending' || remediationLedger.remediationStatus === 'generating' ? (
-                    <div className="flex items-center justify-center gap-2 p-3 bg-white dark:bg-slate-900 border border-amber-200/50 dark:border-amber-900/50 rounded-lg text-xs text-amber-750 dark:text-amber-400 font-mono font-medium shadow-sm">
-                      <span className="animate-spin text-sm">⏳</span> Compiling remedial practice questions...
-                    </div>
-                  ) : remediationLedger.remediationStatus === 'completed' ? (
-                    <button
-                      onClick={() => handlePrintRemediationSlip(currentSelectedStudent, remediationLedger)}
-                      className="w-full bg-amber-600 hover:bg-amber-700 dark:bg-amber-700 dark:hover:bg-amber-600 text-white font-mono font-bold text-xs py-3 px-4 rounded-xl transition-all cursor-pointer shadow-md hover:shadow-amber-200/50 active:scale-[0.98] flex items-center justify-center gap-2"
-                    >
-                      🖨️ Print Remediation Slip
-                    </button>
-                  ) : (
-                    <div className="p-3 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900 rounded-lg text-xs text-red-650 dark:text-red-400 text-center">
-                      Failed to compile practice questions. Please contact support.
-                    </div>
-                  )}
-                </div>
-              </div>
-            )} */}
             <div className="flex gap-3 pt-2">
               <button
                 onClick={resetScanner}

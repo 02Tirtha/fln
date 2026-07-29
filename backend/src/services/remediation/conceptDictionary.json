@@ -19,6 +19,11 @@
     "whole fraction"
   ],
   "Place Value": [
+    "place-value-hto",
+    "place-value-4digit",
+    "expanded-form-4digit",
+    "sticks-to-number",
+    "abacus-tens-ones",
     "place value",
     "hundreds",
     "tens",
@@ -29,6 +34,13 @@
     "htu"
   ],
   "Number Sense": [
+    "count-match-boxed",
+    "count-trace-number-table",
+    "count-write-match",
+    "hand-number-mini-panels",
+    "number-grid-missing",
+    "number-sequential-grid-fill",
+    "number-trace-blocks",
     "missing number",
     "fill blank",
     "number line",
@@ -48,6 +60,13 @@
     "order"
   ],
   "Comparison": [
+    "comparison-numeral",
+    "comparison-diff-numeral",
+    "comparison-icon-tick",
+    "relation-comparison",
+    "size-rank-boxes",
+    "three-size-comparison",
+    "comparison-boxed-3col",
     "greater",
     "smaller",
     "least",
@@ -80,6 +99,7 @@
     "spent"
   ],
   "Multiplication": [
+    "count-equal-groups",
     "multiplication",
     "multiply",
     "times",
@@ -108,6 +128,9 @@
     "how many groups"
   ],
   "Patterns": [
+    "skip-count-arrows-boxes",
+    "skip-count-simple-list",
+    "skip-count-table-rows",
     "pattern",
     "sequence",
     "skip count",
@@ -137,6 +160,9 @@
     "bought"
   ],
   "Measurement": [
+    "choose-unit-mcq",
+    "identify-tool-mcq",
+    "measuring-tool-mixed",
     "measure",
     "ruler",
     "length",
@@ -157,6 +183,8 @@
     "l to ml"
   ],
   "Time": [
+    "clock-read-grid",
+    "clock-time-match",
     "clock",
     "time",
     "hour",
@@ -168,6 +196,9 @@
     "half past"
   ],
   "Geometry": [
+    "odd-one-out",
+    "odd-one-out-same-icon",
+    "symmetry-identify",
     "triangle",
     "square",
     "rectangle",
@@ -191,6 +222,7 @@
     "variable"
   ],
   "Decimals": [
+    "decimal fraction",
     "decimal",
     "tenths",
     "hundredths",
@@ -243,6 +275,10 @@
     "purchased"
   ],
   "Ordinal Numbers": [
+    "ordinal-circle-write",
+    "queue-position",
+    "stairs-position",
+    "race-position",
     "ordinal",
     "1st",
     "2nd",
@@ -253,16 +289,18 @@
     "queue",
     "first",
     "second",
-    "third"
+    "third",
+    "write position",
+    "identify position",
+    "write-position"
   ],
   "Directions": [
     "north",
     "south",
     "east",
     "west",
-    "map",
-    "location",
-    "place"
+    "map directions",
+    "location"
   ],
   "Shortest Path": [
     "shortest path",
@@ -298,5 +336,93 @@
   "Multiples": [
     "multiple",
     "multiples"
+  ],
+  "MatchFingersToFruits": [
+    "match fingers to fruits",
+    "fingers",
+    "fruits",
+    "matching exercise"
+  ],
+  "Add and Match": [
+    "add and match",
+    "addition and match",
+    "match addition"
+  ],
+  "Match the Tallies": [
+    "count-and-tally",
+    "tally-number-match",
+    "match the tallies",
+    "tally marks",
+    "tally match",
+    "count and tally",
+    "tally chart",
+    "tallies"
+  ],
+  "Count Equal Groups": [
+    "count equal groups",
+    "equal groups",
+    "groups of objects"
+  ],
+  "Repeated Addition": [
+    "repeated addition",
+    "add same number",
+    "add repeatedly"
+  ],
+  "Complete the Multiplication Table": [
+    "multiplication table",
+    "times table",
+    "fill table"
+  ],
+  "Write Position": [
+    "write position",
+    "position in list"
+  ],
+  "Identify Position": [
+    "identify position",
+    "find position",
+    "which position"
+  ],
+  "Number Sense (Comparison)": [
+    "bigger",
+    "smaller",
+    "which is greater",
+    "which is less"
+  ],
+  "Addition (Objects)": [
+    "add using objects",
+    "apples",
+    "stars",
+    "balloons"
+  ],
+  "Subtraction (Objects)": [
+    "subtract using objects",
+    "apples",
+    "stars",
+    "balloons"
+  ],
+  "Number Sense (Counting)": [
+    "count",
+    "how many objects",
+    "stars",
+    "apples",
+    "balls",
+    "fingers"
+  ],
+  "Number Sense (Place Value)": [
+    "how many tens",
+    "how many ones",
+    "place value"
+  ],
+  "Geometry (Perimeter)": [
+    "perimeter",
+    "side length",
+    "square perimeter"
+  ],
+  "Geometry (Angles)": [
+    "angle",
+    "90 degrees",
+    "acute",
+    "obtuse",
+    "right angle"
   ]
 }

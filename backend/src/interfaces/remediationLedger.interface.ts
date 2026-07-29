@@ -2,6 +2,7 @@ import { Document } from 'mongoose';
 
 export interface IGeneratedPracticeQuestion {
   question: string;
+  options?: string[];
   answer: string;
   generatedAt?: Date;
   aiGenerated?: boolean;

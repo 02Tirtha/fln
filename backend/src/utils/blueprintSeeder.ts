@@ -1,9 +1,14 @@
 import fs from 'fs/promises';
 import path from 'path';
+import mongoose from 'mongoose';
 import { dbStore } from '../db';
 import { ExamBlueprint } from '../models/ExamBlueprint.model';
 
 export async function parseAndSeedBlueprints() {
+  if (!mongoose.connection || mongoose.connection.readyState !== 1) {
+    console.log("Mongoose not connected to MongoDB. Skipping database content ingestion parser.");
+    return;
+  }
   console.log("=== STARTING AUTOMATED CONTENT INGESTION PARSER ===");
   
   let levelsDir = path.resolve(process.cwd(), 'FLN Levels Structure');

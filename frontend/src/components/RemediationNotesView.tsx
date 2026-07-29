@@ -50,12 +50,8 @@ export const RemediationNotesView: React.FC = () => {
       const currentLedger = data.data;
       setLedger(currentLedger);
       
-      // Agar generating hai, toh 'loading' ko true hi rakho taaki UI update hota rahe
-      if (currentLedger?.remediationStatus === 'generating') {
-        setLoading(true);
-      } else {
-        setLoading(false);
-      }
+      // Once the ledger is retrieved, we set loading to false so the user can view questions immediately
+      setLoading(false);
     } catch (err) {
       if (!isPolling) setError('Failed to load remediation note.');
     }
@@ -64,12 +60,12 @@ export const RemediationNotesView: React.FC = () => {
   useEffect(() => {
     fetchLedger(false);
     
-    // Polling interval: Har 3 seconds mein status check karega
+    // Polling interval: Checks status every 2 seconds while pending or generating
     const interval = setInterval(() => {
-      if (ledger?.remediationStatus === 'generating') {
+      if (!ledger || ledger.remediationStatus === 'generating' || ledger.remediationStatus === 'pending') {
         fetchLedger(true);
       }
-    }, 3000);
+    }, 2000);
 
     return () => clearInterval(interval);
   }, [studentId, examId, ledger?.remediationStatus]);
@@ -176,8 +172,12 @@ export const RemediationNotesView: React.FC = () => {
           </div>
 
           {loading ? (
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
-              Loading remediation note...
+            <div className="flex flex-col items-center justify-center p-12 space-y-4 rounded-3xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 shadow-sm">
+              <div className="w-10 h-10 border-4 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
+              <div className="text-center space-y-1">
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">Generating 5-Question Remediation Practice Slip...</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Analyzing failed concepts and compiling custom AI practice questions.</p>
+              </div>
             </div>
           ) : error ? (
             <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-200">
@@ -215,7 +215,7 @@ export const RemediationNotesView: React.FC = () => {
                 <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Failed Concepts & Practice</h2>
                 <div className="mt-4 space-y-4">
                   {(ledger.responses || []).length > 0 ? (
-                    ledger.responses.map((response, idx) => (
+                    ledger.responses.map((response: any, idx: number) => (
                       <div key={idx} className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                           <div>
@@ -235,14 +235,26 @@ export const RemediationNotesView: React.FC = () => {
                           <p className="mt-1">{response.originalQuestion}</p>
                         </div>
                         <div className="mt-3">
-                          <div className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Practice Questions</div>
-                          <ol className="mt-2 space-y-2 pl-5 text-sm text-slate-700 dark:text-slate-300">
+                          <div className="text-xs font-mono font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">5 Practice Remediation Variants</div>
+                          <ol className="mt-3 space-y-3 pl-5 text-sm text-slate-700 dark:text-slate-300">
                             {response.practiceQuestions && response.practiceQuestions.length > 0 ? (
-                              response.practiceQuestions.map((pq, pqIndex) => (
-                            <li key={pqIndex}>
-                              {pq.question.replace(/\s*\(Class\s+\d+\s+Diagnostic\)/gi, "")}
-                            </li>                              
-                          ))
+                              response.practiceQuestions.map((pq: any, pqIndex: number) => (
+                                <li key={pqIndex} className="space-y-1">
+                                  <div className="font-medium text-slate-800 dark:text-slate-200">
+                                    {pq.question.replace(/\s*\(Class\s+\d+\s+Diagnostic\)/gi, "")}
+                                  </div>
+                                  {pq.options && pq.options.length > 0 && (
+                                    <div className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+                                      Options: [{pq.options.join(', ')}]
+                                    </div>
+                                  )}
+                                  {pq.answer && (
+                                    <div className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold font-mono">
+                                      Answer: {pq.answer}
+                                    </div>
+                                  )}
+                                </li>
+                              ))
                             ) : (
                               <li className="text-slate-500 dark:text-slate-400">No practice questions generated.</li>
                             )}
