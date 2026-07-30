@@ -1,6 +1,7 @@
 import { apiFetch } from '../services/apiClient';
 import React, { useState, useEffect } from 'react';
 import { Student, ClassGroup, Question, EvaluationReport, User } from '../types';
+import { ChildErrorSignature } from './MisconceptionFingerprint';
 
 interface IcrScannerProps {
   token: string;
@@ -561,6 +562,9 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
               <h4 className="text-[9px] font-mono font-bold uppercase text-zinc-400 dark:text-zinc-500 tracking-wider">AI Narrative Summary</h4>
               <p className="text-zinc-700 dark:text-zinc-200 text-sm leading-relaxed">{report.narrative}</p>
             </div>
+
+            {/* The same submission read for HOW the child failed, not just how much. */}
+            {selectedStudent && <ChildErrorSignature studentId={selectedStudent.id} token={token} />}
 
             <div className="flex gap-3 pt-2">
               <button

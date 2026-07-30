@@ -180,6 +180,29 @@ export interface EvaluationReport {
   recommendedLevel: number;
   recommendedSubLevel?: number;
   timestamp: string;
+  /**
+   * Per-wrong-answer root causes from the Python pipeline (`ai-services`,
+   * step 2 `evaluate_child`).
+   *
+   * The pipeline has always produced these; until now the backend read only
+   * `topics_to_focus` out of its JSON and discarded the rest, so the analysis
+   * was recomputed on every diagnostic and then thrown away. Optional because
+   * the worksheet-evaluation path does not run the pipeline.
+   */
+  rootCauses?: Array<{
+    questionId: string;
+    error: string;
+    topic: string;
+    flnLevel: number;
+    /** conceptual = doesn't understand · careless = slip · prerequisite = missing foundation */
+    errorType: 'conceptual' | 'careless' | 'prerequisite' | string;
+    analysis: string;
+  }>;
+  levelsFailed?: number[];
+  prerequisitesToCheck?: string[];
+  performanceByDifficulty?: {
+    [difficulty: string]: { attempted: number; correct: number };
+  };
 }
 
 export interface Ticket {

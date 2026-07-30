@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { dbStore, connectDB, UserRole, User, Student, School, Question, Worksheet, LevelWorksheet, AnswerSubmission, EvaluationReport, Ticket, LogEntry, Announcement, Intervention, BestPractice } from './db';
 import { generateAIDiagnostic, evaluateAIDiagnostic, generateAIPersonalizedWorksheet, evaluateAIWorksheet } from './gemini';
+import { analyseCohort, proposeErrorCategories, reconcileRootCauses, CohortAnalysis } from './misconceptionFingerprint';
 import { generateDiagnosticPaper } from './paperGenerator';
 import { generateQuestionsForLevel } from './levelGenerator';
 import * as levelsBackendClient from './levelsBackendClient';
@@ -74,6 +75,7 @@ async function startServer() {
 
   // Public stats (no auth required — used by landing page)
   app.get('/api/stats', async (_req, res) => {
+    console.log('[api] GET /api/stats hit');
     const db = dbStore.getDb();
     if (!db) return res.json({ totalStates: 0, totalDistricts: 0, totalSchools: 0, totalStudents: 0, totalAssessments: 0, avgFlnLevel: 0, totalUsers: 0, certifiedCount: 0, certifiedPercent: 0 });
 
@@ -107,6 +109,7 @@ async function startServer() {
   // Auth: Login
   app.post('/api/auth/login', async (req, res) => {
     const { email, password } = req.body;
+    console.log('[api] POST /api/auth/login payload', { email: email });
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required.' });
     }
@@ -122,14 +125,22 @@ async function startServer() {
     // Check if the user is preloaded
     const users = await dbStore.getUsers();
     const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+    console.log('[auth] lookup result for', email, user ? '(found)' : '(not found)');
     if (!user) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     // Verify the submitted password against the stored bcrypt hash.
-    const passwordOk = user.passwordHash
-      ? await bcrypt.compare(password, user.passwordHash)
-      : false;
+    const hasHash = !!user.passwordHash;
+    console.log('[auth] user has passwordHash?', hasHash);
+    let passwordOk = false;
+    if (hasHash) {
+      passwordOk = await bcrypt.compare(password, user.passwordHash);
+    } else if ((user as any).password) {
+      // Fallback for unhashed seeded users
+      passwordOk = password === (user as any).password;
+    }
+    console.log('[auth] password check result for', email, passwordOk ? 'OK' : 'FAIL');
     if (!passwordOk) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
@@ -587,6 +598,42 @@ async function startServer() {
   });
 
   // Submit and evaluate Diagnostic responses
+  /**
+   * Lift the pipeline's per-answer analysis into the shape the report stores.
+   *
+   * The Python step already classifies every wrong answer as conceptual,
+   * careless or a missing prerequisite; this simply stops that work being
+   * thrown away. Tolerant of a missing or malformed file — the pipeline is
+   * best-effort and a placement must never depend on it.
+   */
+  function extractRootCauses(evalData: any): Partial<EvaluationReport> {
+    if (!evalData || typeof evalData !== 'object') return {};
+    const out: Partial<EvaluationReport> = {};
+
+    if (Array.isArray(evalData.root_causes)) {
+      out.rootCauses = evalData.root_causes
+        .filter((r: any) => r && (r.question_id || r.questionId))
+        .map((r: any) => ({
+          questionId: String(r.question_id ?? r.questionId),
+          error: String(r.error ?? ''),
+          topic: String(r.topic ?? 'Unclassified'),
+          flnLevel: Number(r.fln_level ?? r.flnLevel ?? 0),
+          errorType: String(r.error_type ?? r.errorType ?? 'conceptual'),
+          analysis: String(r.analysis ?? '')
+        }));
+    }
+    if (Array.isArray(evalData.levels_failed)) {
+      out.levelsFailed = evalData.levels_failed.map((n: any) => Number(n)).filter(Number.isFinite);
+    }
+    if (Array.isArray(evalData.prerequisites_to_check)) {
+      out.prerequisitesToCheck = evalData.prerequisites_to_check.map((s: any) => String(s));
+    }
+    if (evalData.performance_by_difficulty && typeof evalData.performance_by_difficulty === 'object') {
+      out.performanceByDifficulty = evalData.performance_by_difficulty;
+    }
+    return out;
+  }
+
   app.post('/api/students/:id/diagnostic/submit', async (req, res) => {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
@@ -634,6 +681,9 @@ async function startServer() {
     let score = 0;
     let recommendedLevel = 1;
     let narrative = '';
+    // The pipeline's per-answer root-cause analysis. Captured here so it can be
+    // persisted rather than recomputed and discarded on every diagnostic.
+    let pipelineEval: any = null;
 
     try {
       const { execFileSync } = await import('child_process');
@@ -663,8 +713,9 @@ async function startServer() {
 
       if (fs.existsSync(evalReportPath)) {
         const evalData = JSON.parse(fs.readFileSync(evalReportPath, 'utf-8'));
+        pipelineEval = evalData;
         score = evalData.total_questions - (evalData.wrong_count || 0);
-        
+
         const levelStr = String(evalData.demonstrated_level || '1');
         const lvlMatch = levelStr.match(/\d+/);
         if (lvlMatch) {
@@ -736,34 +787,85 @@ async function startServer() {
       'Operations': recommendedLevel >= 12 ? 'Strong' : 'Needs Practice'
     };
 
+    if (pipelineEval?.topics_to_focus && Array.isArray(pipelineEval.topics_to_focus)) {
+      pipelineEval.topics_to_focus.forEach((t: string) => {
+        conceptMastery[t] = 'Needs Practice';
+      });
+    }
+
+    // --- Make this diagnostic visible to misconception fingerprinting --------
+    //
+    // Until now this endpoint graded the answers and stored only a report, so
+    // the per-question responses — the one thing the fingerprinting analysis
+    // reads — were discarded. Persisting them requires BOTH records: the
+    // analysis joins AnswerSubmission.worksheetId to a stored Worksheet to
+    // recover each question's text and correct answer. Writing the submission
+    // alone would produce an orphan that nothing can read (there are already
+    // three such rows in the database from an earlier version of this path).
+    const diagnosticWorksheetId = `WS_DIAG_${student.id}_${Date.now()}`;
     try {
-      const evalReportPath = path.join(pipelineDir, 'evaluation_reports', `class_${classNumber}`, 'phrase_1', 'evaluation', `${student.id}_evaluation_${dateStr}.json`);
-      if (fs.existsSync(evalReportPath)) {
-        const evalData = JSON.parse(fs.readFileSync(evalReportPath, 'utf-8'));
-        if (evalData.topics_to_focus && Array.isArray(evalData.topics_to_focus)) {
-          evalData.topics_to_focus.forEach((t: string) => {
-            conceptMastery[t] = 'Needs Practice';
-          });
-        }
-      }
-    } catch (e) {
-      console.warn('Failed to parse dynamic concept mastery:', e);
+      const classes = await dbStore.getClasses();
+      const cls = classes.find(
+        c => c.schoolId === student.schoolId && c.className === student.classGroup && c.section === student.section
+      );
+      const nowIso = new Date().toISOString();
+
+      const diagnosticWorksheet: Worksheet = {
+        id: diagnosticWorksheetId,
+        classId: cls?.id ?? 'diagnostic',
+        className: student.classGroup,
+        section: student.section,
+        schoolId: student.schoolId,
+        generatedByRole: user.role,
+        generatedByEmail: user.email,
+        cycle: 'Baseline',
+        date: dateStr,
+        questions,
+        locks: { locked: true, lockedByRole: user.role, lockedByEmail: user.email, timestamp: nowIso },
+        timing: {
+          examDate: dateStr,
+          printWindowStart: nowIso,
+          printWindowEnd: nowIso,
+          examWindowStart: nowIso,
+          examWindowEnd: nowIso,
+          submissionWindowEnd: nowIso
+        },
+        delayLogs: { delayedAttemptsCount: 0, submittingTeachers: [] }
+      };
+      await dbStore.addWorksheet(diagnosticWorksheet);
+
+      await dbStore.addAnswerSubmission({
+        id: `sub_diag_${student.id}_${Date.now()}`,
+        worksheetId: diagnosticWorksheetId,
+        studentId: student.id,
+        studentName: student.name,
+        schoolId: student.schoolId,
+        classId: cls?.id ?? 'diagnostic',
+        submittedAt: nowIso,
+        isDelayed: false,
+        answers
+      });
+    } catch (persistErr) {
+      // Never fail a placement because the analysis copy could not be written.
+      console.warn('Failed to persist diagnostic submission for fingerprinting:', persistErr);
     }
 
     const report: EvaluationReport = {
       id: 'rep_diag_' + Date.now(),
       studentId: student.id,
-      worksheetId: 'diagnostic',
+      worksheetId: diagnosticWorksheetId,
       score,
       totalQuestions: questions.length,
       conceptMastery,
       narrative,
       recommendedLevel,
       recommendedSubLevel: subLevel,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      ...extractRootCauses(pipelineEval)
     };
 
     await dbStore.addEvaluationReport(report);
+    invalidateFingerprintCache();
 
     await dbStore.addLog({
       id: 'log_' + Date.now(),
@@ -1274,6 +1376,7 @@ async function startServer() {
     };
 
     await dbStore.addAnswerSubmission(submission);
+    invalidateFingerprintCache();
 
     // Save Evaluation Report
     const report: EvaluationReport = {
@@ -1397,6 +1500,204 @@ async function startServer() {
     const reps = await dbStore.getEvaluationReports();
     const filtered = reps.filter(r => r.studentId === req.params.studentId);
     res.json(filtered);
+  });
+
+  // --- Misconception fingerprinting: cluster a cohort on HOW it fails ---------
+  //
+  // Read-only analysis over already-graded submissions. The cohort pass invokes
+  // Gemini to name the discovered archetypes, so results are memoised briefly:
+  // the dossier UI re-fetches on every open and re-clustering per render would
+  // burn quota for an answer that cannot have changed.
+  // The cache stores the in-flight PROMISE, not the resolved value. The dossier
+  // UI fires /compare and /cohort together, so caching only settled results
+  // lets both miss, run their own Gemini naming pass, and disagree about what
+  // the same cluster is called. Sharing the promise means concurrent callers
+  // always see one consistent analysis.
+  const fingerprintCache = new Map<string, { at: number; value: Promise<CohortAnalysis> }>();
+  const FINGERPRINT_TTL_MS = 5 * 60 * 1000;
+
+  /**
+   * Drop memoised analyses when new answers land.
+   *
+   * Without this a teacher can grade a sheet and then open Misconceptions to
+   * results computed up to five minutes earlier, with the child they just
+   * marked missing from them. Declared as a function so the submit handlers
+   * above can call it despite being defined earlier in the file.
+   */
+  function invalidateFingerprintCache() {
+    fingerprintCache.clear();
+  }
+
+  function getCohortAnalysis(classGroup?: string, schoolId?: string): Promise<CohortAnalysis> {
+    const key = `${classGroup ?? '*'}|${schoolId ?? '*'}`;
+    const hit = fingerprintCache.get(key);
+    if (hit && Date.now() - hit.at < FINGERPRINT_TTL_MS) return hit.value;
+
+    const pending = (async () => {
+      const [allStudents, submissions, worksheets] = await Promise.all([
+        dbStore.getStudents(),
+        dbStore.getAnswerSubmissions(),
+        dbStore.getWorksheets()
+      ]);
+
+      const students = allStudents.filter(s =>
+        (!classGroup || s.classGroup === classGroup) && (!schoolId || s.schoolId === schoolId)
+      );
+      const ids = new Set(students.map(s => s.id));
+
+      return analyseCohort(
+        students,
+        submissions.filter(s => ids.has(s.studentId)),
+        worksheets,
+        { classGroup }
+      );
+    })();
+
+    // Never cache a rejection — a transient DB blip would otherwise be pinned
+    // for the whole TTL.
+    pending.catch(() => fingerprintCache.delete(key));
+    fingerprintCache.set(key, { at: Date.now(), value: pending });
+    return pending;
+  }
+
+  // Whole-cohort view: discovered archetypes, membership, and score collisions.
+  app.get('/api/misconceptions/cohort', async (req, res) => {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const classGroup = (req.query.classGroup as string) || undefined;
+      const schoolId = (req.query.schoolId as string) || undefined;
+      const analysis = await getCohortAnalysis(classGroup, schoolId);
+      res.json(analysis);
+    } catch (error: any) {
+      console.error('[MisconceptionFingerprint] cohort analysis failed:', error?.message || error);
+      res.status(500).json({ error: 'Misconception analysis failed.' });
+    }
+  });
+
+  // What the nine coded rules could not read, and what Gemini thinks it means.
+  //
+  // Kept off the cohort path deliberately: it is an occasional maintenance
+  // question ("has a new kind of mistake started appearing?"), not something to
+  // pay for on every dashboard render. Nothing it returns feeds the clustering —
+  // a proposal is a suggestion for a human to turn into a coded rule.
+  app.get('/api/misconceptions/residue', async (req, res) => {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const classGroup = (req.query.classGroup as string) || undefined;
+      const schoolId = (req.query.schoolId as string) || undefined;
+      const analysis = await getCohortAnalysis(classGroup, schoolId);
+      const proposals = await proposeErrorCategories(analysis.residue, classGroup ?? 'this class');
+      res.json({
+        unclassifiedCount: analysis.unclassifiedCount,
+        unclassifiedRate: analysis.unclassifiedRate,
+        residue: analysis.residue,
+        proposals,
+        generatedAt: new Date().toISOString()
+      });
+    } catch (error: any) {
+      console.error('[MisconceptionFingerprint] residue analysis failed:', error?.message || error);
+      res.status(500).json({ error: 'Residue analysis failed.' });
+    }
+  });
+
+  // One child's dossier, plus the archetype they belong to.
+  app.get('/api/misconceptions/fingerprint/:studentId', async (req, res) => {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const students = await dbStore.getStudents();
+      const student = students.find(s => s.id === req.params.studentId);
+      if (!student) return res.status(404).json({ error: 'Student not found.' });
+
+      const analysis = await getCohortAnalysis(student.classGroup, student.schoolId);
+      const fingerprint = analysis.fingerprints.find(f => f.studentId === student.id);
+      if (!fingerprint) {
+        return res.status(404).json({
+          error: 'No error signature available for this student yet.',
+          reason: 'NO_SUBMISSIONS_WITH_ERRORS'
+        });
+      }
+      const archetype = analysis.archetypes.find(a => a.clusterId === fingerprint.clusterId) ?? null;
+
+      // Join the Python pipeline's per-answer root causes, where a diagnostic
+      // produced any, and check its carelessness calls against the measured
+      // evidence this module holds.
+      const reports = await dbStore.getEvaluationReports();
+      // Any pipeline output is worth surfacing, not just per-question causes:
+      // when its LLM step falls back, it still yields the failed levels and the
+      // difficulty breakdown, and those are the fields a teacher acts on.
+      const latest = reports
+        .filter(
+          r =>
+            r.studentId === student.id &&
+            ((Array.isArray(r.rootCauses) && r.rootCauses.length > 0) ||
+              (Array.isArray(r.levelsFailed) && r.levelsFailed.length > 0) ||
+              r.performanceByDifficulty)
+        )
+        .sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1))[0];
+
+      res.json({
+        fingerprint,
+        archetype,
+        rootCauses: latest?.rootCauses ?? null,
+        levelsFailed: latest?.levelsFailed ?? null,
+        prerequisitesToCheck: latest?.prerequisitesToCheck ?? null,
+        reconciliation: latest ? reconcileRootCauses(fingerprint, latest.rootCauses) : null,
+        generatedAt: analysis.generatedAt
+      });
+    } catch (error: any) {
+      console.error('[MisconceptionFingerprint] fingerprint failed:', error?.message || error);
+      res.status(500).json({ error: 'Misconception analysis failed.' });
+    }
+  });
+
+  // The comparison the feature exists for: two children, one score, two minds.
+  // With no ?a/?b the server picks the sharpest collision it found on its own.
+  app.get('/api/misconceptions/compare', async (req, res) => {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+    try {
+      const classGroup = (req.query.classGroup as string) || undefined;
+      const schoolId = (req.query.schoolId as string) || undefined;
+      const analysis = await getCohortAnalysis(classGroup, schoolId);
+
+      let aId = req.query.a as string | undefined;
+      let bId = req.query.b as string | undefined;
+
+      if (!aId || !bId) {
+        const best = analysis.collisions[0];
+        if (!best) {
+          return res.status(404).json({
+            error: 'No two children in this cohort share a score across different archetypes.',
+            reason: 'NO_COLLISION'
+          });
+        }
+        aId = best.a;
+        bId = best.b;
+      }
+
+      const left = analysis.fingerprints.find(f => f.studentId === aId);
+      const right = analysis.fingerprints.find(f => f.studentId === bId);
+      if (!left || !right) return res.status(404).json({ error: 'Student not found in this cohort.' });
+
+      const archetypeOf = (id?: number) => analysis.archetypes.find(a => a.clusterId === id) ?? null;
+      res.json({
+        left: { fingerprint: left, archetype: archetypeOf(left.clusterId) },
+        right: { fingerprint: right, archetype: archetypeOf(right.clusterId) },
+        sameScore: left.score === right.score,
+        sameLevel: left.currentLevel === right.currentLevel,
+        totalCollisions: analysis.collisions.length,
+        cohortSize: analysis.analysedCount,
+        archetypeCount: analysis.archetypes.length,
+        usedFallbackNaming: analysis.usedFallbackNaming,
+        generatedAt: analysis.generatedAt
+      });
+    } catch (error: any) {
+      console.error('[MisconceptionFingerprint] compare failed:', error?.message || error);
+      res.status(500).json({ error: 'Misconception analysis failed.' });
+    }
   });
 
   // Roll up Analytics for Dashboards scoped by Role (§14)

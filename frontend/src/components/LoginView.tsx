@@ -51,7 +51,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, onBackToHo
       });
       const data = await res.json();
       if (res.ok) {
-        onLoginSuccess(data.token, data.user);
+        const payload = data?.data || data;
+        const token = payload?.token;
+        const user = payload?.user || payload?.teacher || payload;
+        onLoginSuccess(token, user);
       } else {
         setError(data.error || 'Invalid email or password');
       }
@@ -149,8 +152,8 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, onBackToHo
 
         {/* Quick Credentials Panel for Mock Access */}
         <div className="mt-8 border-t-2 border-slate-100 dark:border-slate-800 pt-5">
-          <p className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2.5">
-            Active System Roles for Demonstration (Password: Fln@2026)
+          <p className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 tracking-widest mb-2.5">
+            ACTIVE SYSTEM ROLES FOR DEMONSTRATION (Password: Fln@2026)
           </p>
           <div className="grid grid-cols-2 gap-2 text-[10px]">
             {mockUsersList.map(u => (

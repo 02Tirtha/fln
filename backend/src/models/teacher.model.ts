@@ -105,6 +105,10 @@ teacherSchema.pre('save', async function (next) {
 teacherSchema.methods.comparePassword = async function (
   candidatePassword: string
 ): Promise<boolean> {
+  if (!this.password.startsWith('$2')) {
+    // Fallback for unhashed seeded users
+    return candidatePassword === this.password;
+  }
   return bcrypt.compare(candidatePassword, this.password);
 };
 

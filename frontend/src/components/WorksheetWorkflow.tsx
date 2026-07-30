@@ -80,6 +80,7 @@ export const WorksheetWorkflow: React.FC<WorksheetWorkflowProps> = ({ classGroup
   const submitStudentAnswers = async (studentId: string) => {
     setLoading(true);
     setError('');
+    setSuccess('');
     setEvaluationResult(null);
     try {
       const res = await apiFetch('/api/evaluation/submit', {
@@ -94,13 +95,21 @@ export const WorksheetWorkflow: React.FC<WorksheetWorkflowProps> = ({ classGroup
           answers: studentAnswers
         })
       });
-      const data = await res.json();
+      // Not every failure is JSON — an Express error page is HTML, and res.json()
+      // on that used to throw and surface misleadingly as "Network error".
+      const raw = await res.text();
+      let data: any = null;
+      try {
+        data = raw ? JSON.parse(raw) : null;
+      } catch {
+        data = null;
+      }
       if (res.ok) {
         setEvaluationResult(data);
         setStudentAnswers({});
         setSuccess(`Successfully evaluated and saved ${data.submission.studentName}'s answers.`);
       } else {
-        setError(data.error || 'Failed to submit student answers.');
+        setError(data?.error || `Failed to submit student answers (HTTP ${res.status}).`);
       }
     } catch (err) {
       setError('Network error submitting answer sheet.');

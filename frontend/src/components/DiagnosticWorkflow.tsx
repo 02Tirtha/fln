@@ -2,6 +2,7 @@ import { apiFetch } from '../services/apiClient';
 import React, { useState } from 'react';
 import { Student, Question, EvaluationReport } from '../types';
 import { SvgLibraryResolver } from './SvgLibraryResolver';
+import { ChildErrorSignature } from './MisconceptionFingerprint';
 
 interface DiagnosticWorkflowProps {
   student: Student;
@@ -302,6 +303,13 @@ export const DiagnosticWorkflow: React.FC<DiagnosticWorkflowProps> = ({ student,
             <h4 className="text-xs font-mono font-bold uppercase text-zinc-400 dark:text-zinc-500">AI Narrative Feedback Summary</h4>
             <p className="text-zinc-700 dark:text-zinc-200 text-sm leading-relaxed">{report.narrative}</p>
           </div>
+
+          {/*
+            The other half of the same submission: the narrative above says what
+            level this child is on, this says how they got the answers wrong and
+            who else in the class fails the same way.
+          */}
+          <ChildErrorSignature studentId={student.id} token={token} />
 
           <button
             onClick={onComplete}
