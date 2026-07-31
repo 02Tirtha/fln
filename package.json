@@ -19,6 +19,7 @@
     "lint": "npm run lint --workspaces --if-present"
   },
   "dependencies": {
+    "cors": "^2.8.6",
     "mongodb": "^7.5.0",
     "mongoose": "^9.7.4"
   }

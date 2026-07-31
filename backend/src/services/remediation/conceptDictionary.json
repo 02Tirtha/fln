@@ -127,6 +127,34 @@
     "groups of",
     "how many groups"
   ],
+  "Find the Area": [
+    "area",
+    "square area",
+    "rectangle area",
+    "find area"
+  ],
+  "Count the Square Units": [
+    "count the square units",
+    "count square units",
+    "square units",
+    "unit squares",
+    "count unit squares",
+    "grid squares"
+  ],
+  "Visual Problems": [
+    "visual",
+    "geometry problems",
+    "shape recognition",
+    "sides",
+    "corners"
+  ],
+  "Compare Shape Areas": [
+    "compare shape areas",
+    "compare areas",
+    "which shape has greater area",
+    "greater area",
+    "shape comparison"
+  ],
   "Patterns": [
     "skip-count-arrows-boxes",
     "skip-count-simple-list",

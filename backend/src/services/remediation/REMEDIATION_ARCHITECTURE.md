@@ -465,9 +465,238 @@ RemediationService.getInlineFallback()  ← NEVER FAILS
 | Clock time reading | Clock face description, correct time format |
 | Shape tracing | "Trace the [shape]" instruction preserved |
 | AI API unavailable | BlueprintEngine generates all 5 variants |
+---
+---
+
+## 5. Adding a New Remediation Concept (Step-by-Step)
+
+The remediation engine (`backend/src/services/remediation/blueprintEngine.ts`) uses a **concept → generator** registry. To add a new concept that generates practice questions on remediation worksheets:
+
+### 5.1  Files to touch
+| File | Purpose |
+|------|---------|
+| `backend/src/services/remediation/blueprintEngine.ts` | Add the generator function + register it |
+| `backend/src/services/remediation/conceptDictionary.json` | Add keywords so the classifier detects the concept |
 
 ---
 
+### 5.2  Create the generator function
+
+Add a `ConceptGenerator` function (returns `BlueprintQuestion` with `subQuestions` for 5 practice items):
+
+```typescript
+// ── YOUR NEW CONCEPT ──────────────────────────────────────────────
+const generateMyNewConcept: ConceptGenerator = (v) => {
+  // v = variantIndex (0,1,2…) — use it to rotate through presets so
+  // different students / re-tries get different questions
+
+  const presets = [
+    { prompt: "Question text 1", answer: "Answer 1" },
+    { prompt: "Question text 2", answer: "Answer 2" },
+    { prompt: "Question text 3", answer: "Answer 3" },
+    { prompt: "Question text 4", answer: "Answer 4" },
+    { prompt: "Question text 5", answer: "Answer 5" },
+  ];
+
+  // Rotate by 5 each variant so v=0 → items 0-4, v=1 → items 5-9, etc.
+  const offset = (v * 5) % presets.length;
+  const set = presets.slice(offset, offset + 5);
+
+  return {
+    question: "Instruction line shown once above the 5 sub-questions:",
+    subQuestions: set,
+    answer: "",              // dummy — not used when subQuestions exists
+    topic: "My New Concept", // human-readable name for the worksheet
+    aiGenerated: false,
+    remediation: "One-sentence hint shown to the student if they get it wrong."
+  };
+};
+```
+
+**Key patterns used in the codebase:**
+| Pattern | When to use |
+|---------|-------------|
+| Static `presets` array | Fixed question bank (e.g., fractions, geometry) |
+| `Array.from({length:5}, …)` with math on `v` | Parametric questions (e.g., addition with varying numbers) |
+| `offset = (v * 5) % presets.length` | Cycle through a pool without repeats until exhausted |
+| `subQuestions` array | **Required** — the worksheet renderer expects exactly this shape (1 instruction + 5 sub-questions) |
+
+---
+
+### 5.3  Register the generator
+
+In the `GENERATORS` registry (≈ line 1515), add **lowercase keys** + space-removed aliases:
+
+```typescript
+const GENERATORS: Record<string, ConceptGenerator> = {
+  // …existing entries…
+
+  'my new concept': generateMyNewConcept,
+  'mynewconcept': generateMyNewConcept,        // space-removed alias
+  'my new concept short': generateMyNewConcept, // common shorthand
+};
+```
+
+> **Why lowercase?** The lookup does `c = canonical.toLowerCase().trim()` then `GENERATORS[c] || GENERATORS[c.replace(/\s+/g, '')]`. Mixed-case keys will **not** match.
+
+---
+
+### 5.4  Add detection keywords
+
+In `conceptDictionary.json`, add a new entry:
+
+```json
+"My New Concept": [
+  "my new concept",
+  "my concept",
+  "keywords students or worksheets might use",
+  "alternative phrasing"
+]
+```
+
+The `detectConcept()` function matches these keywords against the original worksheet question text. Include:
+- The exact concept name
+- Common abbreviations / shorthand
+- Words that appear in the worksheet item text (e.g., "area", "square units", "compare shapes")
+
+---
+
+### 5.5  (Optional) Human-readable remediation text
+
+If your concept needs a custom hint, add a branch in `getHumanReadableRemediation()` (≈ line 19):
+
+```typescript
+export function getHumanReadableRemediation(concept: string, questionText: string = ''): string {
+  const c = (concept || '').toLowerCase();
+
+  // …existing branches…
+
+  if (c.includes('my new concept')) {
+    return 'Your custom hint for students who struggle with this concept.';
+  }
+
+  // …fallback…
+}
+```
+
+---
+
+### 5.6  Full worked example: "Count the Square Units"
+
+**1. Generator** (lines 1478–1512 in `blueprintEngine.ts`):
+```typescript
+const generateCountSquareUnits: ConceptGenerator = (v) => {
+  const shapes = [
+    { type: 'square', side: 3, unit: 'cm' },
+    { type: 'rectangle', length: 4, breadth: 3, unit: 'cm' },
+    // …10 total presets…
+  ];
+  const offset = (v * 5) % shapes.length;
+  const selected = Array.from({ length: 5 }, (_, i) => shapes[(offset + i) % shapes.length]);
+
+  const sets = selected.map((shape) => {
+    const area = shape.type === 'square' ? shape.side * shape.side : shape.length * shape.breadth;
+    const dims = shape.type === 'square'
+      ? `${shape.side}×${shape.side} ${shape.unit} grid`
+      : `${shape.length}×${shape.breadth} ${shape.unit} grid`;
+    return { prompt: `Count the unit squares in the ${shape.type} (${dims}):`, answer: `${area} square ${shape.unit}` };
+  });
+
+  return { question: "Count the square units in each grid shape:", subQuestions: sets, answer: "", topic: "Count the Square Units", aiGenerated: false, remediation: "Count each small square in the grid. Area = number of unit squares." };
+};
+```
+
+**2. Registry** (lines 1531–1534):
+```typescript
+'count the square units': generateCountSquareUnits,
+'countthesquareunits': generateCountSquareUnits,
+'count square units': generateCountSquareUnits,
+'countsquareunits': generateCountSquareUnits,
+```
+
+**3. Dictionary** (`conceptDictionary.json`):
+```json
+"Count the Square Units": [
+  "count the square units",
+  "count square units",
+  "square units",
+  "unit squares",
+  "count unit squares",
+  "grid squares"
+]
+```
+
+---
+
+### 5.7  Full worked example: "Compare Shape Areas"
+
+**1. Generator** (replaces old "Visual Problems"):
+```typescript
+const generateCompareShapeAreas: ConceptGenerator = (v) => {
+  const shapePairs = [
+    { a: { type: 'square', side: 4 }, b: { type: 'rectangle', length: 5, breadth: 3 } },
+    { a: { type: 'rectangle', length: 6, breadth: 4 }, b: { type: 'square', side: 5 } },
+    // …10 total pairs…
+  ];
+  const offset = (v * 5) % shapePairs.length;
+  const selected = Array.from({ length: 5 }, (_, i) => shapePairs[(offset + i) % shapePairs.length]);
+
+  const sets = selected.map((pair) => {
+    const areaA = pair.a.type === 'square' ? pair.a.side * pair.a.side : pair.a.length * pair.a.breadth;
+    const areaB = pair.b.type === 'square' ? pair.b.side * pair.b.side : pair.b.length * pair.b.breadth;
+    const descA = pair.a.type === 'square'
+      ? `Square with side ${pair.a.side} cm`
+      : `Rectangle ${pair.a.length} cm × ${pair.a.breadth} cm`;
+    const descB = pair.b.type === 'square'
+      ? `Square with side ${pair.b.side} cm`
+      : `Rectangle ${pair.b.length} cm × ${pair.b.breadth} cm`;
+    const correct = areaA > areaB ? 'A' : 'B';
+
+    return {
+      prompt: `Shape A: ${descA}\nShape B: ${descB}\nWhich shape has the greater area? (Answer: A or B)`,
+      answer: correct
+    };
+  });
+
+  return { question: "Compare the two shapes and identify which has the greater area:", subQuestions: sets, answer: "", topic: "Compare Shape Areas", aiGenerated: false, remediation: "Calculate area of each shape (square: side×side, rectangle: length×breadth) and compare." };
+};
+```
+
+**2. Registry**:
+```typescript
+'compare shape areas': generateCompareShapeAreas,
+'compareshapeareas': generateCompareShapeAreas,
+'compare shape area': generateCompareShapeAreas,
+// legacy fallbacks
+'find the area': generateCountSquareUnits,
+'findthearea': generateCountSquareUnits,
+'visual problems': generateCompareShapeAreas,
+'visualproblems': generateCompareShapeAreas,
+```
+
+**3. Dictionary** (`conceptDictionary.json`):
+```json
+"Compare Shape Areas": [
+  "compare shape areas",
+  "compare areas",
+  "which shape has greater area",
+  "greater area",
+  "shape comparison"
+]
+```
+
+---
+
+### 5.8  Quick checklist before committing
+
+- [ ] Generator returns `BlueprintQuestion` with `subQuestions.length === 5`
+- [ ] Registry keys are **all lowercase** + space-removed aliases
+- [ ] `conceptDictionary.json` has keywords that match real worksheet item text
+- [ ] `npm run lint` passes (TypeScript compiles)
+- [ ] `npm run build` passes
+- [ ] Test locally: call `generateByConcept('my new concept', 0, '', '')` and verify output shape
+
+---
 ## Deployment Notes
 
 ### Required Environment Variables
@@ -535,5 +764,3 @@ CHROME_EXECUTABLE_PATH=     # For Puppeteer PDF generation
 | `ai-services/scripts/_api.py` | Shared AI client (Groq/Gemini) |
 
 ---
-
-*Generated from codebase analysis — Last updated: 2026-07-29*

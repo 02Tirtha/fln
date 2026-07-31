@@ -91,6 +91,13 @@ export function getHumanReadableRemediation(concept: string, questionText: strin
   if (c.includes('comparison') || c.includes('compare')) {
     return 'Compare quantities using symbols: > (greater than), < (less than), and = (equal to).';
   }
+  if (c.includes("area")) {
+    return "Area of square = side × side; Area of rectangle = length × breadth.";
+  }
+  if (c.includes("visual")) {
+    return "Observe sides, corners, and properties of geometric shapes.";
+  }
+
 
   return `Review the basic principles for "${concept || 'this topic'}". Break down the question step-by-step with your teacher.`;
 }
@@ -1468,6 +1475,93 @@ const generateNumberSenseCounting: ConceptGenerator = (v, originalQ = '') => {
   };
 };
 
+const generateCountSquareUnits: ConceptGenerator = (v) => {
+  // Generate visual grid shapes (rectangles/squares) with different dimensions
+  // Students count the unit squares to find the area
+  const shapes = [
+    { type: 'square', side: 3, unit: 'cm' },
+    { type: 'rectangle', length: 4, breadth: 3, unit: 'cm' },
+    { type: 'square', side: 5, unit: 'cm' },
+    { type: 'rectangle', length: 6, breadth: 2, unit: 'cm' },
+    { type: 'rectangle', length: 5, breadth: 4, unit: 'cm' },
+    { type: 'square', side: 4, unit: 'm' },
+    { type: 'rectangle', length: 7, breadth: 3, unit: 'm' },
+    { type: 'square', side: 6, unit: 'm' },
+    { type: 'rectangle', length: 8, breadth: 2, unit: 'm' },
+    { type: 'rectangle', length: 6, breadth: 5, unit: 'cm' },
+  ];
+
+  const offset = (v * 5) % shapes.length;
+  const selected = Array.from({ length: 5 }, (_, i) => shapes[(offset + i) % shapes.length]);
+
+  const sets = selected.map((shape, i) => {
+    const area = shape.type === 'square' ? shape.side * shape.side : shape.length * shape.breadth;
+    const dims = shape.type === 'square'
+      ? `${shape.side}×${shape.side} ${shape.unit} grid`
+      : `${shape.length}×${shape.breadth} ${shape.unit} grid`;
+    return {
+      prompt: `Count the unit squares in the ${shape.type} (${dims}):`,
+      answer: `${area} square ${shape.unit}`
+    };
+  });
+
+  return {
+    question: "Count the square units in each grid shape:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Count the Square Units",
+    aiGenerated: false,
+    remediation: "Count each small square in the grid. Area = number of unit squares."
+  };
+};
+
+const generateCompareShapeAreas: ConceptGenerator = (v) => {
+  // Generate pairs of shapes and ask which has greater area
+  const shapePairs = [
+    { a: { type: 'square', side: 4 }, b: { type: 'rectangle', length: 5, breadth: 3 } },
+    { a: { type: 'rectangle', length: 6, breadth: 4 }, b: { type: 'square', side: 5 } },
+    { a: { type: 'square', side: 6 }, b: { type: 'rectangle', length: 7, breadth: 5 } },
+    { a: { type: 'rectangle', length: 8, breadth: 3 }, b: { type: 'square', side: 5 } },
+    { a: { type: 'rectangle', length: 9, breadth: 4 }, b: { type: 'rectangle', length: 7, breadth: 5 } },
+    { a: { type: 'square', side: 7 }, b: { type: 'rectangle', length: 8, breadth: 6 } },
+    { a: { type: 'rectangle', length: 10, breadth: 3 }, b: { type: 'square', side: 6 } },
+    { a: { type: 'square', side: 5 }, b: { type: 'rectangle', length: 6, breadth: 4 } },
+    { a: { type: 'rectangle', length: 7, breadth: 6 }, b: { type: 'square', side: 6 } },
+    { a: { type: 'rectangle', length: 8, breadth: 5 }, b: { type: 'rectangle', length: 9, breadth: 4 } },
+  ];
+
+  const offset = (v * 5) % shapePairs.length;
+  const selected = Array.from({ length: 5 }, (_, i) => shapePairs[(offset + i) % shapePairs.length]);
+
+  const sets = selected.map((pair, i) => {
+    const areaA = pair.a.type === 'square' ? pair.a.side * pair.a.side : pair.a.length * pair.a.breadth;
+    const areaB = pair.b.type === 'square' ? pair.b.side * pair.b.side : pair.b.length * pair.b.breadth;
+    const descA = pair.a.type === 'square'
+      ? `Square with side ${pair.a.side} cm`
+      : `Rectangle ${pair.a.length} cm × ${pair.a.breadth} cm`;
+    const descB = pair.b.type === 'square'
+      ? `Square with side ${pair.b.side} cm`
+      : `Rectangle ${pair.b.length} cm × ${pair.b.breadth} cm`;
+    const correct = areaA > areaB ? 'A' : 'B';
+    const correctDesc = areaA > areaB ? descA : descB;
+
+    return {
+      prompt: `Shape A: ${descA}\nShape B: ${descB}\nWhich shape has the greater area? (Answer: A or B)`,
+      answer: correct,
+      correctShape: correctDesc
+    };
+  });
+
+  return {
+    question: "Compare the two shapes and identify which has the greater area:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Compare Shape Areas",
+    aiGenerated: false,
+    remediation: "Calculate area of each shape (square: side×side, rectangle: length×breadth) and compare."
+  };
+};
+
 // ─── GENERATOR REGISTRY ────────────────────────────────────────────────────────
 const GENERATORS: Record<string, ConceptGenerator> = {
   'fractions': generateFractions,
@@ -1485,7 +1579,17 @@ const GENERATORS: Record<string, ConceptGenerator> = {
   'factor': generateFactors,
   'common multiples': generateCommonMultiples,
   'commonmultiples': generateCommonMultiples,
-
+  'count the square units': generateCountSquareUnits,
+  'countthesquareunits': generateCountSquareUnits,
+  'count square units': generateCountSquareUnits,
+  'countsquareunits': generateCountSquareUnits,
+  'compare shape areas': generateCompareShapeAreas,
+  'compareshapeareas': generateCompareShapeAreas,
+  'compare shape area': generateCompareShapeAreas,
+  'find the area': generateCountSquareUnits,
+  'findthearea': generateCountSquareUnits,
+  'visual problems': generateCompareShapeAreas,
+  'visualproblems': generateCompareShapeAreas,
   'lcm': generateCommonMultiples,
   'multiples': generateMultiples,
   'multiple': generateMultiples,
@@ -1550,6 +1654,8 @@ export function registerConceptGenerator(conceptKey: string, generator: ConceptG
   GENERATORS[conceptKey.toLowerCase()] = generator;
 }
 
+
+
 // ─── generateByConcept ─────────────────────────────────────────────────────────
 /**
  * Dynamic registry lookup per concept.
@@ -1609,6 +1715,7 @@ function _generateByConcept(
     else if (c.includes('money')) c = 'decimals in money';
     else c = 'read & write decimals';
   }
+
 
 
 
@@ -1685,8 +1792,47 @@ function _generateByConcept(
 
   // ── DEFAULT FALLBACK ──────────────────────────────────────
   const fallbackQuestions = Array.from({ length: 5 }, (_, i) => {
+
+    const ctx = (concept || '').toLowerCase();
+
+    // Perimeter of square
+    if (/perimeter.*square|square.*perimeter/.test(ctx)) {
+      const side = 7 + i;
+
+      return {
+        prompt: `Problem ${i + 1}: Find the perimeter of the square with side ${side} cm.`,
+        answer: `${side * 4} cm`
+      };
+    }
+
+
+    // Area of square
+    if (/area.*square|square.*area/.test(ctx)) {
+      const side = 5 + i;
+
+      return {
+        prompt: `Problem ${i + 1}: Find the area of the square with side ${side} cm.`,
+        answer: `${side * side} cm²`
+      };
+    }
+
+
+    // Area of rectangle
+    if (/area.*rectangle|rectangle.*area/.test(ctx)) {
+      const length = 10 + i;
+      const width = 5 + i;
+
+      return {
+        prompt: `Problem ${i + 1}: Find the area of rectangle with length ${length} cm and width ${width} cm.`,
+        answer: `${length * width} cm²`
+      };
+    }
+
+
+    // Default fallback
     const num1 = (variantIndex + i + 1) * 3 + 4;
     const num2 = (variantIndex + i + 1) * 2 + 5;
+
     return {
       prompt: `Problem ${i + 1}: Practice question for ${concept || 'this topic'} (${num1} + ${num2} = ?)`,
       answer: String(num1 + num2)
@@ -1836,10 +1982,27 @@ export class BlueprintEngine {
     } else if (/multipl|times|product/.test(ctx2)) {
       fallbackQ = `Solve multiplication: ${v1} × ${v2} = ?`;
       fallbackAns = String(v1 * v2);
-    } else if (cleanQ && cleanQ !== `${conceptName || 'Mathematics'} Question`) {
-      // Tie fallback to the original question text so it's never fully unrelated
-      fallbackQ = `Based on the concept in: "${cleanQ}" — solve: ${v1} + ${v2} = ?`;
+    } else if (/perimeter.*square|square.*perimeter/i.test(ctx2)) {
+
+      const side = 7 + variantIndex;
+
+      fallbackQ = `Find the perimeter of the square with side ${side} cm.`;
+      fallbackAns = `${side * 4} cm`;
+
+    }
+    else if (/area.*square|square.*area/i.test(ctx2)) {
+
+      const side = 5 + variantIndex;
+
+      fallbackQ = `Find the area of the square with side ${side} cm.`;
+      fallbackAns = `${side * side} cm²`;
+
+    }
+    else if (cleanQ && cleanQ !== `${conceptName || 'Mathematics'} Question`) {
+
+      fallbackQ = `Based on the concept: "${cleanQ}" solve the question.`;
       fallbackAns = String(v1 + v2);
+
     } else {
       return {
         question: `Practice question for "${conceptName || 'this topic'}" — the original question text wasn't found.`,

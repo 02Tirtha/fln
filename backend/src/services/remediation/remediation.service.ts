@@ -15,11 +15,22 @@ export class RemediationService {
   /**
    * Phase A: Immediately creates/updates the ledger as 'pending' and returns ledgerId.
    */
+  private cleanForMongo(data: any) {
+    return JSON.parse(
+      JSON.stringify(data, (key, value) => {
+        if (key === "_id") return undefined;
+        return value;
+      })
+    );
+  }
   async startGeneration(studentId: string, examId: string, failedQuestionNums: number[], originalQuestions?: any[]): Promise<{ ledgerId: string; status: string }> {
     // Check if a ledger already exists for this student and exam
     let ledger: any = null;
     try {
-      ledger = await RemediationLedger.findOne({ studentId, examId }).exec();
+      ledger = await RemediationLedger
+        .findOne({ studentId, examId })
+        .lean()
+        .exec();
     } catch (err) {
       console.warn('Mongoose query failed, searching dbStore:', err);
     }
@@ -100,15 +111,38 @@ export class RemediationService {
       responses
     };
 
-    // Upsert the ledger record
+    const cleanLedgerData = JSON.parse(
+      JSON.stringify(ledgerData)
+    );
+    console.log(
+      "Ledger keys:",
+      Object.keys(ledgerData)
+    );
+    for (const [key, value] of Object.entries(ledgerData)) {
+      try {
+        JSON.stringify(value);
+      } catch {
+        console.log("BAD BSON FIELD:", key, value);
+      }
+    }
+
     try {
       await RemediationLedger.findOneAndUpdate(
         { studentId, examId },
-        { $set: ledgerData },
-        { upsert: true, new: true }
+        {
+          $set: cleanLedgerData
+        },
+        {
+          upsert: true,
+          returnDocument: "after"
+        }
       ).exec();
+
     } catch (err: any) {
-      console.warn('Mongoose upsert failed, updating via dbStore:', err.message);
+      console.warn(
+        'Mongoose upsert failed, updating via dbStore:',
+        err.message
+      );
     }
 
     // Update in native/cached store
@@ -117,7 +151,9 @@ export class RemediationService {
     if (idx !== -1) {
       allLedgers[idx] = ledgerData as any;
     } else {
-      await dbStore.addRemediationLedger(ledgerData as any);
+      await dbStore.addRemediationLedger(
+        this.cleanForMongo(ledgerData)
+      );
     }
 
     // Trigger Phase B asynchronously in the background
@@ -146,7 +182,10 @@ export class RemediationService {
       // Fetch latest ledger
       let ledger: any = null;
       try {
-        ledger = await RemediationLedger.findOne({ id: ledgerId }).exec();
+        ledger = await RemediationLedger
+          .findOne({ id: ledgerId })
+          .lean()
+          .exec();
       } catch { }
       if (!ledger) {
         const all = await dbStore.getRemediationLedgers();
@@ -267,7 +306,13 @@ export class RemediationService {
       // Flip status to completed
       try {
         await RemediationLedger.updateOne({ id: ledgerId }, { $set: { remediationStatus: 'completed', responses } }).exec();
-        await dbStore.updateRemediationLedger(ledgerId, { remediationStatus: 'completed', responses });
+        await dbStore.updateRemediationLedger(
+          ledgerId,
+          {
+            remediationStatus: 'completed',
+            responses: this.cleanForMongo(responses)
+          }
+        );
         console.log(`[RemediationService] Completed background generation for ledger ${ledgerId}`);
       } catch (err) {
         console.error('Failed to complete ledger update:', err);
@@ -444,7 +489,10 @@ export class RemediationService {
       let mongoLedgers: any[] = [];
       if (mongoose && mongoose.connection && mongoose.connection.readyState === 1) {
         try {
-          mongoLedgers = await RemediationLedger.find({}).exec();
+          mongoLedgers = await RemediationLedger
+            .find({})
+            .lean()
+            .exec();
         } catch (err: any) {
           console.warn('MongoDB ledger query warning:', err.message);
         }
@@ -550,7 +598,12 @@ export class RemediationService {
           try {
             await RemediationLedger.updateOne({ id: ledger.id }, { $set: { responses } }).exec();
           } catch { }
-          await dbStore.updateRemediationLedger(ledger.id, { responses });
+          await dbStore.updateRemediationLedger(
+            ledger.id,
+            {
+              responses: this.cleanForMongo(responses)
+            }
+          );
         }
       }
       console.log('[RemediationService] Full database migration completed successfully.');
