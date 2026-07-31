@@ -1,4 +1,4 @@
-import { apiFetch } from './services/apiClient';
+import { apiFetch, UNAUTHORIZED_EVENT } from './services/apiClient';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -41,13 +41,14 @@ export default function App() {
   };
 
   useEffect(() => {
+    let cancelled = false;
+
     const checkSession = async () => {
       if (!token) return;
 
       try {
-        const res = await apiFetch('/api/auth/me', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await apiFetch('/api/auth/me');
+        if (cancelled) return;
 
         if (!res.ok) {
           setToken(null);
@@ -61,6 +62,7 @@ export default function App() {
         setCurrentUser(payload.user);
         setCurrentView('dashboard');
       } catch {
+        if (cancelled) return;
         setToken(null);
         localStorage.removeItem('fln_token');
         setCurrentView('home');
@@ -68,7 +70,19 @@ export default function App() {
     };
 
     checkSession();
+    return () => {
+      cancelled = true;
+    };
   }, [token]);
+
+  // Centralized session-expiry handling: apiFetch dispatches this event on any
+  // 401 response (from any component), so a mid-session expired/invalid token
+  // logs the user out once here instead of every call site handling it itself.
+  useEffect(() => {
+    const onUnauthorized = () => handleLogout();
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+  }, []);
 
   const handleLoginSuccess = (newToken: string, user: User) => {
     setToken(newToken);
@@ -99,7 +113,7 @@ export default function App() {
   };
 
   const renderRoleWorkspace = () => {
-    if (!currentUser) return null;
+    if (!currentUser || !token) return null;
 
     switch (currentUser.role) {
       case 'superadmin':
@@ -169,11 +183,10 @@ export default function App() {
                         announcements.map(notif => (
                           <div
                             key={notif.id}
-                            className={`space-y-2 rounded-xl border p-4 ${
-                              notif.isUrgent
-                                ? 'border-amber-200 bg-amber-50/30 dark:border-amber-800 dark:bg-amber-950/30'
-                                : 'border-slate-150 bg-slate-50/50 dark:border-slate-700 dark:bg-slate-800/50'
-                            }`}
+                            className={`space-y-2 rounded-xl border p-4 ${notif.isUrgent
+                              ? 'border-amber-200 bg-amber-50/30 dark:border-amber-800 dark:bg-amber-950/30'
+                              : 'border-slate-150 bg-slate-50/50 dark:border-slate-700 dark:bg-slate-800/50'
+                              }`}
                           >
                             <div className="flex items-center justify-between">
                               <h4 className="text-sm font-bold text-slate-900 dark:text-white">{notif.title}</h4>

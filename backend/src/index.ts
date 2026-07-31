@@ -10,6 +10,7 @@ import { generateAIDiagnostic, evaluateAIDiagnostic, generateAIPersonalizedWorks
 import { generateDiagnosticPaper } from './paperGenerator';
 import { generateQuestionsForLevel } from './levelGenerator';
 import * as levelsBackendClient from './levelsBackendClient';
+import { STATES_UTS } from './geoData';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
 import remediationRoutes from './routes/remediation.routes';
@@ -19,11 +20,41 @@ import { blueprintService } from './services/remediation/blueprintService';
 import { parseAndSeedBlueprints } from './utils/blueprintSeeder';
 import dns from 'node:dns';
 dns.setServers(['8.8.8.8', '1.1.1.1']); // Yeh Node.js ka DNS bug fix karega
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+import rateLimit from 'express-rate-limit';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+
+// Python evaluation pipeline: interpreter + location (the pipeline lives in ai-services/,
+// a sibling of backend/). Both overridable by env for non-standard deployments.
+const PYTHON_BIN = process.env.PYTHON_BIN || 'python3';
+const AI_SERVICES_DIR = process.env.AI_SERVICES_DIR || path.resolve(ROOT_DIR, '..', 'ai-services');
+
+// --- Auth config (signed JWTs) ---
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-insecure-secret-change-me';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+if (JWT_SECRET === 'dev-insecure-secret-change-me' && process.env.NODE_ENV === 'production') {
+  console.warn('[auth] WARNING: JWT_SECRET is unset in production — set it to a strong random value.');
+}
+
+// Strip fields that must never be sent to clients (e.g. the bcrypt password hash).
+function sanitizeUser(user: User): Omit<User, 'passwordHash'> {
+  const { passwordHash, ...safe } = user;
+  return safe;
+}
+
+// Throttle auth endpoints to slow down brute-force / credential-stuffing attempts.
+const authRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts. Please try again later.' },
+});
 
 async function startServer() {
   // Connect to MongoDB
@@ -109,6 +140,28 @@ async function startServer() {
     return null;
   }
 
+  // Authorization check for by-ID student endpoints (PATCH/diagnostic/diagnostic-submit).
+  // Mirrors the scoping already applied to GET /api/students' list filtering, so a
+  // teacher/volunteer/school user can't act on a student outside their own school(s)
+  // by guessing/enumerating IDs (IDOR). Superadmin/state/district/block admins keep
+  // their existing broad access — restricting THAT scope is a separate, tracked fix.
+  function canAccessStudent(user: User, student: Student): boolean {
+    switch (user.role) {
+      case UserRole.SUPERADMIN:
+      case UserRole.ADMIN:
+      case UserRole.DISTRICT_ADMIN:
+      case UserRole.BLOCK_ADMIN:
+        return true;
+      case UserRole.SCHOOL:
+      case UserRole.TEACHER:
+        return student.schoolId === user.schoolId;
+      case UserRole.VOLUNTEER:
+        return user.assignedSchools?.includes(student.schoolId) ?? false;
+      default:
+        return false;
+    }
+  }
+
   // --- API Endpoints ---
 
   // Public stats (no auth required — used by landing page)
@@ -144,18 +197,10 @@ async function startServer() {
   });
 
   // Auth: Login
-  app.post('/api/auth/login', async (req, res) => {
+  app.post('/api/auth/login', authRateLimiter, async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required.' });
-    }
-
-    // Verify Password Rules (§3.2 A-3)
-    const hasUppercase = /[A-Z]/.test(password);
-    const hasNumber = /[0-9]/.test(password);
-    const hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(password);
-    if (password.length < 8 || !hasUppercase || !hasNumber || !hasSpecial) {
-      return res.status(400).json({ error: 'Password does not meet complexity requirements.' });
     }
 
     // Check if the user is preloaded
@@ -348,6 +393,105 @@ async function startServer() {
     res.json(newUser);
   });
 
+  // Coordinator registration: state -> district -> block -> school cascade, then
+  // creating a teacher account scoped to the chosen school.
+  const COORDINATOR_ROLES = [UserRole.SUPERADMIN, UserRole.ADMIN, UserRole.DISTRICT_ADMIN, UserRole.BLOCK_ADMIN];
+
+  app.get('/api/states', (_req, res) => {
+    res.json(STATES_UTS.map(s => ({ id: s.code, name: s.name })));
+  });
+
+  app.get('/api/districts/by-state/:stateId', (req, res) => {
+    const state = STATES_UTS.find(s => s.code.toLowerCase() === req.params.stateId.toLowerCase());
+    if (!state) return res.status(404).json({ error: 'Unknown state.' });
+    res.json(state.districts.map(d => ({ id: d.code, name: d.name })));
+  });
+
+  app.get('/api/blocks/by-district/:districtId', async (req, res) => {
+    const districtCode = req.params.districtId.toUpperCase();
+    const district = STATES_UTS.flatMap(s => s.districts).find(d => d.code === districtCode);
+    if (!district) return res.status(404).json({ error: 'Unknown district.' });
+
+    const schools = await dbStore.getSchools();
+    const blockCodes = Array.from(new Set(
+      schools.filter(s => s.districtCode === districtCode).map(s => s.blockCode)
+    )).sort();
+
+    res.json(blockCodes.map(code => {
+      const blockNum = parseInt(code.split('_').pop() || '0', 10);
+      return { id: code, name: `${district.name} Block ${blockNum}`, districtId: districtCode };
+    }));
+  });
+
+  app.get('/api/schools/by-block/:blockId', async (req, res) => {
+    const blockCode = req.params.blockId.toUpperCase();
+    const schools = await dbStore.getSchools();
+    res.json(schools.filter(s => s.blockCode === blockCode));
+  });
+
+  app.post('/api/teachers', async (req, res) => {
+    const user = getAuthUser(req);
+    if (!user || !COORDINATOR_ROLES.includes(user.role)) {
+      return res.status(403).json({ error: 'Forbidden. Coordinator role required.' });
+    }
+
+    const { firstName, lastName, email, phoneNumber, password, school } = req.body;
+    if (!firstName || !lastName || !email || !password || !school) {
+      return res.status(400).json({ error: 'Missing required fields.' });
+    }
+
+    const hasUppercase = /[A-Z]/.test(password);
+    const hasNumber = /[0-9]/.test(password);
+    const hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+    if (password.length < 8 || !hasUppercase || !hasNumber || !hasSpecial) {
+      return res.status(400).json({ error: 'Password does not meet complexity requirements. Must be >= 8 chars and contain uppercase, digit, and special char.' });
+    }
+
+    const schools = await dbStore.getSchools();
+    const targetSchool = schools.find(s => s.id.toLowerCase() === String(school).toLowerCase());
+    if (!targetSchool) return res.status(400).json({ error: 'Unknown school.' });
+
+    const users = await dbStore.getUsers();
+    if (users.some(u => u.email.toLowerCase() === email.toLowerCase())) {
+      return res.status(400).json({ error: 'User with this email already exists.' });
+    }
+
+    const teacherId = 'u_' + Math.random().toString(36).substr(2, 9);
+    const newTeacher: User = {
+      id: teacherId,
+      name: `${firstName} ${lastName}`,
+      email: email.toLowerCase(),
+      role: UserRole.TEACHER,
+      passwordHash: await bcrypt.hash(password, 10),
+      phoneNumber: phoneNumber || undefined,
+      stateCode: targetSchool.stateCode,
+      districtCode: targetSchool.districtCode,
+      blockCode: targetSchool.blockCode,
+      schoolId: targetSchool.id,
+    };
+
+    await dbStore.addUser(newTeacher);
+
+    await dbStore.addLog({
+      id: 'log_' + Date.now(),
+      timestamp: new Date().toISOString(),
+      schoolId: targetSchool.id,
+      schoolName: targetSchool.name,
+      userId: user.id,
+      userEmail: user.email,
+      userRole: user.role,
+      activityType: 'verify',
+      status: 'Success',
+      details: `Coordinator registered teacher: ${newTeacher.name} at ${targetSchool.name}`,
+    });
+
+    res.json({
+      success: true,
+      message: 'Teacher registered successfully.',
+      data: { teacherId, firstName, lastName, email: newTeacher.email },
+    });
+  });
+
   // Schools
   app.get('/api/schools', async (req, res) => {
     const schools = await dbStore.getSchools();
@@ -431,9 +575,47 @@ async function startServer() {
 
     try {
       const students = await dbStore.getStudents();
-      console.log("Total students in DB:", students.length); // Terminal mein check karo ki kya data DB mein hai
-
       const currentUserRole = String(user.role).toUpperCase();
+      // Roles with a direct, day-to-day relationship to the child (and superadmin)
+      // see full contact/address PII; aggregate-scope admins and volunteers get it
+      // redacted — they don't need a guardian's phone number to view rollups.
+      const canSeeGuardianPII = (role: UserRole) =>
+        role === UserRole.SUPERADMIN || role === UserRole.SCHOOL || role === UserRole.TEACHER;
+
+      // Mask Aadhar for non-Superadmins (§13.2 R-6); redact guardian contact/address similarly.
+      const maskedStudents = students.map(s => {
+        const masked = user.role !== UserRole.SUPERADMIN
+          ? { ...s, aadharMasked: 'XXXX-XXXX-' + s.aadharMasked.slice(-4) }
+          : { ...s };
+        if (!canSeeGuardianPII(user.role)) {
+          delete masked.guardianContact;
+          delete masked.address;
+        }
+        return masked;
+      });
+
+      if (user.role === UserRole.SUPERADMIN) {
+        return res.json(students);
+      }
+      if (user.role === UserRole.SCHOOL || user.role === UserRole.TEACHER) {
+        return res.json(maskedStudents.filter(s => s.schoolId === user.schoolId));
+      }
+      if (user.role === UserRole.VOLUNTEER) {
+        return res.json(maskedStudents.filter(s => user.assignedSchools?.includes(s.schoolId)));
+      }
+      if (user.role === UserRole.ADMIN || user.role === UserRole.DISTRICT_ADMIN || user.role === UserRole.BLOCK_ADMIN) {
+        // Geo-scope by the admin's own state/district/block, joined via each student's school.
+        const schools = await dbStore.getSchools();
+        const schoolById = new Map(schools.map(sc => [sc.id, sc]));
+        const geoFiltered = maskedStudents.filter(s => {
+          const school = schoolById.get(s.schoolId);
+          if (!school) return false;
+          if (user.role === UserRole.ADMIN) return school.stateCode === user.stateCode;
+          if (user.role === UserRole.DISTRICT_ADMIN) return school.districtCode === user.districtCode;
+          return school.blockCode === user.blockCode; // BLOCK_ADMIN
+        });
+        return res.json(geoFiltered);
+      }
 
       // Debugging ke liye:
       const filtered = students.filter(s => {
@@ -457,11 +639,13 @@ async function startServer() {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    // Use string index signatures to clean up reserved keyword constraints securely
-    const { name, age, section, schoolId } = req.body;
+    const {
+      name, age, section, schoolId,
+      gender, dob, guardianName, guardianRelation, guardianContact, address,
+      bloodGroup, disabilityStatus, midDayMealBeneficiary, busRoute, siblingsInSchool,
+    } = req.body;
     const aadharNumber = req.body.aadharNumber;
     const targetClassGroup = req.body.classGroup || req.body['class'];
-
     if (!name || !age || !targetClassGroup || !section || !schoolId || !aadharNumber) {
       return res.status(400).json({ error: 'Required identity ingestion parameters are missing.' });
     }
@@ -484,7 +668,18 @@ async function startServer() {
       targetLevel: 2,
       aadharMasked: cleanDigits,
       levelHistory: [],
-      streak: 0
+      streak: 0,
+      gender: gender || undefined,
+      dob: dob || undefined,
+      guardianName: guardianName || undefined,
+      guardianRelation: guardianRelation || undefined,
+      guardianContact: guardianContact || undefined,
+      address: address || undefined,
+      bloodGroup: bloodGroup || undefined,
+      disabilityStatus: disabilityStatus || undefined,
+      midDayMealBeneficiary: midDayMealBeneficiary === undefined ? undefined : Boolean(midDayMealBeneficiary),
+      busRoute: busRoute || undefined,
+      siblingsInSchool: siblingsInSchool || undefined,
     };
 
     try {
@@ -518,6 +713,7 @@ async function startServer() {
     const students = await dbStore.getStudents();
     const student = students.find(s => s.id === req.params.id);
     if (!student) return res.status(404).json({ error: 'Student not found.' });
+    if (!canAccessStudent(user, student)) return res.status(403).json({ error: 'Forbidden.' });
 
     await dbStore.updateStudent(student.id, {
       currentLevel: Number(currentLevel),
@@ -525,6 +721,42 @@ async function startServer() {
       targetLevel: Number(targetLevel),
       levelHistory: levelHistory || student.levelHistory
     });
+
+    res.json({ success: true });
+  });
+
+  // Update Student Profile (guardian/medical/logistics fields) — only the
+  // student's own school/teacher, or higher admins, may edit; kept separate
+  // from the level-update PATCH above so neither contract has to change.
+  app.patch('/api/students/:id/profile', async (req, res) => {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+    const students = await dbStore.getStudents();
+    const student = students.find(s => s.id === req.params.id);
+    if (!student) return res.status(404).json({ error: 'Student not found.' });
+    if (!canAccessStudent(user, student)) return res.status(403).json({ error: 'Forbidden.' });
+
+    const {
+      gender, dob, guardianName, guardianRelation, guardianContact, address,
+      bloodGroup, disabilityStatus, midDayMealBeneficiary, busRoute, siblingsInSchool, teacherNotes,
+    } = req.body;
+
+    const updates: Partial<Student> = {};
+    if (gender !== undefined) updates.gender = gender;
+    if (dob !== undefined) updates.dob = dob;
+    if (guardianName !== undefined) updates.guardianName = guardianName;
+    if (guardianRelation !== undefined) updates.guardianRelation = guardianRelation;
+    if (guardianContact !== undefined) updates.guardianContact = guardianContact;
+    if (address !== undefined) updates.address = address;
+    if (bloodGroup !== undefined) updates.bloodGroup = bloodGroup;
+    if (disabilityStatus !== undefined) updates.disabilityStatus = disabilityStatus;
+    if (midDayMealBeneficiary !== undefined) updates.midDayMealBeneficiary = Boolean(midDayMealBeneficiary);
+    if (busRoute !== undefined) updates.busRoute = busRoute;
+    if (siblingsInSchool !== undefined) updates.siblingsInSchool = siblingsInSchool;
+    if (teacherNotes !== undefined) updates.teacherNotes = teacherNotes;
+
+    await dbStore.updateStudent(student.id, updates);
 
     res.json({ success: true });
   });
@@ -537,6 +769,7 @@ async function startServer() {
     const students = await dbStore.getStudents();
     const student = students.find(s => s.id === req.params.id);
     if (!student) return res.status(404).json({ error: 'Student not found.' });
+    if (!canAccessStudent(user, student)) return res.status(403).json({ error: 'Forbidden.' });
 
     // Parse class number from classGroup (e.g. "Class 2" -> 2)
     const classMatch = student.classGroup.match(/\d+/);
@@ -632,14 +865,35 @@ async function startServer() {
     const students = await dbStore.getStudents();
     const student = students.find(s => s.id === req.params.id);
     if (!student) return res.status(404).json({ error: 'Student not found.' });
+    if (!canAccessStudent(user, student)) return res.status(403).json({ error: 'Forbidden.' });
 
     // Parse class number from classGroup (e.g. "Class 2" -> 2)
     const classMatch = student.classGroup.match(/\d+/);
     const classNumber = classMatch ? parseInt(classMatch[0], 10) : 1;
 
-    // Connect to Python Evaluation Metrics Pipeline
     const dateStr = new Date().toISOString().split('T')[0];
     const pipelineDir = path.join(ROOT_DIR, 'ai-services');
+
+    // Idempotency: if this student's diagnostic was already submitted and
+    // evaluated today (e.g. a client retry after a timeout), return that
+    // existing report instead of re-running the pipeline and re-appending to
+    // level history. A genuinely new diagnostic on a later date still runs
+    // normally (legitimate re-assessment, not a duplicate retry).
+    const existingReports = await dbStore.getEvaluationReports();
+    const existingReport = existingReports.find(r =>
+      r.worksheetId === 'diagnostic' && r.studentId === student.id && r.timestamp.startsWith(dateStr)
+    );
+    if (existingReport) {
+      return res.json({
+        student,
+        evaluation: { score: existingReport.score, recommendedLevel: existingReport.recommendedLevel, narrative: existingReport.narrative },
+        report: existingReport,
+        alreadySubmitted: true
+      });
+    }
+
+    // Connect to Python Evaluation Metrics Pipeline
+    // const pipelineDir = AI_SERVICES_DIR;
     const responseDir = path.join(pipelineDir, 'student_responses', `class_${classNumber}`, 'phrase_1');
     fs.mkdirSync(responseDir, { recursive: true });
 
@@ -876,16 +1130,16 @@ async function startServer() {
           .filter(w => w && w.studentId === student.id && Number(w.levelId) === currentLevel && w.sublevelId === sublevelId)
           .sort((a, b) => new Date(b?.generatedAt || 0).getTime() - new Date(a?.generatedAt || 0).getTime())[0]
           || levelWorksheets
-          .filter(w => w && w.studentId === student.id && Number(w.levelId) === currentLevel)
-          .sort((a, b) => new Date(b?.generatedAt || 0).getTime() - new Date(a?.generatedAt || 0).getTime())[0];
+            .filter(w => w && w.studentId === student.id && Number(w.levelId) === currentLevel)
+            .sort((a, b) => new Date(b?.generatedAt || 0).getTime() - new Date(a?.generatedAt || 0).getTime())[0];
       } catch (err) {
         console.warn('DbStore getLevelWorksheets warning:', err);
       }
 
       const assignedItemsList = assignedWorksheet && assignedWorksheet.answerKey
         ? (Array.isArray(assignedWorksheet.answerKey.items) && assignedWorksheet.answerKey.items.length > 0
-            ? assignedWorksheet.answerKey.items
-            : Array.isArray(assignedWorksheet.answerKey.answers) && assignedWorksheet.answerKey.answers.length > 0
+          ? assignedWorksheet.answerKey.items
+          : Array.isArray(assignedWorksheet.answerKey.answers) && assignedWorksheet.answerKey.answers.length > 0
             ? assignedWorksheet.answerKey.answers
             : [])
         : [];
@@ -965,8 +1219,8 @@ async function startServer() {
         const itemsList = Array.isArray(diskAnswerKey.answers)
           ? diskAnswerKey.answers
           : Array.isArray(diskAnswerKey.items)
-          ? diskAnswerKey.items
-          : [];
+            ? diskAnswerKey.items
+            : [];
 
         if (itemsList.length > 0) {
           const questions: Question[] = itemsList.map((item: any, idx: number) => {
@@ -1152,105 +1406,105 @@ async function startServer() {
     }
   });
 
-function getStudentAnswer(answers: Record<string, any> | undefined, q: any, qIdx: number): string {
-  if (!answers || typeof answers !== 'object') return '';
-  const qNum = qIdx + 1;
-  const raw = answers[q.question_id] ??
-    answers[q.questionId] ??
-    answers[q.id] ??
-    answers[`Q${qNum}`] ??
-    answers[`q${qNum}`] ??
-    answers[String(qNum)] ??
-    answers[qNum] ??
-    '';
-  if (typeof raw === 'object') {
-    return JSON.stringify(raw);
-  }
-  return String(raw).trim();
-}
-
-function isAnswerCorrect(studentAns: string, correctAns: string, qType?: string): boolean {
-  if (!studentAns && !correctAns) return true;
-  if (!studentAns || !correctAns) return false;
-
-  const sNorm = studentAns.trim().toLowerCase();
-  const cNorm = correctAns.trim().toLowerCase();
-
-  // 1. Direct or sanitized match
-  if (sNorm === cNorm) return true;
-
-  const sClean = sNorm.replace(/[^a-z0-9]/g, '');
-  const cClean = cNorm.replace(/[^a-z0-9]/g, '');
-  if (sClean && sClean === cClean) return true;
-
-  // 2. Parse JSON object correct answer if present
-  let parsedCorrect: any = null;
-  try {
-    if (cNorm.startsWith('{') || cNorm.startsWith('[')) {
-      parsedCorrect = JSON.parse(correctAns);
+  function getStudentAnswer(answers: Record<string, any> | undefined, q: any, qIdx: number): string {
+    if (!answers || typeof answers !== 'object') return '';
+    const qNum = qIdx + 1;
+    const raw = answers[q.question_id] ??
+      answers[q.questionId] ??
+      answers[q.id] ??
+      answers[`Q${qNum}`] ??
+      answers[`q${qNum}`] ??
+      answers[String(qNum)] ??
+      answers[qNum] ??
+      '';
+    if (typeof raw === 'object') {
+      return JSON.stringify(raw);
     }
-  } catch { parsedCorrect = null; }
+    return String(raw).trim();
+  }
 
-  if (parsedCorrect != null && typeof parsedCorrect === 'object') {
-    // Case A: { value: 37, optionIndex: 0 } or { value: 'Square' }
-    if (parsedCorrect.value != null) {
-      const valStr = String(parsedCorrect.value).trim().toLowerCase();
-      if (sNorm === valStr || sClean === valStr.replace(/[^a-z0-9]/g, '')) return true;
+  function isAnswerCorrect(studentAns: string, correctAns: string, qType?: string): boolean {
+    if (!studentAns && !correctAns) return true;
+    if (!studentAns || !correctAns) return false;
+
+    const sNorm = studentAns.trim().toLowerCase();
+    const cNorm = correctAns.trim().toLowerCase();
+
+    // 1. Direct or sanitized match
+    if (sNorm === cNorm) return true;
+
+    const sClean = sNorm.replace(/[^a-z0-9]/g, '');
+    const cClean = cNorm.replace(/[^a-z0-9]/g, '');
+    if (sClean && sClean === cClean) return true;
+
+    // 2. Parse JSON object correct answer if present
+    let parsedCorrect: any = null;
+    try {
+      if (cNorm.startsWith('{') || cNorm.startsWith('[')) {
+        parsedCorrect = JSON.parse(correctAns);
+      }
+    } catch { parsedCorrect = null; }
+
+    if (parsedCorrect != null && typeof parsedCorrect === 'object') {
+      // Case A: { value: 37, optionIndex: 0 } or { value: 'Square' }
+      if (parsedCorrect.value != null) {
+        const valStr = String(parsedCorrect.value).trim().toLowerCase();
+        if (sNorm === valStr || sClean === valStr.replace(/[^a-z0-9]/g, '')) return true;
+      }
+      // Case B: { optionIndex: N }
+      if (parsedCorrect.optionIndex != null) {
+        const optIdx = String(parsedCorrect.optionIndex);
+        if (sClean === optIdx || sClean === `option${optIdx}` || (optIdx === '0' && sNorm.includes('left')) || (optIdx === '1' && sNorm.includes('right'))) return true;
+      }
+      // Case C: { correctRightIndex: N } or { rightIndex: N }
+      const rightIdx = parsedCorrect.correctRightIndex ?? parsedCorrect.rightIndex;
+      if (rightIdx != null) {
+        if (sClean === String(rightIdx) || sClean === String(parsedCorrect.tallyCount)) return true;
+      }
+      // Case D: { subAnswers: [0, 1, 1] }
+      if (Array.isArray(parsedCorrect.subAnswers)) {
+        const subStr = parsedCorrect.subAnswers.join(',');
+        const subClean = parsedCorrect.subAnswers.join('');
+        if (sClean === subClean || sNorm.includes(subStr)) return true;
+      }
     }
-    // Case B: { optionIndex: N }
-    if (parsedCorrect.optionIndex != null) {
-      const optIdx = String(parsedCorrect.optionIndex);
-      if (sClean === optIdx || sClean === `option${optIdx}` || (optIdx === '0' && sNorm.includes('left')) || (optIdx === '1' && sNorm.includes('right'))) return true;
+
+    // 3. Tracing questions (e.g. answer key is "fish (zigzag)", student answer is "zigzag" or "fish")
+    if (qType === 'trace' || cNorm.includes('trace') || cNorm.includes('zigzag') || cNorm.includes('straight') || cNorm.includes('wave') || cNorm.includes('scallop') || cNorm.includes('spiral')) {
+      const keywords: string[] = cNorm.match(/[a-z]+/g) || [];
+      if (keywords.some((kw: string) => kw.length >= 3 && sNorm.includes(kw))) return true;
+      if (sClean && cClean.includes(sClean)) return true;
     }
-    // Case C: { correctRightIndex: N } or { rightIndex: N }
-    const rightIdx = parsedCorrect.correctRightIndex ?? parsedCorrect.rightIndex;
-    if (rightIdx != null) {
-      if (sClean === String(rightIdx) || sClean === String(parsedCorrect.tallyCount)) return true;
+
+    // 4. Circle Choice / Options (e.g. "left", "right", "a", "b", "option a")
+    if (qType === 'circle-choice' || qType === 'choice' || qType === 'mcq') {
+      if ((sNorm.includes('left') || sNorm === '0' || sNorm === 'a') && (cNorm.includes('left') || cNorm.includes('"optionindex":0') || cNorm === 'a')) return true;
+      if ((sNorm.includes('right') || sNorm === '1' || sNorm === 'b') && (cNorm.includes('right') || cNorm.includes('"optionindex":1') || cNorm === 'b')) return true;
+      if (cClean && (sClean.includes(cClean) || cClean.includes(sClean))) return true;
     }
-    // Case D: { subAnswers: [0, 1, 1] }
-    if (Array.isArray(parsedCorrect.subAnswers)) {
-      const subStr = parsedCorrect.subAnswers.join(',');
-      const subClean = parsedCorrect.subAnswers.join('');
-      if (sClean === subClean || sNorm.includes(subStr)) return true;
+
+    // 5. Time / Clock questions (e.g. "4:30" vs "4:30 PM", "4:30", "4.30")
+    if (qType === 'clock' || cNorm.includes(':') || sNorm.includes(':')) {
+      const sTime = sNorm.replace(/[^0-9:]/g, '');
+      const cTime = cNorm.replace(/[^0-9:]/g, '');
+      if (sTime && cTime && (sTime === cTime || sTime + ':00' === cTime || sTime === cTime + ':00')) return true;
+      const sHourMin = sNorm.match(/\d+:\d+/)?.[0];
+      const cHourMin = cNorm.match(/\d+:\d+/)?.[0];
+      if (sHourMin && cHourMin && sHourMin === cHourMin) return true;
     }
+
+    // 6. Numeric comparison (e.g. "8" vs "8.0", "8 cm" vs "8")
+    const sNum = parseFloat(sNorm.replace(/[^0-9.-]/g, ''));
+    const cNum = parseFloat(cNorm.replace(/[^0-9.-]/g, ''));
+    if (!isNaN(sNum) && !isNaN(cNum) && Math.abs(sNum - cNum) < 0.001) return true;
+
+    // 7. Substring match
+    if (sNorm.length >= 2 && cNorm.length >= 2) {
+      if (cNorm.includes(sNorm) || sNorm.includes(cNorm)) return true;
+    }
+
+    return false;
   }
-
-  // 3. Tracing questions (e.g. answer key is "fish (zigzag)", student answer is "zigzag" or "fish")
-  if (qType === 'trace' || cNorm.includes('trace') || cNorm.includes('zigzag') || cNorm.includes('straight') || cNorm.includes('wave') || cNorm.includes('scallop') || cNorm.includes('spiral')) {
-    const keywords: string[] = cNorm.match(/[a-z]+/g) || [];
-    if (keywords.some((kw: string) => kw.length >= 3 && sNorm.includes(kw))) return true;
-    if (sClean && cClean.includes(sClean)) return true;
-  }
-
-  // 4. Circle Choice / Options (e.g. "left", "right", "a", "b", "option a")
-  if (qType === 'circle-choice' || qType === 'choice' || qType === 'mcq') {
-    if ((sNorm.includes('left') || sNorm === '0' || sNorm === 'a') && (cNorm.includes('left') || cNorm.includes('"optionindex":0') || cNorm === 'a')) return true;
-    if ((sNorm.includes('right') || sNorm === '1' || sNorm === 'b') && (cNorm.includes('right') || cNorm.includes('"optionindex":1') || cNorm === 'b')) return true;
-    if (cClean && (sClean.includes(cClean) || cClean.includes(sClean))) return true;
-  }
-
-  // 5. Time / Clock questions (e.g. "4:30" vs "4:30 PM", "4:30", "4.30")
-  if (qType === 'clock' || cNorm.includes(':') || sNorm.includes(':')) {
-    const sTime = sNorm.replace(/[^0-9:]/g, '');
-    const cTime = cNorm.replace(/[^0-9:]/g, '');
-    if (sTime && cTime && (sTime === cTime || sTime + ':00' === cTime || sTime === cTime + ':00')) return true;
-    const sHourMin = sNorm.match(/\d+:\d+/)?.[0];
-    const cHourMin = cNorm.match(/\d+:\d+/)?.[0];
-    if (sHourMin && cHourMin && sHourMin === cHourMin) return true;
-  }
-
-  // 6. Numeric comparison (e.g. "8" vs "8.0", "8 cm" vs "8")
-  const sNum = parseFloat(sNorm.replace(/[^0-9.-]/g, ''));
-  const cNum = parseFloat(cNorm.replace(/[^0-9.-]/g, ''));
-  if (!isNaN(sNum) && !isNaN(cNum) && Math.abs(sNum - cNum) < 0.001) return true;
-
-  // 7. Substring match
-  if (sNorm.length >= 2 && cNorm.length >= 2) {
-    if (cNorm.includes(sNorm) || sNorm.includes(cNorm)) return true;
-  }
-
-  return false;
-}
 
   // ── SUBMIT SCANNED LEVEL WORKSHEET ANSWERS ──
 
@@ -1285,13 +1539,13 @@ function isAnswerCorrect(studentAns: string, correctAns: string, qType?: string)
       const ws = worksheetId
         ? levelWorksheets.find(w => w && w.id === worksheetId)
         : levelWorksheets
-            .filter(w => w && w.studentId === student.id && Number(w.levelId) === student.currentLevel)
-            .sort((a, b) => new Date(b?.generatedAt || 0).getTime() - new Date(a?.generatedAt || 0).getTime())[0];
+          .filter(w => w && w.studentId === student.id && Number(w.levelId) === student.currentLevel)
+          .sort((a, b) => new Date(b?.generatedAt || 0).getTime() - new Date(a?.generatedAt || 0).getTime())[0];
 
       const wsItemsList = ws && ws.answerKey
         ? (Array.isArray(ws.answerKey.items) && ws.answerKey.items.length > 0
-            ? ws.answerKey.items
-            : Array.isArray(ws.answerKey.answers) && ws.answerKey.answers.length > 0
+          ? ws.answerKey.items
+          : Array.isArray(ws.answerKey.answers) && ws.answerKey.answers.length > 0
             ? ws.answerKey.answers
             : [])
         : [];
@@ -1929,6 +2183,31 @@ function isAnswerCorrect(studentAns: string, correctAns: string, qType?: string)
     const students = await dbStore.getStudents();
     const student = students.find(s => s.id === studentId);
     if (!student) return res.status(404).json({ error: 'Student not found.' });
+
+    // Idempotency: a student can only submit a given worksheet once. If this
+    // exact (worksheetId, studentId) pair was already submitted (e.g. the
+    // client retried after a timeout), return the existing result instead of
+    // re-running the AI evaluation, re-mutating the student's level/streak,
+    // and re-appending to level history / delay logs.
+    const existingSubmissions = await dbStore.getAnswerSubmissions();
+    const existingSubmission = existingSubmissions.find(s => s.worksheetId === worksheetId && s.studentId === studentId);
+    if (existingSubmission) {
+      const existingReports = await dbStore.getEvaluationReports();
+      const existingReport = existingReports
+        .filter(r => r.worksheetId === worksheetId && r.studentId === studentId)
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
+      return res.json({
+        submission: existingSubmission,
+        report: existingReport,
+        evaluation: existingReport ? {
+          score: existingReport.score,
+          recommendedLevel: existingReport.recommendedLevel,
+          narrative: existingReport.narrative,
+          conceptMastery: existingReport.conceptMastery
+        } : undefined,
+        alreadySubmitted: true
+      });
+    }
 
     // Handle Timings & Delayed Attempt Escalation (§6.5)
     const now = new Date();
