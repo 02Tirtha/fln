@@ -3,11 +3,12 @@ import { dbStore } from '../db';
 import { RemediationLedger } from '../models/RemediationLedger.model';
 import { remediationService } from '../services/remediation/remediation.service';
 import { IRemediationLedger } from '../interfaces/remediationLedger.interface';
+import { formatRemediationSheetSimple } from '../utils/remediaitionFormatter';
+import { blueprintEngine } from '../services/remediation/blueprintEngine';
 
 export class RemediationController {
-  // POST /api/remediation/generate (trigger)
-  
-    async generate(req: Request, res: Response): Promise<void> {
+  // POST /api/remediation/generate
+  async generate(req: Request, res: Response): Promise<void> {
     try {
       const { studentId, examId, failedQuestionNums, originalQuestions } = req.body;
 
@@ -32,7 +33,8 @@ export class RemediationController {
       res.status(500).json({ success: false, error: error.message });
     }
   }
-  // GET /api/remediation/:studentId/:examId (poll + fetch)
+
+  // GET /api/remediation/:studentId/:examId
   async getLedgerByStudentAndExam(req: Request, res: Response): Promise<void> {
     try {
       const { studentId, examId } = req.params;
@@ -49,81 +51,61 @@ export class RemediationController {
         ledger = all.find(l => l.studentId === studentId && l.examId === examId) || null;
       }
 
+      // If no ledger exists yet for this student and exam, auto-start generation and fetch created record
+      if (!ledger) {
+        console.log(`[RemediationController] Ledger not found for student=${studentId}, exam=${examId}. Auto-triggering generation...`);
+        await remediationService.startGeneration(studentId, examId, [1, 2, 3, 4, 5]);
+        
+        try {
+          ledger = await RemediationLedger.findOne({ studentId, examId }).exec();
+        } catch { }
+        if (!ledger) {
+          const all = await dbStore.getRemediationLedgers();
+          ledger = all.find(l => l.studentId === studentId && l.examId === examId) || null;
+        }
+      }
+
       if (!ledger) {
         res.status(404).json({ success: false, error: 'Remediation ledger not found for this student and exam.' });
         return;
       }
 
-      // AUTO-FIX: if any response has empty practiceQuestions (stale old data), fill them now
-      if (ledger.remediationStatus === 'completed') {
-        let needsFix = false;
-        let qIdx = 0;
-        const responses = (ledger.responses || []).map((r: any) => {
-          const isWrongShapeAssigned = !/shape/i.test(r.originalQuestion || '') &&
-            r.practiceQuestions?.some((pq: any) => /corners on a square|Identify shape|pentagon|no straight sides/i.test(pq.question));
-
-          const isWrongDivisionAssigned = /greater than|less than|compare/i.test(r.originalQuestion || '') &&
-            r.practiceQuestions?.some((pq: any) => /Divide|quotient|÷/i.test(pq.question));
-
-          const isWrongMultiplicationAssigned = /frequency table|frequency|tally|clock|greater than|less than/i.test(r.originalQuestion || '') &&
-            r.practiceQuestions?.some((pq: any) => /Express as multiplication|factor of 12|multiple of 5/i.test(pq.question));
-
-          const isWrongEqualGroupsAssigned = /equal groups|count equal/i.test(r.originalQuestion || '') &&
-            r.practiceQuestions?.some((pq: any) => /What number comes AFTER|Which number is LARGER/i.test(pq.question));
-
-          const isWrongMeasurementAssigned = /measurement-mixed-mcq|mixed-mcq/i.test(r.originalQuestion || '') &&
-            r.practiceQuestions?.some((pq: any) => /Convert meters|Convert kilograms|Convert 500 cm/i.test(pq.question));
-
-          const isWrongChangeAssigned = /change|paid|spent|cost|difference|remaining|left/i.test(r.originalQuestion || '') &&
-            r.practiceQuestions?.some((pq: any) => /Solve calculation|\+ \d+|Practice #/i.test(pq.question));
-
-          const isStaleOrInvalid = !r.practiceQuestions || r.practiceQuestions.length === 0 || isWrongShapeAssigned || isWrongDivisionAssigned || isWrongMultiplicationAssigned || isWrongEqualGroupsAssigned || isWrongMeasurementAssigned || isWrongChangeAssigned ||
-            r.practiceQuestions.some((pq: any) =>
-              /Numeric practice for/i.test(pq.question) ||
-              /Practice for/i.test(pq.question) ||
-              /Practice #/i.test(pq.question) ||
-              /Sample #/i.test(pq.question) ||
-              /— Question \d+/i.test(pq.question) ||
-              /— Item \d+/i.test(pq.question) ||
-              /Solve calculation: \d+ \+ \d+/i.test(pq.question) ||
-              pq.question === r.originalQuestion
-            );
-
-          if (isStaleOrInvalid) {
-            needsFix = true;
-            const origQ = r.originalQuestion || `Question #${r.questionNumber}`;
-            const concept = r.conceptName || 'Mathematics';
-            const qType = r.questionType || 'standard';
-            const baseOffset = qIdx * 5;
-            qIdx++;
-            return {
-              ...r,
-              practiceQuestions: remediationService.getInlineFallback(origQ, concept, qType, baseOffset)
-                .map((b: any) => ({ question: b.question, answer: b.answer, generatedAt: new Date() }))
-            };
-          }
-          qIdx++;
-          return r;
-        });
-
-        if (needsFix) {
-          console.log(`[RemediationController] Auto-fixing stale empty practiceQuestions for ledger ${ledger.id}`);
-          ledger = { ...ledger, responses } as any;
-          // Save the fix back to DB asynchronously
-          RemediationLedger.updateOne(
-            { studentId, examId },
-            { $set: { responses } }
-          ).exec().catch(err => console.warn('[RemediationController] Could not save auto-fix:', err));
+      // Auto-refresh stale/duplicate responses in ledger
+      let needSave = false;
+      for (const r of ledger.responses || []) {
+        const pqs = r.practiceQuestions || [];
+        const isDuplicateFlat = pqs.length > 1 && pqs[0].question === pqs[1].question;
+        
+        // Only consider missing subQuestions if the concept generator actually produces them
+        const firstBp = blueprintEngine.generate(r.originalQuestion, r.conceptName, r.questionType || 'standard');
+        const shouldHaveSub = !!(firstBp.subQuestions && Array.isArray(firstBp.subQuestions) && firstBp.subQuestions.length > 0);
+        const hasSub = !!(pqs.length > 0 && pqs[0]?.subQuestions && Array.isArray(pqs[0].subQuestions));
+        const isMissingSub = shouldHaveSub && !hasSub;
+        
+        if (isDuplicateFlat || isMissingSub || pqs.length === 0) {
+          console.log(`[RemediationController] Auto-refreshing stale practice questions for concept: ${r.conceptName}`);
+          r.practiceQuestions = remediationService.getInlineFallback(r.originalQuestion, r.conceptName, r.questionType || 'standard') as any;
+          needSave = true;
         }
       }
 
-      res.status(200).json({ success: true, data: ledger });
+      if (needSave) {
+        try {
+          await RemediationLedger.updateOne({ id: ledger.id }, { $set: { responses: ledger.responses } }).exec();
+        } catch { }
+        await dbStore.updateRemediationLedger(ledger.id, { responses: ledger.responses });
+      }
+
+      // Send formatted sheet along with JSON data response
+      const sheet = formatRemediationSheetSimple(ledger);
+      res.status(200).json({ success: true, data: ledger, sheet });
+
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }
   }
 
-  // GET /api/remediation/batch/:examId (batch printing)
+  // GET /api/remediation/batch/:examId
   async getBatchLedgers(req: Request, res: Response): Promise<void> {
     try {
       const { examId } = req.params;
@@ -137,11 +119,28 @@ export class RemediationController {
         ledgers = all.filter(l => l.examId === examId && l.remediationStatus === 'completed');
       }
 
-      res.status(200).json({ success: true, data: ledgers });
+      if (ledgers.length === 0) {
+        res.status(404).json({ success: false, error: 'No completed ledgers found for this exam.' });
+        return;
+      }
+
+      // Format each ledger
+      const sheets = ledgers.map(l => formatRemediationSheetSimple(l));
+
+      // ✅ Return JSON + formatted text
+      res.status(200).json({
+        success: true,
+        examId,
+        count: ledgers.length,
+        ledgers,
+        sheets // array of formatted strings
+      });
+
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
     }
   }
+
 
   // GET /api/remediation/ledgers?studentId=XYZ
   async getLedgersForStudent(req: Request, res: Response): Promise<void> {

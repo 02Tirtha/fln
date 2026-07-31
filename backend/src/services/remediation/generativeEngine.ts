@@ -1,8 +1,8 @@
 import { Type } from "@google/genai";
 import { getAiClient, generateContentWithRetry } from '../../gemini';
-import { blueprintEngine, generateRemediationVariants } from './blueprintEngine';
-import { numericEngine } from './numericEngine';
-import { matrixEngine } from './matrixEngine';
+import { blueprintEngine, generateRemediationVariants, BlueprintQuestion } from './blueprintEngine';
+import { numericEngine } from './numericEngine.js';
+import { matrixEngine } from './matrixEngine.js';
 
 // ---------------------------------------------------------------------------
 // Type classifier — decides which engine handles each question
@@ -106,27 +106,9 @@ export class GenerativeEngine {
     conceptName: string,
     questionType: string = 'standard',
     baseOffset: number = 0
-  ): Promise<Array<{ question: string; answer: string; aiGenerated: boolean }>> {
-    const aiClient = getAiClient();
-    if (aiClient) {
-      try {
-        const aiResults = await this.generateBatchViaAI(originalQuestion, conceptName, questionType);
-        if (aiResults && aiResults.length >= 3) {
-          console.log(`[GenerativeEngine] Successfully generated 5 variants via Gemini AI API for "${originalQuestion}"`);
-          return aiResults;
-        }
-      } catch (err) {
-        console.warn('[GenerativeEngine] AI generation failed, falling back to blueprintEngine:', err);
-      }
-    }
-
-    const variants = generateRemediationVariants(originalQuestion, '', 5, conceptName);
-    return variants.map(bp => ({
-      question: bp.question,
-      options: bp.options,
-      answer: bp.answer,
-      aiGenerated: bp.aiGenerated ?? false
-    }));
+  ): Promise<BlueprintQuestion[]> {
+    console.log(`[GenerativeEngine] Fast-routing "${originalQuestion}" via blueprintEngine (concept=${conceptName}) | offset=${baseOffset}`);
+    return generateRemediationVariants(originalQuestion, '', 5, conceptName, baseOffset);
   }
 
   /**
@@ -138,7 +120,7 @@ export class GenerativeEngine {
     questionType: string = 'standard',
     _originalAnswer: string = '',
     variantIndex: number = 0
-  ): Promise<{ question: string; answer: string; aiGenerated: boolean }> {
+  ): Promise<BlueprintQuestion> {
     const batch = await this.generateBatch(originalQuestion, conceptName, questionType);
     return batch[variantIndex % batch.length];
   }
@@ -148,7 +130,7 @@ export class GenerativeEngine {
     originalQuestion: string,
     conceptName: string,
     questionType: string
-  ): Promise<Array<{ question: string; answer: string; aiGenerated: boolean }>> {
+  ): Promise<BlueprintQuestion[]> {
     const aiClient = getAiClient();
     if (!aiClient) return this.generateBatchFallback(originalQuestion, conceptName, questionType);
 
@@ -192,8 +174,13 @@ export class GenerativeEngine {
       // Keep every real AI variant. Only pad missing slots with the local
       // fallback, and label those honestly instead of marking everything
       // as AI-generated.
-      const result: Array<{ question: string; answer: string; aiGenerated: boolean; needsReview?: boolean }> =
-        valid.slice(0, 5).map(v => ({ ...v, aiGenerated: true }));
+      const result: BlueprintQuestion[] =
+        valid.slice(0, 5).map(v => ({
+          question: v.question,
+          answer: v.answer,
+          aiGenerated: true,
+          topic: conceptName
+        }));
 
       if (result.length < 5) {
         const fallbacks = this.generateBatchFallback(originalQuestion, conceptName, questionType);
@@ -302,15 +289,17 @@ export class GenerativeEngine {
     conceptName: string,
     questionType: string,
     baseOffset: number = 0
-  ): Array<{ question: string; answer: string; aiGenerated: boolean }> {
-    const variants = generateRemediationVariants(originalQuestion, '', 5, conceptName);
+  ): BlueprintQuestion[] {
+    const variants = generateRemediationVariants(originalQuestion, '', 5, conceptName, baseOffset);
     return variants.map(v => ({
       question: v.question,
       options: v.options,
       answer: v.answer,
       remediation: v.remediation,
       aiGenerated: false,
-      needsReview: v.needsReview ?? false
+      needsReview: v.needsReview ?? false,
+      topic: v.topic,
+      subQuestions: v.subQuestions
     }));
   }
 

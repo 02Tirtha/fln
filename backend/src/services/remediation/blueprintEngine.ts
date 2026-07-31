@@ -10,6 +10,10 @@ export interface BlueprintQuestion {
   answerMode?: 'text' | 'dropdown';
   options?: string[];
   remediation?: string;
+  subQuestions?: {
+    prompt: string;
+    answer: string;
+  }[];
 }
 
 export function getHumanReadableRemediation(concept: string, questionText: string = ''): string {
@@ -166,21 +170,9 @@ function getMultiples(n: number, count: number): number[] {
  *  4. Default to 'General'
  */
 export function detectConcept(questionText: string, hintConcept: string = ''): string {
-  // 1. Respect explicit hintConcept if provided
-  if (hintConcept && hintConcept.trim() && hintConcept.toLowerCase() !== 'general') {
-    const hintLow = hintConcept.toLowerCase().trim();
-    for (const concept in CONCEPT_MAP) {
-      if (concept.toLowerCase() === hintLow) {
-        return concept;
-      }
-    }
-    return hintConcept;
-  }
+  const combinedText = ((hintConcept || '') + ' ' + (questionText || '')).toLowerCase();
 
-  const normQ = normalizeQuestionText(questionText);
-  const q = normQ.toLowerCase();
-
-  // 2. Keyword detection
+  // 1. Keyword detection from CONCEPT_MAP against hintConcept and questionText
   const allEntries: Array<{ concept: string; keyword: string }> = [];
   for (const concept in CONCEPT_MAP) {
     const entry = CONCEPT_MAP[concept];
@@ -194,9 +186,20 @@ export function detectConcept(questionText: string, hintConcept: string = ''): s
   allEntries.sort((a, b) => b.keyword.length - a.keyword.length);
 
   for (const { concept, keyword } of allEntries) {
-    if (q.includes(keyword)) {
+    if (combinedText.includes(keyword)) {
       return concept;
     }
+  }
+
+  // 2. Direct hintConcept match fallback
+  if (hintConcept && hintConcept.trim() && hintConcept.toLowerCase() !== 'general') {
+    const hintLow = hintConcept.toLowerCase().trim();
+    for (const concept in CONCEPT_MAP) {
+      if (concept.toLowerCase() === hintLow) {
+        return concept;
+      }
+    }
+    return hintConcept;
   }
 
   // 3. AI / NLP Classifier Fallback for new / un-mapped question text
@@ -266,229 +269,406 @@ export type ConceptGenerator = (
 
 const generateFractions: ConceptGenerator = (v) => {
   const presets = [
-    { q: 'What fraction of a shape is shaded when 1 out of 2 equal parts is shaded? (Choose: 1/2, 1/3, or 1/4)', ans: '1/2' },
-    { q: 'What fraction of a shape is shaded when 3 out of 4 equal parts are shaded? (Choose: 1/4, 2/4, or 3/4)', ans: '3/4' },
-    { q: 'What fraction of a shape is shaded when 2 out of 3 equal parts are shaded? (Choose: 1/3, 2/3, or 3/3)', ans: '2/3' },
-    { q: 'What fraction of a shape is shaded when 1 out of 4 equal parts is shaded? (Choose: 1/4, 2/4, or 3/4)', ans: '1/4' },
-    { q: 'What fraction of a shape is shaded when 1 out of 3 equal parts is shaded? (Choose: 1/3, 2/3, or 3/3)', ans: '1/3' },
+    { q: '1 out of 2 equal parts shaded (Choose: 1/2, 1/3, or 1/4)', ans: '1/2' },
+    { q: '3 out of 4 equal parts shaded (Choose: 1/4, 2/4, or 3/4)', ans: '3/4' },
+    { q: '2 out of 3 equal parts shaded (Choose: 1/3, 2/3, or 3/3)', ans: '2/3' },
+    { q: '1 out of 4 equal parts shaded (Choose: 1/4, 2/4, or 3/4)', ans: '1/4' },
+    { q: '1 out of 3 equal parts shaded (Choose: 1/3, 2/3, or 3/3)', ans: '1/3' },
   ];
-  const p = presets[v % presets.length];
-  return { question: p.q, answer: p.ans, topic: 'Fractions', aiGenerated: false };
+
+  // Use v to pick different blocks of 5 each time
+  const offset = (v * 5) % presets.length;
+  const set = presets.slice(offset, offset + 5);
+
+  return {
+    question: "Give the answer for what fraction of the shape is shaded:",
+    subQuestions: set.map(p => ({ prompt: p.q, answer: p.ans })),
+    topic: "Fractions",
+    answer: "",
+    aiGenerated: false,
+    remediation: "Numerator = shaded parts, Denominator = total parts."
+  };
 };
 
+
 const generateDirections: ConceptGenerator = (v) => {
-  const directions = ['North', 'East', 'South', 'West'] as const;
-  const places: Record<typeof directions[number], string> = {
-    'North': 'Park',
-    'East': 'Library',
-    'South': 'Bus Stop',
-    'West': 'Clock Tower'
-  };
-  const dir = directions[v % directions.length];
+  const presets = [
+    { prompt: "North", answer: "Park" },
+    { prompt: "East", answer: "Library" },
+    { prompt: "South", answer: "Bus Stop" },
+    { prompt: "West", answer: "Clock Tower" },
+    { prompt: "North-East", answer: "Post Office" }
+  ];
+  const offset = (v * 5) % presets.length;
+  const set = presets.slice(offset, offset + 5);
+
   return {
-    question: `Which place is ${dir} of the School?`,
-    answer: places[dir],
-    topic: 'Directions',
-    aiGenerated: false
+    question: "Identify the place in each direction from the School:",
+    subQuestions: set,
+    answer: "", // satisfy BlueprintQuestion
+    topic: "Directions",
+    aiGenerated: false,
+    remediation: "Look at cardinal directions (N, E, S, W) relative to the School."
   };
 };
 
 const generateShortestPath: ConceptGenerator = (v) => {
   const routes = [
-    { q: 'Which is the shortest path from School to Park? (Choose: North route [400m] or East route [700m])', ans: 'North route' },
-    { q: 'Which is the shortest path from Library to Bus Stop? (Choose: Direct South route [300m] or West route [800m])', ans: 'Direct South route' },
-    { q: 'Which is the shortest path from Market to Station? (Choose: Main Road [500m] or Bypass [900m])', ans: 'Main Road' },
-    { q: 'Which is the shortest path from Home to School? (Choose: Footpath [250m] or Highway [600m])', ans: 'Footpath' }
+    { prompt: "School → Park (400m vs 700m)", answer: "North route" },
+    { prompt: "Library → Bus Stop (300m vs 800m)", answer: "Direct South route" },
+    { prompt: "Market → Station (500m vs 900m)", answer: "Main Road" },
+    { prompt: "Home → School (250m vs 600m)", answer: "Footpath" },
+    { prompt: "Playground → Hospital (350m vs 750m)", answer: "Direct path" }
   ];
-  const r = routes[v % routes.length];
-  return { question: r.q, answer: r.ans, topic: 'Shortest Path', aiGenerated: false };
+  const offset = (v * 5) % routes.length;
+  const set = routes.slice(offset, offset + 5);
+
+  return {
+    question: "Choose the shortest path in each case:",
+    subQuestions: set,
+    answer: "",
+    topic: "Shortest Path",
+    aiGenerated: false,
+    remediation: "Compare distances and select the smaller value."
+  };
 };
 
 const generateMapInterpretation: ConceptGenerator = (v) => {
   const mapQuestions = [
-    { q: 'On the city map, which building is located next to the Library?', ans: 'Post Office' },
-    { q: 'On the park map, what feature is in the center of the park?', ans: 'Fountain' },
-    { q: 'According to the legend on the map, what does the blue line represent?', ans: 'River' },
-    { q: 'On the school layout map, where is the playground located?', ans: 'Behind Main Building' }
+    { prompt: "On the city map, which building is located next to the Library?", answer: "Post Office" },
+    { prompt: "On the park map, what feature is in the center of the park?", answer: "Fountain" },
+    { prompt: "According to the legend on the map, what does the blue line represent?", answer: "River" },
+    { prompt: "On the school layout map, where is the playground located?", answer: "Behind Main Building" },
+    { prompt: "What does the triangle symbol typically represent on a map?", answer: "Temple" }
   ];
-  const mq = mapQuestions[v % mapQuestions.length];
-  return { question: mq.q, answer: mq.ans, topic: 'Map Interpretation', aiGenerated: false };
-};
+  const offset = (v * 5) % mapQuestions.length;
+  const set = mapQuestions.slice(offset, offset + 5);
 
-const generateCommonFactors: ConceptGenerator = (v) => {
-  const a = (v % 5) * 6 + 12;
-  const b = (v % 5) * 4 + 18;
-  const factorsA = getFactors(a);
-  const factorsB = getFactors(b);
-  const common = factorsA.filter(f => factorsB.includes(f));
   return {
-    question: `Find the common factors of ${a} and ${b}.`,
-    answer: common.join(', '),
-    topic: 'Common Factors',
-    aiGenerated: false
+    question: "Answer these map interpretation questions:",
+    subQuestions: set,
+    answer: "",
+    topic: "Map Interpretation",
+    aiGenerated: false,
+    remediation: "Use map symbols and legends to identify locations."
   };
 };
 
-const generateFactors: ConceptGenerator = (v) => {
-  const num = (v % 10) + 12; // e.g. 12–21
-  const factors = getFactors(num);
+
+const generateCommonFactors: ConceptGenerator = (v) => {
+  const pairs = Array.from({ length: 5 }, (_, i) => {
+    const a = 12 + (v * 5) + i * 2;
+    const b = 18 + (v * 3) + i * 2;
+    const common = getFactors(a).filter(f => getFactors(b).includes(f));
+    return { prompt: `${a} & ${b}`, answer: common.join(", ") };
+  });
+
   return {
-    question: `List the factors of ${num}.`,
-    answer: factors.join(', '),
-    topic: 'Factors',
-    aiGenerated: false
+    question: "Find the common factors for each pair:",
+    subQuestions: pairs,
+    answer: "",
+    topic: "Common Factors",
+    aiGenerated: false,
+    remediation: "List factors of each number and find the overlap."
+  };
+}
+const generateFactors: ConceptGenerator = (v) => {
+  const nums = Array.from({ length: 5 }, (_, i) => 12 + v * 5 + i);
+  const set = nums.map(n => ({ prompt: `${n}`, answer: getFactors(n).join(", ") }));
+
+  return {
+    question: "List the factors of each number:",
+    subQuestions: set,
+    answer: "",
+    topic: "Factors",
+    aiGenerated: false,
+    remediation: "Factors are numbers that divide evenly into the given number."
   };
 };
 
 const generateCommonMultiples: ConceptGenerator = (v) => {
-  const a = (v % 4) + 3;
-  const b = (v % 4) + 5;
-  const multiplesA = getMultiples(a, 5);
-  const multiplesB = getMultiples(b, 5);
-  const common = multiplesA.filter(m => multiplesB.includes(m));
+  const pairs = Array.from({ length: 5 }, (_, i) => {
+    const a = 3 + v + i;
+    const b = 5 + v + i;
+    const multiplesA = getMultiples(a, 5);
+    const multiplesB = getMultiples(b, 5);
+    const common = multiplesA.filter(m => multiplesB.includes(m));
+    return { prompt: `${a} & ${b}`, answer: common.length ? common.join(", ") : "None" };
+  });
+
   return {
-    question: `Find the common multiples of ${a} and ${b} (first 5 multiples).`,
-    answer: common.length > 0 ? common.join(', ') : 'None in first 5 multiples',
-    topic: 'Common Multiples',
-    aiGenerated: false
+    question: "Find the common multiples (first 5) for each pair:",
+    subQuestions: pairs,
+    answer: "",
+    topic: "Common Multiples",
+    aiGenerated: false,
+    remediation: "List multiples of each number and find overlaps."
   };
 };
 
 const generateMultiples: ConceptGenerator = (v) => {
-  const num = (v % 8) + 3; // e.g. 3–10
-  const multiples = getMultiples(num, 5);
+  const nums = Array.from({ length: 5 }, (_, i) => 3 + v + i);
+  const set = nums.map(n => ({ prompt: `${n}`, answer: getMultiples(n, 5).join(", ") }));
+
   return {
-    question: `List the first 5 multiples of ${num}.`,
-    answer: multiples.join(', '),
-    topic: 'Multiples',
-    aiGenerated: false
+    question: "List the first 5 multiples of each number:",
+    subQuestions: set,
+    answer: "",
+    topic: "Multiples",
+    aiGenerated: false,
+    remediation: "Multiply the number by 1, 2, 3, 4, 5."
   };
 };
 
 const generateCompleteTheWhole: ConceptGenerator = (v) => {
-  const wholes = [
-    { shaded: 1, total: 4 }, { shaded: 2, total: 5 }, { shaded: 3, total: 8 },
-    { shaded: 1, total: 3 }, { shaded: 2, total: 6 },
-  ];
-  const w = wholes[v % wholes.length];
-  const rem = w.total - w.shaded;
+  const wholes = Array.from({ length: 5 }, (_, i) => {
+    const shaded = (i + 1);
+    const total = shaded + (v % 5) + 2;
+    const rem = total - shaded;
+    return { prompt: `${shaded}/${total} shaded`, answer: `${rem} parts` };
+  });
+
   return {
-    question: `If ${w.shaded} out of ${w.total} equal parts are shaded, how many MORE parts must be shaded to complete the whole (${w.total}/${w.total})?`,
-    answer: `${rem} parts`,
-    topic: 'Fractions (Complete the Whole)',
-    aiGenerated: false
+    question: "How many more parts must be shaded to complete the whole?",
+    subQuestions: wholes,
+    answer: "",
+    topic: "Fractions (Complete the Whole)",
+    aiGenerated: false,
+    remediation: "Subtract shaded parts from total parts."
   };
 };
 
-const generatePlaceValue: ConceptGenerator = (v) => {
-  const num = 100 + v * 7;
-  const h = Math.floor(num / 100);
-  const t = Math.floor((num % 100) / 10);
-  const o = num % 10;
+const generatePlaceValue: ConceptGenerator = (v, originalQ = '') => {
+  const is2Digit = /\b2-digit\b|\b2digit\b|\btens-units\b|\btens\b|\bsticks-to-number\b|\btu-grid\b/i.test(originalQ);
+  const nums = Array.from({ length: 5 }, (_, i) => is2Digit ? (15 + v * 3 + i * 7) : (100 + v * 7 + i * 11));
+  const set = nums.map(num => {
+    if (num < 100) {
+      const t = Math.floor(num / 10);
+      const o = num % 10;
+      return { prompt: `Express ${num} in Tens and Ones:`, answer: `${t} Tens, ${o} Ones` };
+    }
+    const h = Math.floor(num / 100);
+    const t = Math.floor((num % 100) / 10);
+    const o = num % 10;
+    return { prompt: `Express ${num} in HTO form:`, answer: `${h} Hundreds, ${t} Tens, ${o} Ones` };
+  });
+
   return {
-    question: `Write ${num} in Hundreds, Tens, and Ones (HTO) form.`,
-    answer: `${h} Hundreds, ${t} Tens, ${o} Ones`,
-    topic: 'Place Value',
-    aiGenerated: false
+    question: "Write each number in Tens and Ones / HTO form:",
+    subQuestions: set,
+    answer: "",
+    topic: "Place Value",
+    aiGenerated: false,
+    remediation: "Identify digit positions: Hundreds, Tens, Ones."
   };
 };
 
-const generateNumberSense: ConceptGenerator = (v) => {
-  const base = (v + 1) * 3 + 10;
+const generateNumberSense: ConceptGenerator = (v, originalQ = '') => {
+  const isNumeral = /numeral|write the numeral|write.*as a number/i.test(originalQ);
+  const isWordForm = /in words|word form|write the number name/i.test(originalQ);
+
+  if (isNumeral) {
+    const words = ["twelve", "fifteen", "twenty-eight", "thirty-four", "forty-two", "fifty-seven", "sixty-one", "seventy-six", "eighty-three", "ninety-nine"];
+    const answers = ["12", "15", "28", "34", "42", "57", "61", "76", "83", "99"];
+    const set = Array.from({ length: 5 }, (_, i) => {
+      const idx = (v * 2 + i) % words.length;
+      return {
+        prompt: `Write the numeral for ${words[idx]}:`,
+        answer: answers[idx]
+      };
+    });
+    return {
+      question: "Write the numeral for the given number names:",
+      subQuestions: set,
+      answer: "",
+      topic: "Number Sense",
+      aiGenerated: false,
+      remediation: "Read the number word carefully and write its digit representation (e.g., twelve is 12)."
+    };
+  }
+
+  if (isWordForm) {
+    const numbers = [14, 25, 38, 41, 59, 62, 73, 87, 94, 100];
+    const words = ["fourteen", "twenty-five", "thirty-eight", "forty-one", "fifty-nine", "sixty-two", "seventy-three", "eighty-seven", "ninety-four", "one hundred"];
+    const set = Array.from({ length: 5 }, (_, i) => {
+      const idx = (v * 2 + i) % numbers.length;
+      return {
+        prompt: `Write ${numbers[idx]} in words:`,
+        answer: words[idx]
+      };
+    });
+    return {
+      question: "Write the following numbers in word form:",
+      subQuestions: set,
+      answer: "",
+      topic: "Number Sense",
+      aiGenerated: false,
+      remediation: "Say the number out loud and write down its spelling carefully."
+    };
+  }
+
+  const base = (v + 1) * 4 + 10;
   const presets = [
-    { q: `What number comes AFTER ${base}?`, ans: String(base + 1) },
-    { q: `What number comes BEFORE ${base + 5}?`, ans: String(base + 4) },
-    { q: `What number is BETWEEN ${base} and ${base + 2}?`, ans: String(base + 1) },
+    { prompt: `What number comes AFTER ${base}?`, answer: String(base + 1) },
+    { prompt: `What number comes BEFORE ${base + 5}?`, answer: String(base + 4) },
+    { prompt: `What number is BETWEEN ${base} and ${base + 2}?`, answer: String(base + 1) },
+    { prompt: `What number comes AFTER ${base + 7}?`, answer: String(base + 8) },
+    { prompt: `What number comes BEFORE ${base + 9}?`, answer: String(base + 8) }
   ];
-  const p = presets[v % presets.length];
-  return { question: p.q, answer: p.ans, topic: 'Number Sense', aiGenerated: false };
+
+  return {
+    question: "Answer these number sense questions:",
+    subQuestions: presets,
+    answer: "",
+    topic: "Number Sense",
+    aiGenerated: false,
+    remediation: "Use the number line to find before, after, and between."
+  };
 };
 
 const generateOrdering: ConceptGenerator = (v, originalQ = '') => {
   const is3Digit = /\b3-digit\b|\b3digit\b|\bhundreds\b|\bhto\b|\b\d{3}\b/i.test(originalQ);
-  const isAsc = v % 2 === 0;
 
-  if (is3Digit) {
-    const raw3 = [(v % 5) * 110 + 215, (v % 5) * 95 + 430, (v % 5) * 140 + 125, (v % 5) * 80 + 350];
-    const sorted3 = isAsc ? [...raw3].sort((a, b) => a - b) : [...raw3].sort((a, b) => b - a);
-    return {
-      question: `Arrange the 3-digit numbers in ${isAsc ? 'ASCENDING (smallest to largest)' : 'DESCENDING (largest to smallest)'} order: [ ${raw3.join(', ')} ]`,
-      answer: sorted3.join(', '),
-      topic: `Ordering (${isAsc ? 'Ascending' : 'Descending'})`,
-      aiGenerated: false
-    };
-  }
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const isAsc = (v + i) % 2 === 0;
+    const raw = is3Digit
+      ? [(v + i) * 15 + 115, (v + i) * 12 + 130, (v + i) * 18 + 105, (v + i) * 10 + 150]
+      : [(v + i) * 6 + 22, (v + i) * 6 + 4, (v + i) * 6 + 15, (v + i) * 6 + 31];
+    const sorted = isAsc ? [...raw].sort((a, b) => a - b) : [...raw].sort((a, b) => b - a);
+    return { prompt: `Arrange in ${isAsc ? 'ASCENDING' : 'DESCENDING'} order: ${raw.join(", ")}`, answer: sorted.join(", ") };
+  });
 
-  const base = (v + 1) * 6 + 12;
-  const raw = [base + 22, base + 4, base + 15, base + 31];
-  const sorted = isAsc ? [...raw].sort((a, b) => a - b) : [...raw].sort((a, b) => b - a);
   return {
-    question: `Arrange the numbers in ${isAsc ? 'ASCENDING (smallest to largest)' : 'DESCENDING (largest to smallest)'} order: [ ${raw.join(', ')} ]`,
-    answer: sorted.join(', '),
-    topic: `Ordering (${isAsc ? 'Ascending' : 'Descending'})`,
-    aiGenerated: false
+    question: "Arrange each set of numbers in order as requested:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Ordering",
+    aiGenerated: false,
+    remediation: "Compare place values and sort accordingly."
   };
 };
 
-const generateComparison: ConceptGenerator = (v) => {
-  const vA = (v + 1) * 9 + 14;
-  const vB = (v + 1) * 7 + 19;
-  const isGreater = v % 2 === 0;
+const generateComparison: ConceptGenerator = (v, originalQ = '') => {
+  const is3Digit = /\b3-digit\b|\b3digit\b|\bhundreds\b|\bhto\b|\b\d{3}\b/i.test(originalQ);
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const vA = is3Digit ? (v + i + 1) * 35 + 140 : (v + i + 1) * 9 + 14;
+    const vB = is3Digit ? (v + i + 1) * 28 + 165 : (v + i + 1) * 7 + 19;
+    return { prompt: `${vA} vs ${vB}`, answer: String(Math.max(vA, vB)) };
+  });
+
   return {
-    question: `Which number is ${isGreater ? 'GREATER' : 'SMALLER'}? ${vA} or ${vB}?`,
-    answer: String(isGreater ? Math.max(vA, vB) : Math.min(vA, vB)),
-    topic: 'Comparison',
-    aiGenerated: false
+    question: "Which number is greater in each case:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Comparison",
+    aiGenerated: false,
+    remediation: "Use >, <, = to compare values."
   };
 };
-
 const generateAddition: ConceptGenerator = (v, originalQ = '') => {
   const is3Digit = /\b3-digit\b|\b3digit\b|\bcarry\b|\bcarrying\b|\bhundreds\b|\bhto\b|\b\d{3}\b/i.test(originalQ);
-  if (is3Digit) {
-    const a3 = (v % 5) * 65 + 215;
-    const b3 = (v % 5) * 45 + 138;
-    return { question: `Solve 3-digit carry addition: ${a3} + ${b3} = ?`, answer: String(a3 + b3), topic: 'Addition', aiGenerated: false };
-  }
-  const a = (v + 1) * 7 + 18;
-  const b = (v + 1) * 5 + 14;
-  return { question: `Solve addition: ${a} + ${b} = ?`, answer: String(a + b), topic: 'Addition', aiGenerated: false };
+
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    if (is3Digit) {
+      const a3 = 160 + (v % 5) * 15 + i * 2;
+      const b3 = 230 + (v % 5) * 12 + i * 3;
+      return { prompt: `Problem ${i + 1}: ${a3} + ${b3} = ?`, answer: String(a3 + b3) };
+    } else {
+      const a = 15 + (v % 6) * 5 + i * 3;
+      const b = 20 + (v % 6) * 4 + i * 2;
+      return { prompt: `Problem ${i + 1}: ${a} + ${b} = ?`, answer: String(a + b) };
+    }
+  });
+
+  return {
+    question: "Solve the following addition problems:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Addition",
+    aiGenerated: false,
+    remediation: "Add digits from right to left, carry if needed."
+  };
 };
 
 const generateSubtraction: ConceptGenerator = (v, originalQ = '') => {
   const is3Digit = /\b3-digit\b|\b3digit\b|\bborrow\b|\bborrowing\b|\bhundreds\b|\bhto\b|\b\d{3}\b/i.test(originalQ);
-  if (is3Digit) {
-    const sA3 = (v % 5) * 75 + 435;
-    const sB3 = (v % 5) * 35 + 148;
-    return { question: `Solve 3-digit borrow subtraction: ${sA3} - ${sB3} = ?`, answer: String(sA3 - sB3), topic: 'Subtraction', aiGenerated: false };
-  }
-  const sA = (v + 1) * 8 + 35;
-  const sB = (v + 1) * 4 + 12;
-  return { question: `Find the difference: ${sA} - ${sB} = ?`, answer: String(sA - sB), topic: 'Subtraction', aiGenerated: false };
+
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    if (is3Digit) {
+      const sA3 = 450 + (v % 5) * 20 + i * 5;
+      const sB3 = 140 + (v % 5) * 10 + i * 3;
+      return { prompt: `Problem ${i + 1}: ${sA3} - ${sB3} = ?`, answer: String(sA3 - sB3) };
+    } else {
+      const sA = 45 + (v % 6) * 4 + i * 3;
+      const sB = 12 + (v % 6) * 2 + i;
+      return { prompt: `Problem ${i + 1}: ${sA} - ${sB} = ?`, answer: String(sA - sB) };
+    }
+  });
+
+  return {
+    question: "Solve the following subtraction problems:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Subtraction",
+    aiGenerated: false,
+    remediation: "Subtract right to left, borrow if needed."
+  };
 };
 
 const generateMultiplication: ConceptGenerator = (v) => {
-  const a = (v % 5) + 2;
-  const b = (v % 7) + 3;
-  return { question: `Solve: ${a} × ${b} = ?`, answer: String(a * b), topic: 'Multiplication', aiGenerated: false };
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const a = ((v + i) % 7) + 2;
+    const b = ((v + i) % 8) + 3;
+    return { prompt: `Problem ${i + 1}: ${a} × ${b} = ?`, answer: String(a * b) };
+  });
+
+  return {
+    question: "Solve the following multiplication problems:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Multiplication",
+    aiGenerated: false,
+    remediation: "Multiply numbers using basic multiplication facts."
+  };
 };
 
 const generateDivision: ConceptGenerator = (v) => {
-  const divisor = (v % 5) + 2;
-  const quotient = (v % 6) + 3;
-  const dividend = divisor * quotient;
-  return { question: `Solve: ${dividend} ÷ ${divisor} = ?`, answer: String(quotient), topic: 'Division', aiGenerated: false };
-};
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const divisor = ((v + i) % 5) + 2;
+    const quotient = ((v + i) % 6) + 3;
+    const dividend = divisor * quotient;
+    return { prompt: `Problem ${i + 1}: ${dividend} ÷ ${divisor} = ?`, answer: String(quotient) };
+  });
 
+  return {
+    question: "Solve the following division problems:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Division",
+    aiGenerated: false,
+    remediation: "Divide into equal groups or calculate how many times divisor fits."
+  };
+};
 const generateDivisionEqualSharing: ConceptGenerator = (v) => {
   const kids = (v % 3) + 2;
   const perKid = (v % 4) + 3;
   const total = kids * perKid;
   const items = ['cookies 🍪', 'apples 🍎', 'pencils ✏️', 'toys 🧸', 'candies 🍬'];
+
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const k = kids + i;
+    const pk = perKid + i;
+    const tot = k * pk;
+    return { prompt: `${tot} ${items[(v + i) % items.length]} ÷ ${k} kids`, answer: String(pk) };
+  });
+
   return {
-    question: `Share ${total} ${items[v % items.length]} equally among ${kids} children. How many does each child get?`,
-    answer: String(perKid),
-    topic: 'Division (Equal Sharing)',
-    aiGenerated: false
+    question: "Share the objects equally among children:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Division (Equal Sharing)",
+    aiGenerated: false,
+    remediation: "Divide total items by number of children."
   };
 };
 
@@ -497,233 +677,344 @@ const generateDivisionEqualGrouping: ConceptGenerator = (v) => {
   const groups = (v % 4) + 2;
   const total = perGroup * groups;
   const objs = ['balls ⚽', 'stars ⭐', 'blocks 🧱', 'cards 🃏', 'buttons 🔘'];
+
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const pg = perGroup + i;
+    const g = groups + i;
+    const tot = pg * g;
+    return { prompt: `${tot} ${objs[(v + i) % objs.length]} ÷ groups of ${pg}`, answer: String(g) };
+  });
+
   return {
-    question: `Put ${total} ${objs[v % objs.length]} into equal groups of ${perGroup}. How many groups are formed?`,
-    answer: String(groups),
-    topic: 'Division (Equal Grouping)',
-    aiGenerated: false
+    question: "Put the objects into equal groups:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Division (Equal Grouping)",
+    aiGenerated: false,
+    remediation: "Divide total items by group size."
   };
 };
 
 const generatePatterns: ConceptGenerator = (v, originalQ = '') => {
   const isShapePattern = /\b(circle|triangle|square|shape|shapes|pattern sequence)\b/i.test(originalQ);
+
   if (isShapePattern) {
     const shapePats = [
-      { seq: 'Circle, Triangle, Circle, Triangle, ___', opts: ['Circle', 'Triangle'], ans: 'Circle' },
-      { seq: 'Square, Circle, Square, Circle, ___', opts: ['Square', 'Circle'], ans: 'Square' },
-      { seq: 'Triangle, Square, Triangle, Square, ___', opts: ['Triangle', 'Square'], ans: 'Triangle' },
-      { seq: 'Circle, Square, Circle, Square, ___', opts: ['Circle', 'Square'], ans: 'Circle' },
-      { seq: 'Triangle, Circle, Triangle, Circle, ___', opts: ['Triangle', 'Circle'], ans: 'Triangle' },
+      { prompt: "Circle, Triangle, Circle, Triangle, ___", answer: "Circle" },
+      { prompt: "Square, Circle, Square, Circle, ___", answer: "Square" },
+      { prompt: "Triangle, Square, Triangle, Square, ___", answer: "Triangle" },
+      { prompt: "Circle, Square, Circle, Square, ___", answer: "Circle" },
+      { prompt: "Triangle, Circle, Triangle, Circle, ___", answer: "Triangle" },
     ];
-    const sp = shapePats[v % shapePats.length];
     return {
-      question: `Complete the shape pattern sequence: ${sp.seq}`,
-      options: sp.opts,
-      answer: sp.ans,
-      topic: 'Patterns (Shape Sequences)',
-      aiGenerated: false
+      question: "Complete the shape pattern sequence:",
+      subQuestions: shapePats,
+      answer: "",
+      topic: "Patterns (Shape Sequences)",
+      aiGenerated: false,
+      remediation: "Identify the repeating shape sequence."
     };
   }
 
-  const pats = [
-    { seq: '2, 4, 6, 8, __', ans: '10' },
-    { seq: '5, 10, 15, 20, __', ans: '25' },
-    { seq: '10, 20, 30, 40, __', ans: '50' },
-    { seq: '3, 6, 9, 12, __', ans: '15' },
-    { seq: '7, 14, 21, 28, __', ans: '35' },
+  const skipPats = [
+    { prompt: "2, 4, 6, 8, ___", answer: "10" },
+    { prompt: "5, 10, 15, 20, ___", answer: "25" },
+    { prompt: "10, 20, 30, 40, ___", answer: "50" },
+    { prompt: "3, 6, 9, 12, ___", answer: "15" },
+    { prompt: "7, 14, 21, 28, ___", answer: "35" },
   ];
-  const p = pats[v % pats.length];
-  return { question: `Complete the skip counting pattern: ${p.seq}`, answer: p.ans, topic: 'Patterns', aiGenerated: false };
+  return {
+    question: "Complete the skip counting pattern:",
+    subQuestions: skipPats,
+    answer: "",
+    topic: "Patterns",
+    aiGenerated: false,
+    remediation: "Identify the rule and continue the sequence."
+  };
 };
-
 const generateDataHandling: ConceptGenerator = (v) => {
   const presets = [
-    { apples: 6, oranges: 4, ans: '2' },
-    { apples: 8, oranges: 3, ans: '5' },
-    { apples: 10, oranges: 6, ans: '4' },
-    { apples: 7, oranges: 2, ans: '5' },
-    { apples: 9, oranges: 5, ans: '4' },
+    { prompt: "6 apples vs 4 oranges", answer: "2" },
+    { prompt: "8 apples vs 3 oranges", answer: "5" },
+    { prompt: "10 apples vs 6 oranges", answer: "4" },
+    { prompt: "7 apples vs 2 oranges", answer: "5" },
+    { prompt: "9 apples vs 5 oranges", answer: "4" },
   ];
-  const p = presets[v % presets.length];
   return {
-    question: `A pictograph chart shows ${p.apples} apples and ${p.oranges} oranges. How many more apples than oranges are there?`,
-    answer: p.ans,
-    topic: 'Data Handling',
-    aiGenerated: false
+    question: "A pictograph chart shows apples and oranges How many more apples than oranges are there?",
+    subQuestions: presets,
+    answer: "",
+    topic: "Data Handling",
+    aiGenerated: false,
+    remediation: "Subtract oranges from apples."
   };
 };
 
+
 const generateMoney: ConceptGenerator = (v) => {
-  const cost = (v + 1) * 10;
-  const paid = cost + 20;
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const cost = (v + i + 1) * 10;
+    const paid = cost + 20;
+    return { prompt: `Cost ₹${cost}, Paid ₹${paid}`, answer: `₹${paid - cost}` };
+  });
   return {
-    question: `An item costs ₹${cost}. A student paid ₹${paid}. How much change does the student get back?`,
-    answer: `₹${paid - cost}`,
-    topic: 'Money',
-    aiGenerated: false
+    question: "Find the change returned:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Money",
+    aiGenerated: false,
+    remediation: "Subtract cost from amount paid."
   };
 };
 
 const generateMeasurement: ConceptGenerator = (v) => {
   const items = [
-    { item: 'length of a pencil', options: 'cm or m', unit: 'cm' },
-    { item: 'water in a bucket', options: 'mL or L', unit: 'L' },
-    { item: 'weight of a schoolbag', options: 'g or kg', unit: 'kg' },
-    { item: 'length of a classroom door', options: 'cm or m', unit: 'm' },
-    { item: 'milk in a small cup', options: 'mL or L', unit: 'mL' },
+    { prompt: "Length of pencil", answer: "cm" },
+    { prompt: "Water in bucket", answer: "L" },
+    { prompt: "Weight of schoolbag", answer: "kg" },
+    { prompt: "Length of door", answer: "m" },
+    { prompt: "Milk in cup", answer: "mL" },
   ];
-  const s = items[v % items.length];
   return {
-    question: `Which unit is best to measure the ${s.item}? (Choose: ${s.options})`,
-    answer: s.unit,
-    topic: 'Measurement',
-    aiGenerated: false
+    question: "Which unit is best to measure the following item ",
+    subQuestions: items,
+    answer: "",
+    topic: "Measurement",
+    aiGenerated: false,
+    remediation: "Select unit based on size/quantity."
   };
 };
 
 const generateUnitConversion: ConceptGenerator = (v) => {
-  const m = (v + 1) * 3 + 2;
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const m = (v + i + 1) * 3 + 2;
+    return { prompt: `${m} m`, answer: `${m * 100} cm` };
+  });
   return {
-    question: `Convert meters to centimeters: ${m} meters = ? cm`,
-    answer: String(m * 100),
-    topic: 'Unit Conversion',
-    aiGenerated: false
+    question: "Convert meters to centimeters:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Unit Conversion",
+    aiGenerated: false,
+    remediation: "Multiply meters by 100."
   };
 };
 
 const generateTime: ConceptGenerator = (v) => {
-  const hour = (v % 11) + 1;
-  const isHalf = v % 2 === 1;
-  const handDesc = isHalf
-    ? `Short hand between ${hour} and ${hour + 1}, Long hand on 6`
-    : `Short hand on ${hour}, Long hand on 12`;
+  const baseHour = (Math.abs(v) % 12) + 1;
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const rawHour = ((baseHour - 1 + i) % 12) + 1; // strictly 1..12
+    const isHalf = i % 2 === 1;
+    const nextHour = (rawHour % 12) + 1;
+    const handDesc = isHalf
+      ? `Short hand between ${rawHour} and ${nextHour}, Long hand on 6`
+      : `Short hand on ${rawHour}, Long hand on 12`;
+
+    return {
+      prompt: `Clock face showing: ${handDesc}`,
+      answer: isHalf ? `${rawHour}:30` : `${rawHour}:00`
+    };
+  });
+
   return {
-    question: `What time does this clock show? 🕒 [ ${handDesc} ]`,
-    answer: isHalf ? `${hour}:30` : `${hour}:00`,
-    topic: 'Time',
-    aiGenerated: false
+    question: "Read the time shown on each clock:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Time",
+    aiGenerated: false,
+    remediation: "Short hand = hour, long hand = minutes."
   };
 };
+
 
 const generateGeometry: ConceptGenerator = (v, originalQ = '') => {
   const isAngle = /\b(angle|angles|degree|degrees|protractor|90|acute|obtuse|right)\b/i.test(originalQ);
   if (isAngle) {
     const anglePresets = [
-      { q: 'An angle that measures less than 90 degrees is called an ___ angle. (Choose: Right, Acute, or Obtuse)', ans: 'Acute' },
-      { q: 'An angle that measures exactly 90 degrees is called a ___ angle. (Choose: Right, Acute, or Obtuse)', ans: 'Right' },
-      { q: 'An angle that measures more than 90 degrees but less than 180 degrees is called an ___ angle. (Choose: Right, Acute, or Obtuse)', ans: 'Obtuse' },
-      { q: 'An angle that measures exactly 180 degrees is called a ___ angle. (Choose: Straight, Right, or Acute)', ans: 'Straight' },
-      { q: 'How many right angles (90 degrees) are in a standard square?', ans: '4' },
+      { prompt: "Angle < 90°", answer: "Acute" },
+      { prompt: "Angle = 90°", answer: "Right" },
+      { prompt: "Angle > 90° but < 180°", answer: "Obtuse" },
+      { prompt: "Angle = 180°", answer: "Straight" },
+      { prompt: "Square has how many right angles?", answer: "4" },
     ];
-    const ap = anglePresets[v % anglePresets.length];
-    return { question: ap.q, answer: ap.ans, topic: 'Geometry (Angles)', aiGenerated: false };
+    return {
+      question: "Identify the type of angle:",
+      subQuestions: anglePresets,
+      answer: "",
+      topic: "Geometry (Angles)",
+      aiGenerated: false,
+      remediation: "Use angle size to classify."
+    };
   }
 
   const shapes = [
-    { q: 'How many straight sides does a triangle have?', ans: '3' },
-    { q: 'How many corners does a square have?', ans: '4' },
-    { q: 'Which shape has 0 straight sides? (Choose: Circle or Square)', ans: 'Circle' },
-    { q: 'How many sides does a rectangle have?', ans: '4' },
-    { q: 'How many sides does a pentagon have?', ans: '5' },
-    { q: 'How many sides does a hexagon have?', ans: '6' },
+    { prompt: "Triangle sides", answer: "3" },
+    { prompt: "Square corners", answer: "4" },
+    { prompt: "Circle straight sides", answer: "0" },
+    { prompt: "Rectangle sides", answer: "4" },
+    { prompt: "Pentagon sides", answer: "5" },
   ];
-  const s = shapes[v % shapes.length];
-  return { question: s.q, answer: s.ans, topic: 'Geometry', aiGenerated: false };
+  return {
+    question: "Answer these geometry questions:",
+    subQuestions: shapes,
+    answer: "",
+    topic: "Geometry",
+    aiGenerated: false,
+    remediation: "Count sides and corners."
+  };
 };
 
+
 const generateAlgebra: ConceptGenerator = (v) => {
-  const x = (v % 5) + 2;
-  const y = (v % 7) + 3;
-  return { question: `Solve for x: x + ${y} = ${x + y}`, answer: String(x), topic: 'Algebra', aiGenerated: false };
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const x = (v + i) % 7 + 2;
+    const y = (v + i) % 9 + 3;
+    return { prompt: `x + ${y} = ${x + y}`, answer: String(x) };
+  });
+
+  return {
+    question: "Solve for x:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Algebra",
+    aiGenerated: false,
+    remediation: "Subtract constant from RHS."
+  };
 };
 
 const generateDecimals: ConceptGenerator = (v) => {
-  const a = parseFloat(((v % 9) + 1.2).toFixed(1));
-  const b = parseFloat(((v % 5) + 0.8).toFixed(1));
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const a = ((v + i) % 9 + 1.2).toFixed(1);
+    const b = ((v + i) % 5 + 0.8).toFixed(1);
+    return { prompt: `${a} + ${b}`, answer: (parseFloat(a) + parseFloat(b)).toFixed(1) };
+  });
+
   return {
-    question: `Add decimals: ${a.toFixed(1)} + ${b.toFixed(1)} = ?`,
-    answer: (a + b).toFixed(1),
-    topic: 'Decimals',
-    aiGenerated: false
+    question: "Add decimals:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Decimals",
+    aiGenerated: false,
+    remediation: "Align decimal points and add."
   };
 };
 
 const generatePercentages: ConceptGenerator = (v) => {
-  const part = (v + 1) * 10;
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const part = (v + i + 1) * 10;
+    return { prompt: `${part} of 100`, answer: `${part}%` };
+  });
+
   return {
-    question: `What percent of 100 is ${part}?`,
-    answer: `${part}%`,
-    topic: 'Percentages',
-    aiGenerated: false
+    question: "Find the percent of 100:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Percentages",
+    aiGenerated: false,
+    remediation: "Percentage = part ÷ 100 × 100."
   };
 };
-
 const generateRatios: ConceptGenerator = (v) => {
-  const boys = (v % 5) + 2;
-  const girls = (v % 4) + 3;
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const boys = (v + i) % 6 + 2;
+    const girls = (v + i) % 5 + 3;
+    return { prompt: `${boys} boys, ${girls} girls`, answer: `${boys}:${girls}` };
+  });
+
   return {
-    question: `In a class of ${boys + girls} students, there are ${boys} boys and ${girls} girls. What is the ratio of boys to girls?`,
-    answer: `${boys}:${girls}`,
-    topic: 'Ratios',
-    aiGenerated: false
+    question: "Find the ratio of boys to girls:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Ratios",
+    aiGenerated: false,
+    remediation: "Write as boys:girls."
   };
 };
 
 const generateIntegers: ConceptGenerator = (v) => {
-  const a = (v % 10) - 5;
-  const b = (v % 8) - 4;
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const a = (v + i) % 10 - 5;
+    const b = (v + i) % 8 - 4;
+    return { prompt: `${a} + ${b}`, answer: String(a + b) };
+  });
+
   return {
-    question: `Add integers: (${a}) + (${b}) = ?`,
-    answer: String(a + b),
-    topic: 'Integers',
-    aiGenerated: false
+    question: "Add integers:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Integers",
+    aiGenerated: false,
+    remediation: "Use number line to add."
   };
 };
 
 const generateStatistics: ConceptGenerator = (v) => {
-  const scores = [45, 50, 55, 60].map(s => s + v);
-  const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const scores = [45, 50, 55, 60].map(s => s + v + i);
+    const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
+    return { prompt: scores.join(", "), answer: mean.toFixed(1) };
+  });
+
   return {
-    question: `Find the mean (average) of these scores: ${scores.join(', ')}`,
-    answer: mean.toFixed(1),
-    topic: 'Statistics',
-    aiGenerated: false
+    question: "Find the mean (average):",
+    subQuestions: sets,
+    answer: "",
+    topic: "Statistics",
+    aiGenerated: false,
+    remediation: "Add values and divide by count."
   };
 };
 
 const generateProbability: ConceptGenerator = (v) => {
-  const favorable = (v % 3) + 1;
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const favorable = ((v + i) % 6) + 1;
+    return { prompt: `Roll a ${favorable}`, answer: `${favorable}/6` };
+  });
+
   return {
-    question: `What is the probability of rolling a ${favorable} on a fair 6-sided die? (Write as a fraction)`,
-    answer: `${favorable}/6`,
-    topic: 'Probability',
-    aiGenerated: false
+    question: "Find the probability of rolling each outcome on a fair 6‑sided die:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Probability",
+    aiGenerated: false,
+    remediation: "Probability = favorable outcomes ÷ total outcomes."
   };
 };
 
 const generateWordProblems: ConceptGenerator = (v) => {
-  const pens = (v + 1) * 3;
-  const cost = pens * 5;
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const pens = (v + i + 1) * 3;
+    const cost = pens * 5;
+    return { prompt: `${pens} pens at ₹5 each`, answer: `₹${cost}` };
+  });
+
   return {
-    question: `A student buys ${pens} pens at ₹5 each. What is the total cost?`,
-    answer: `₹${cost}`,
-    topic: 'Word Problems',
-    aiGenerated: false
+    question: "What is the total cost?",
+    subQuestions: sets,
+    answer: "",
+    topic: "Word Problems",
+    aiGenerated: false,
+    remediation: "Multiply number of pens by cost per pen."
   };
 };
 
 const generateOrdinalNumbers: ConceptGenerator = (v) => {
-  const positions = ['1st', '2nd', '3rd', '4th', '5th'];
-  const animals = ['Cat 🐱', 'Dog 🐶', 'Rabbit 🐰', 'Panda 🐼', 'Fox 🦊'];
-  const idx = v % positions.length;
+  const positions = ["1st", "2nd", "3rd", "4th", "5th"];
+  const animals = ["Cat 🐱", "Dog 🐶", "Rabbit 🐰", "Panda 🐼", "Fox 🦊"];
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const idx = (v + i) % positions.length;
+    return { prompt: animals[idx], answer: positions[idx] };
+  });
+
   return {
-    question: `In a queue [ 1st Cat 🐱, 2nd Dog 🐶, 3rd Rabbit 🐰, 4th Panda 🐼, 5th Fox 🦊 ], which position is ${animals[idx]} in?`,
-    answer: positions[idx],
-    topic: 'Ordinal Numbers',
-    aiGenerated: false
+    question: "Identify the position of each animal in the queue:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Ordinal Numbers",
+    aiGenerated: false,
+    remediation: "Ordinal numbers show position in a series."
   };
 };
-
 // ─── DYNAMIC POOL & SHUFFLE UTILITIES FOR MATCHING EXERCISES ────────────────
 const FRUIT_POOL = [
   'Apple 🍎', 'Banana 🍌', 'Orange 🍊', 'Grapes 🍇', 'Mango 🥭',
@@ -754,26 +1045,40 @@ export function generateMatchingExercise(
   sourceLabel: string = 'item',
   targetLabel: string = 'target'
 ): BlueprintQuestion {
-  const selectedTargets = shuffleWithSeed(targetPool, v * 17 + 5).slice(0, sourceItems.length);
-  const options = shuffleWithSeed(selectedTargets, v * 31 + 13);
-
-  const idx = v % sourceItems.length;
-  const source = sourceItems[idx];
-  const target = selectedTargets[idx];
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const selectedTargets = shuffleWithSeed(targetPool, (v + i) * 17 + 5).slice(0, sourceItems.length);
+    const idx = (v + i) % sourceItems.length;
+    const source = sourceItems[idx];
+    const target = selectedTargets[idx];
+    return { prompt: `${source}`, answer: target };
+  });
 
   return {
-    question: `Match the ${source} ${sourceLabel} to the correct ${targetLabel}.`,
-    answer: target,
-    options,
-    answerMode: 'dropdown',
+    question: `Match each ${sourceLabel} to the correct ${targetLabel}:`,
+    subQuestions: sets,
+    answer: "", // dummy to satisfy type
     topic: topicName,
-    aiGenerated: false
+    aiGenerated: false,
+    remediation: `Match each ${sourceLabel} with its corresponding ${targetLabel}.`
   };
 }
 
+
 const generateMatchFingersToFruits: ConceptGenerator = (v) => {
   const fingers = ['Thumb', 'Index', 'Middle', 'Ring', 'Little'];
-  return generateMatchingExercise(v, fingers, FRUIT_POOL, 'Match Fingers to Fruits', 'finger', 'fruit');
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const idx = (v + i) % fingers.length;
+    return { prompt: fingers[idx], answer: FRUIT_POOL[(v + i) % FRUIT_POOL.length] };
+  });
+
+  return {
+    question: "Match each finger to the correct fruit:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Match Fingers to Fruits",
+    aiGenerated: false,
+    remediation: "Each finger is paired with a fruit."
+  };
 };
 
 function toTallyString(n: number): string {
@@ -790,354 +1095,378 @@ function toTallyString(n: number): string {
 }
 
 const generateMatchTheTallies: ConceptGenerator = (v) => {
-  const count = (v % 12) + 3; // e.g. 3 to 14
-  const tallyStr = toTallyString(count);
-
-  const options = shuffleWithSeed([
-    String(count),
-    String(count + 2),
-    String(Math.max(1, count - 1)),
-    String(count + 5),
-    String(count + 1)
-  ], v * 13 + 3);
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const count = ((v + i) % 12) + 3;
+    const tallyStr = toTallyString(count);
+    return { prompt: tallyStr, answer: String(count) };
+  });
 
   return {
-    question: `Count the tally marks (${tallyStr}) and match the correct number:`,
-    answer: String(count),
-    options,
-    answerMode: 'dropdown',
-    topic: 'Match the Tallies',
-    remediation: 'Count each group of 5 tally marks (||||/) as 5, then add single vertical tally marks (|) to find the total count.',
-    aiGenerated: false
+    question: "Count the tally marks and match the number:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Match the Tallies",
+    aiGenerated: false,
+    remediation: "Each group of ||||/ = 5, add singles for total."
   };
 };
 
 const generateAddAndMatch: ConceptGenerator = (v) => {
-  const num1 = (v + 1) * 4 + 3;
-  const num2 = (v + 1) * 3 + 5;
-  const sum = num1 + num2;
-  const options = shuffleWithSeed([
-    sum,
-    sum + 2,
-    Math.max(1, sum - 3),
-    sum + 5,
-    sum + 10
-  ], v * 19 + 7).map(String);
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const num1 = (v + i + 1) * 4 + 3;
+    const num2 = (v + i + 1) * 3 + 5;
+    const sum = num1 + num2;
+    return { prompt: `${num1} + ${num2}`, answer: String(sum) };
+  });
 
   return {
-    question: `Solve addition and match option: ${num1} + ${num2} = ?`,
-    answer: String(sum),
-    options,
-    answerMode: 'dropdown',
-    topic: 'Add and Match',
-    remediation: 'Calculate the sum of the two numbers and select the matching option.',
-    aiGenerated: false
+    question: "Solve addition and match the correct option:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Add and Match",
+    aiGenerated: false,
+    remediation: "Add the two numbers and select the sum."
   };
 };
 
+function numberToEnglishDecimal(val: number): string {
+  const words = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen'];
+  const parts = val.toFixed(1).split('.');
+  const whole = parseInt(parts[0], 10);
+  const frac = parseInt(parts[1], 10);
+  const wholeStr = words[whole] || String(whole);
+  const fracStr = words[frac] || String(frac);
+  return `${wholeStr} point ${fracStr.toLowerCase()}`;
+}
+
 const generateReadWriteDecimals: ConceptGenerator = (v) => {
-  const value = (v + 12) / 10; // e.g. 1.2, 1.3, 1.4...
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const value = parseFloat(((v + i) * 0.7 + 1.2).toFixed(1));
+    return { prompt: `${value.toFixed(1)}`, answer: numberToEnglishDecimal(value) };
+  });
+
   return {
-    question: `Write the decimal number ${value.toFixed(1)} in words.`,
-    answer: `${value.toFixed(1)} = "${value.toFixed(1)}"`,
-    topic: 'Read & Write Decimals',
-    remediation: 'Say the whole number part, then the decimal part digit by digit (e.g., 1.2 = one point two).',
-    aiGenerated: false
+    question: "Write each decimal number in English words:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Read & Write Decimals",
+    aiGenerated: false,
+    remediation: "Say the whole number part, then point, then the decimal part."
   };
 };
 
 
 const generateCompareDecimals: ConceptGenerator = (v) => {
-  const a = (20 + v) / 10; // e.g. 2.0, 2.1, 2.2...
-  const b = a + 0.2;
-  const options = shuffleWithSeed([a.toFixed(1), b.toFixed(1)], v * 17 + 5);
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const a = (20 + v + i) / 10;
+    const b = a + 0.2;
+    return { prompt: `${a.toFixed(1)} vs ${b.toFixed(1)}`, answer: b.toFixed(1) };
+  });
+
   return {
-    question: `Which is greater: ${a.toFixed(1)} or ${b.toFixed(1)}?`,
-    answer: b.toFixed(1),
-    options,
-    answerMode: 'dropdown',
-    topic: 'Compare Decimals',
-    remediation: 'Compare digits from left to right; the larger digit in the first differing place decides.',
-    aiGenerated: false
+    question: "Which decimal is greater?",
+    subQuestions: sets,
+    answer: "",
+    topic: "Compare Decimals",
+    aiGenerated: false,
+    remediation: "Compare digits from left to right."
   };
 };
 
 
 const generateDecimalsInMoney: ConceptGenerator = (v) => {
-  const cost = 12.50 + v; // e.g. ₹12.50, ₹13.50...
-  const paid = 20.00;
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const cost = 12.50 + v + i;
+    const paid = 20.00;
+    return { prompt: `Cost ₹${cost.toFixed(2)}, Paid ₹${paid.toFixed(2)}`, answer: `₹${(paid - cost).toFixed(2)}` };
+  });
+
   return {
-    question: `A toy costs ₹${cost.toFixed(2)}. If you pay ₹${paid.toFixed(2)}, how much change will you get?`,
-    answer: `₹${(paid - cost).toFixed(2)}`,
-    topic: 'Decimals in Money',
-    remediation: 'Subtract the cost from the amount paid, keeping two decimal places for rupees and paise.',
-    aiGenerated: false
+    question: "Find the change returned:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Decimals in Money",
+    aiGenerated: false,
+    remediation: "Subtract cost from amount paid, keep two decimal places."
   };
 };
+
 const generateWritePosition: ConceptGenerator = (v) => {
   const items = ['apple', 'banana', 'mango', 'grapes', 'orange'];
-  const pos = (v % items.length) + 1; // 1 to 5
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const pos = ((v + i) % items.length) + 1;
+    return { prompt: `${items[pos - 1]}`, answer: `${pos}` };
+  });
+
   return {
-    question: `Write the position of "${items[pos - 1]}" in the list: ${items.join(', ')}`,
-    answer: `${items[pos - 1]} is at position ${pos}`,
-    topic: 'Write Position',
-    remediation: 'Count items from left to right. The first item is position 1, second is 2, and so on.',
-    aiGenerated: false
+    question: "Write the position of each item in the list:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Write Position",
+    aiGenerated: false,
+    remediation: "Count items from left to right."
   };
 };
 
 const generateIdentifyPosition: ConceptGenerator = (v) => {
   const items = ['dog', 'cat', 'rabbit', 'parrot', 'fish'];
-  const pos = (v % items.length) + 1;
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const pos = ((v + i) % items.length) + 1;
+    return { prompt: `Position ${pos}`, answer: items[pos - 1] };
+  });
+
   return {
-    question: `Which animal is at position ${pos} in the list: ${items.join(', ')}?`,
-    answer: items[pos - 1],
-    options: shuffleWithSeed(items, v * 11 + 5),
-    answerMode: 'dropdown',
-    topic: 'Identify Position',
-    remediation: 'Look at the list and count carefully to find the item at the given position.',
-    aiGenerated: false
+    question: "Identify the animal at each position:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Identify Position",
+    aiGenerated: false,
+    remediation: "Look at the list and count carefully."
   };
 };
+
 const generateCountEqualGroups: ConceptGenerator = (v) => {
-  const groupSize = (v % 5) + 2;   // 2 to 6
-  const groups = (v % 4) + 2;      // 2 to 5
-  const total = groupSize * groups;
+  const items = ['stars ⭐', 'apples 🍎', 'cookies 🍪', 'balloons 🎈', 'pencils ✏️'];
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const groupSize = ((v + i) % 5) + 2;
+    const groups = ((v + i * 2) % 4) + 2;
+    return {
+      prompt: `${groups} equal groups of ${groupSize} ${items[i % items.length]}`,
+      answer: String(groupSize * groups)
+    };
+  });
 
   return {
-    question: `There are ${groups} groups with ${groupSize} objects each. How many objects in total?`,
-    answer: String(total),
-    topic: 'Count Equal Groups',
-    remediation: 'Multiply the number of groups by the size of each group to find the total.',
-    aiGenerated: false
+    question: "Count the total objects in equal groups:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Count Equal Groups",
+    aiGenerated: false,
+    remediation: "Multiply number of groups by size of each group."
   };
 };
+
+///
 const generateRepeatedAddition: ConceptGenerator = (v) => {
-  const number = (v % 5) + 2;   // 2 to 6
-  const times = (v % 4) + 3;    // 3 to 6
-  const sum = number * times;
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const number = ((v + i) % 5) + 2;
+    const times = ((v + i * 2) % 3) + 3;
+    const expr = Array(times).fill(number).join(" + ");
+    return {
+      prompt: `Problem ${i + 1}: ${expr} = ?`,
+      answer: String(number * times)
+    };
+  });
 
   return {
-    question: `Add ${number} repeated ${times} times (e.g., ${Array(times).fill(number).join(' + ')}).`,
-    answer: String(sum),
-    topic: 'Repeated Addition',
-    remediation: 'Repeated addition is multiplication. Add the same number multiple times or multiply directly.',
-    aiGenerated: false
+    question: "Solve by repeated addition:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Repeated Addition",
+    aiGenerated: false,
+    remediation: "Repeated addition is multiplication."
   };
 };
+
+////
 const generateMultiplicationTable: ConceptGenerator = (v) => {
-  const a = (v % 9) + 1;   // 1 to 9
-  const b = (v % 9) + 1;   // 1 to 9
-  const product = a * b;
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const a = ((v + i) % 9) + 1;
+    const b = ((v + i * 2) % 9) + 1;
+    return { prompt: `${a} × ${b}`, answer: String(a * b) };
+  });
 
   return {
-    question: `Fill in the multiplication table: ${a} × ${b} = ?`,
-    answer: String(product),
-    topic: 'Complete the Multiplication Table',
-    remediation: 'Use multiplication facts for 1‑digit numbers to complete the table.',
-    aiGenerated: false
+    question: "Complete the multiplication table:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Complete the Multiplication Table",
+    aiGenerated: false,
+    remediation: "Use multiplication facts for 1‑digit numbers."
   };
 };
+
+////
 const generateAdditionObjects: ConceptGenerator = (v, originalQ = '') => {
-  const a = (v % 4) + 2;
-  const b = (v % 4) + 2;
-  const total = a + b;
   const item = /apple|🍎/i.test(originalQ) ? 'apples 🍎' : 'objects';
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const a = ((v + i) % 4) + 2;
+    const b = ((v + i * 2) % 4) + 2;
+    return { prompt: `${'🍎'.repeat(a)} + ${'🍎'.repeat(b)}`, answer: String(a + b) };
+  });
+
   return {
-    question: `Add using ${item}: ${'🍎'.repeat(a)} + ${'🍎'.repeat(b)} = ?`,
-    answer: String(total),
-    topic: 'Addition (Objects)',
-    remediation: 'Count each group and then add them together.',
-    aiGenerated: false
+    question: `Add using ${item}:`,
+    subQuestions: sets,
+    answer: "",
+    topic: "Addition (Objects)",
+    aiGenerated: false,
+    remediation: "Count each group and then add them together."
   };
 };
 
+////
 const generateNumberSensePlaceValue: ConceptGenerator = (v, originalQ = '') => {
-  const num = ((v * 17 + 13) % 80) + 12; // e.g. 13, 30, 47, 64, 81...
-  const tens = Math.floor(num / 10);
-  const ones = num % 10;
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const num = ((v * 17 + 13 + i) % 80) + 12;
+    const tens = Math.floor(num / 10);
+    const ones = num % 10;
 
-  if (/ten/i.test(originalQ)) {
-    return {
-      question: `How many tens are in the number ${num}?`,
-      answer: String(tens),
-      topic: 'Number Sense (Place Value)',
-      remediation: 'Divide the number by 10 to find the tens place.',
-      aiGenerated: false
-    };
-  }
-  if (/one/i.test(originalQ)) {
-    return {
-      question: `How many ones are in the number ${num}?`,
-      answer: String(ones),
-      topic: 'Number Sense (Place Value)',
-      remediation: 'Look at the last digit to find the ones place.',
-      aiGenerated: false
-    };
-  }
+    if (/ten/i.test(originalQ)) return { prompt: `${num}`, answer: String(tens) };
+    if (/one/i.test(originalQ)) return { prompt: `${num}`, answer: String(ones) };
+    return { prompt: `${num}`, answer: `${tens} tens and ${ones} ones` };
+  });
+
   return {
-    question: `Break down ${num} into tens and ones.`,
-    answer: `${tens} tens and ${ones} ones`,
-    topic: 'Number Sense (Place Value)',
-    remediation: 'Split the number into tens and ones.',
-    aiGenerated: false
+    question: "Break down each number into tens and ones:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Number Sense (Place Value)",
+    aiGenerated: false,
+    remediation: "Divide by 10 for tens, use last digit for ones."
   };
 };
 
-
+///
 const generateGeometryPerimeter: ConceptGenerator = (v) => {
-  const side = (v % 10) + 2;
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const side = ((v + i) % 10) + 2;
+    return { prompt: `Square side ${side} cm`, answer: `${side * 4} cm` };
+  });
+
   return {
-    question: `What is the perimeter of a square with side length ${side} cm?`,
-    answer: String(side * 4) + ' cm',
-    topic: 'Geometry (Perimeter)',
-    remediation: 'Perimeter of a square = 4 × side length.',
-    aiGenerated: false
+    question: "Find the perimeter of each square:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Geometry (Perimeter)",
+    aiGenerated: false,
+    remediation: "Perimeter of a square = 4 × side length."
   };
 };
+
+
+///
 const generateGeometryAngles: ConceptGenerator = (v) => {
   const presets = [
-    { q: 'An angle that measures exactly 90 degrees is called a ___ angle.', ans: 'Right' },
-    { q: 'An angle less than 90 degrees is called ___.', ans: 'Acute' },
-    { q: 'An angle greater than 90 but less than 180 is called ___.', ans: 'Obtuse' }
+    { prompt: "Angle = 90°", answer: "Right" },
+    { prompt: "Angle < 90°", answer: "Acute" },
+    { prompt: "Angle > 90° but < 180°", answer: "Obtuse" },
   ];
-  const p = presets[v % presets.length];
-  return { question: p.q, answer: p.ans, topic: 'Geometry (Angles)', aiGenerated: false };
+  const sets = Array.from({ length: 5 }, (_, i) => presets[(v + i) % presets.length]);
+
+  return {
+    question: "Identify the type of angle:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Geometry (Angles)",
+    aiGenerated: false,
+    remediation: "Use angle size to classify."
+  };
 };
 
+///
 const generateSubtractionObjects: ConceptGenerator = (v, originalQ = '') => {
-  const total = (v % 8) + 6;   // 6–13 objects
-  const remove = (v % 4) + 2;  // 2–5 removed
-  const remaining = total - remove;
+  const item = /apple|🍎/i.test(originalQ) ? "apples 🍎" :
+    /balloon|🎈/i.test(originalQ) ? "balloons 🎈" :
+      /star|★/i.test(originalQ) ? "stars ★" : "objects";
 
-  let item = 'objects';
-  if (/apple|🍎/i.test(originalQ)) item = 'apples 🍎';
-  if (/balloon|🎈/i.test(originalQ)) item = 'balloons 🎈';
-  if (/star|★/i.test(originalQ)) item = 'stars ★';
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const total = ((v + i) % 8) + 6;
+    const remove = ((v + i) % 4) + 2;
+    return { prompt: `${total} shown, remove ${remove}`, answer: String(total - remove) };
+  });
 
   return {
-    question: `Subtract using ${item}: ${item} shown = ${total}, remove ${remove}. How many left?`,
-    answer: String(remaining),
-    topic: 'Subtraction (Objects)',
-    remediation: 'Count the total, take away the removed items, and see how many remain.',
-    aiGenerated: false
+    question: `Subtract using ${item}:`,
+    subQuestions: sets,
+    answer: "",
+    topic: "Subtraction (Objects)",
+    aiGenerated: false,
+    remediation: "Count total, take away removed items."
   };
 };
+
+///
 const generateHowManyPlaceValue: ConceptGenerator = (v, originalQ = '') => {
-  const num = (v % 90) + 10; // 10–99
-  const tens = Math.floor(num / 10);
-  const ones = num % 10;
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const num = ((v + i) % 90) + 10;
+    const tens = Math.floor(num / 10);
+    const ones = num % 10;
 
-  if (/ten/i.test(originalQ)) {
-    return {
-      question: `How many tens are in the number ${num}?`,
-      answer: String(tens),
-      topic: 'Number Sense (Place Value)',
-      remediation: 'Divide the number by 10 to find the tens place.',
-      aiGenerated: false
-    };
-  }
-  if (/one/i.test(originalQ)) {
-    return {
-      question: `How many ones are in the number ${num}?`,
-      answer: String(ones),
-      topic: 'Number Sense (Place Value)',
-      remediation: 'Look at the last digit to find the ones place.',
-      aiGenerated: false
-    };
-  }
-  // fallback
+    if (/ten/i.test(originalQ)) return { prompt: `${num}`, answer: String(tens) };
+    if (/one/i.test(originalQ)) return { prompt: `${num}`, answer: String(ones) };
+    return { prompt: `${num}`, answer: `${tens} tens and ${ones} ones` };
+  });
+
   return {
-    question: `Break down ${num} into tens and ones.`,
-    answer: `${tens} tens and ${ones} ones`,
-    topic: 'Number Sense (Place Value)',
-    remediation: 'Split the number into tens and ones.',
-    aiGenerated: false
+    question: "Break down each 2‑digit number into tens and ones:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Number Sense (Place Value)",
+    aiGenerated: false,
+    remediation: "Divide by 10 for tens, use last digit for ones."
   };
 };
 
+///
 const generateNumberSenseComparison: ConceptGenerator = (v, originalQ = '') => {
-  const a = ((v * 3 + 1) % 9) + 1;
-  let b = ((v * 5 + 4) % 9) + 1;
-  if (a === b) b = (b % 9) + 1;
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const a = ((v + i) * 3 + 1) % 9 + 1;
+    let b = ((v + i) * 5 + 4) % 9 + 1;
+    if (a === b) b = (b % 9) + 1;
 
-  if (/bigger|greater|smaller|less/i.test(originalQ)) {
-    return {
-      question: `Which numeral is bigger: ${a} or ${b}?`,
-      answer: String(Math.max(a, b)),
-      topic: 'Number Sense (Comparison)',
-      remediation: 'Compare the digits directly. The larger digit means the bigger numeral.',
-      aiGenerated: false
-    };
-  }
-  // fallback
+    const ans = String(Math.max(a, b));
+    return { prompt: `${a} vs ${b}`, answer: ans };
+  });
+
   return {
-    question: `Which number is greater: ${a} or ${b}?`,
-    answer: String(Math.max(a, b)),
-    topic: 'Number Sense (Comparison)',
-    remediation: 'Compare the two numbers and choose the larger one.',
-    aiGenerated: false
+    question: "Compare the numbers:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Number Sense (Comparison)",
+    aiGenerated: false,
+    remediation: "Compare the two numbers and choose the larger one."
   };
 };
 
+///
 const generateNumberSenseCounting: ConceptGenerator = (v, originalQ = '') => {
-  // 🔎 Detect context from the original question
-  if (/finger|hand|thumb|index|middle|ring|little/i.test(originalQ)) {
-    const count = (v % 5) + 1; // 1–5 fingers
-    return {
-      question: `Count the fingers shown: 🖐️ (${count} fingers). How many?`,
-      answer: String(count),
-      topic: 'Number Sense (Counting)',
-      remediation: 'Count each finger one by one to find the total.',
-      aiGenerated: false
-    };
-  }
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    if (/finger|hand|thumb|index|middle|ring|little/i.test(originalQ)) {
+      const count = ((v + i) % 5) + 1;
+      return { prompt: `🖐️ (${count} fingers)`, answer: String(count) };
+    }
 
-  if (/star|★/i.test(originalQ)) {
-    const count = (v % 10) + 5; // 5–14 stars
-    return {
-      question: `Count the stars: ${'★'.repeat(count)}. How many are there?`,
-      answer: String(count),
-      topic: 'Number Sense (Counting)',
-      remediation: 'Count each star one by one to find the total.',
-      aiGenerated: false
-    };
-  }
+    if (/star|★/i.test(originalQ)) {
+      const count = ((v + i) % 10) + 5;
+      return { prompt: `${'★'.repeat(count)}`, answer: String(count) };
+    }
 
-  if (/apple|🍎/i.test(originalQ)) {
-    const count = (v % 6) + 2; // 2–7 apples
-    return {
-      question: `Count the apples: ${'🍎'.repeat(count)}. How many apples are there?`,
-      answer: String(count),
-      topic: 'Number Sense (Counting)',
-      remediation: 'Count each apple one by one to find the total.',
-      aiGenerated: false
-    };
-  }
+    if (/apple|🍎/i.test(originalQ)) {
+      const count = ((v + i) % 6) + 2;
+      return { prompt: `${'🍎'.repeat(count)}`, answer: String(count) };
+    }
 
-  if (/balloon|🎈/i.test(originalQ)) {
-    const count = (v % 6) + 3; // 3–8 balloons
-    return {
-      question: `Count the balloons: ${'🎈'.repeat(count)}. How many balloons are there?`,
-      answer: String(count),
-      topic: 'Number Sense (Counting)',
-      remediation: 'Count each balloon one by one to find the total.',
-      aiGenerated: false
-    };
-  }
+    if (/balloon|🎈/i.test(originalQ)) {
+      const count = ((v + i) % 6) + 3;
+      return { prompt: `${'🎈'.repeat(count)}`, answer: String(count) };
+    }
 
-  // 🛠️ Fallback for generic "How many objects"
-  const count = (v % 5) + 3;
-  const symbols = ['🔵', '⭐', '🍎', '🎈', '🌸', '🚗', '🍪', '🐱'][v % 8];
+    // fallback
+    const count = ((v + i) % 5) + 3;
+    const symbols = ['🔵', '⭐', '🍎', '🎈', '🌸', '🚗', '🍪', '🐱'][(v + i) % 8];
+    return { prompt: `${symbols.repeat(count)}`, answer: String(count) };
+  });
+
   return {
-    question: `Count the items shown: ${symbols.repeat(count)}. How many are there?`,
-    answer: String(count),
-    topic: 'Number Sense (Counting)',
-    remediation: 'Count each item one by one to find the total.',
-    aiGenerated: false
+    question: "Count the items shown:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Number Sense (Counting)",
+    aiGenerated: false,
+    remediation: "Count each item one by one to find the total."
   };
 };
-
 
 // ─── GENERATOR REGISTRY ────────────────────────────────────────────────────────
 const GENERATORS: Record<string, ConceptGenerator> = {
@@ -1248,7 +1577,9 @@ function _generateByConcept(
   originalQ: string = '',
   originalAnswer: string = ''
 ): BlueprintQuestion {
-  let c = (concept || '').toLowerCase().trim();
+  // Resolve canonical concept key from conceptDictionary using detectConcept
+  const canonical = detectConcept(originalQ, concept);
+  let c = ((canonical && canonical !== 'General') ? canonical : (concept || '')).toLowerCase().trim();
 
   // Normalize/Map specific FLN worksheet slugs to core concepts
   if (
@@ -1267,7 +1598,7 @@ function _generateByConcept(
     c = 'match the tallies';
   } else if (c.includes('pattern') || c.includes('patterns')) {
     c = 'complete the patterns';
-  } else if (c.includes('clock') || c.includes('time')) {
+  } else if ((c.includes('clock') || c.includes('time')) && !c.includes('match')) {
     c = 'read the clock';
   } else if (c.includes('finger') || c.includes('fruit')) {
     c = 'match fingers to fruits';
@@ -1279,21 +1610,7 @@ function _generateByConcept(
     else c = 'read & write decimals';
   }
 
-  // ── ADDITION ───────────────────────────────────────────────
-  if (c === 'addition') {
-    const a = 10 + variantIndex * 2;
-    const b = 5 + variantIndex * 3;
-    const sum = a + b;
 
-    return {
-      question: `Add these numbers: ${a} + ${b}`,
-      options: [String(sum), String(sum + 1), String(sum - 1), String(sum + 2)],
-      answer: String(sum),
-      topic: 'Addition',
-      remediation: getHumanReadableRemediation('Addition', originalQ),
-      aiGenerated: true
-    };
-  }
 
   // ── COMPLETE THE PATTERNS (shape sequences) ────────────────
   if (c === 'complete the patterns' || c.replace(/\s+/g, '') === 'completethepatterns') {
@@ -1317,34 +1634,38 @@ function _generateByConcept(
   }
 
   // ── READ THE CLOCK ─────────────────────────────────────────
+  // FIX: this used to reimplement clock generation inline with
+  // `const hours = 3 + variantIndex` and NO wraparound, so once variantIndex
+  // climbed past ~9 the "hour" printed as 13, 14, 15... which isn't a valid
+  // clock reading. `generateTime` (registered under the 'time' key below)
+  // already does this correctly — it wraps hours with `% 12` and returns the
+  // "1 instruction line + 5 subQuestions" shape — so we just delegate to it.
   if (c === 'read the clock' || c.replace(/\s+/g, '') === 'readtheclock') {
-    const hours = 3 + variantIndex;
-    const minutes = (variantIndex % 2 === 0) ? 0 : 30;
-    const timeStr = `${hours}:${minutes.toString().padStart(2, '0')}`;
-
-    return {
-      question: `What time does this clock show? 🕒 [ Short hand on ${hours}, Long hand on ${minutes === 0 ? 12 : 6} ]`,
-      options: [timeStr, `${hours + 1}:00`],
-      answer: timeStr,
-      topic: 'Read the Clock',
-      remediation: getHumanReadableRemediation('Read the Clock', originalQ),
-      aiGenerated: true
-    };
+    return generateTime(variantIndex, originalQ, originalAnswer);
   }
 
   // ── MATCH TIME AND CLOCK ──────────────────────────────────
   if (c === 'match time and clock' || c.replace(/\s+/g, '') === 'matchtimeandclock') {
-    const hours = 7 + variantIndex;
-    const minutes = (variantIndex % 2 === 0) ? 0 : 30;
-    const timeStr = `${hours}:${minutes.toString().padStart(2, '0')}`;
+    const sets = Array.from({ length: 5 }, (_, i) => {
+      const rawHour = ((variantIndex + i + 2) % 12) + 1;
+      const isHalf = (i % 2 === 1);
+      const timeStr = `${rawHour}:${isHalf ? '30' : '00'}`;
+      const handDesc = isHalf
+        ? `Short hand between ${rawHour} and ${(rawHour % 12) + 1}, Long hand on 6`
+        : `Short hand on ${rawHour}, Long hand on 12`;
+      return {
+        prompt: `Digital Time ${timeStr} → ${handDesc}`,
+        answer: `Clock showing ${timeStr}`
+      };
+    });
 
     return {
-      question: `Match the time with the correct clock face: ${timeStr}`,
-      options: [`Clock showing ${timeStr}`, `Clock showing ${hours + 1}:00`],
-      answer: `Clock showing ${timeStr}`,
-      topic: 'Match Time and Clock',
-      remediation: getHumanReadableRemediation('Match Time and Clock', originalQ),
-      aiGenerated: true
+      question: "Match each time with the correct clock face:",
+      subQuestions: sets,
+      answer: "",
+      topic: "Match Time and Clock",
+      aiGenerated: false,
+      remediation: getHumanReadableRemediation('Match Time and Clock', originalQ)
     };
   }
 
@@ -1363,9 +1684,19 @@ function _generateByConcept(
   if (gen) return gen(variantIndex, originalQ, originalAnswer);
 
   // ── DEFAULT FALLBACK ──────────────────────────────────────
+  const fallbackQuestions = Array.from({ length: 5 }, (_, i) => {
+    const num1 = (variantIndex + i + 1) * 3 + 4;
+    const num2 = (variantIndex + i + 1) * 2 + 5;
+    return {
+      prompt: `Problem ${i + 1}: Practice question for ${concept || 'this topic'} (${num1} + ${num2} = ?)`,
+      answer: String(num1 + num2)
+    };
+  });
+
   return {
-    question: `Practice question for "${concept || 'this topic'}" (auto-generated).`,
-    answer: originalAnswer || '',
+    question: `Solve the following practice questions for ${concept || 'this topic'}:`,
+    subQuestions: fallbackQuestions,
+    answer: '',
     topic: concept || 'General',
     remediation: getHumanReadableRemediation(concept, originalQ),
     aiGenerated: true,
@@ -1382,14 +1713,23 @@ export function generateRemediationVariants(
   originalQ: string,
   originalAnswer: string = '',
   count: number = 5,
-  hintConcept: string = ''
+  hintConcept: string = '',
+  baseOffset: number = 0
 ): BlueprintQuestion[] {
   const cleanQ = sanitizeQuestionText(originalQ);
   const concept = detectConcept(cleanQ, hintConcept);
   console.log("Detected concept:", concept);
 
+  const firstVariant = generateByConcept(concept, baseOffset, cleanQ, originalAnswer);
+
+  // If the concept generator returned a subQuestions array (1 instruction + 5 sub-questions),
+  // return that single structured object instead of duplicating it 5 times!
+  if (firstVariant.subQuestions && Array.isArray(firstVariant.subQuestions) && firstVariant.subQuestions.length > 0) {
+    return [firstVariant];
+  }
+
   return Array.from({ length: count }, (_, i) => {
-    const variant = generateByConcept(concept, i, cleanQ, originalAnswer);
+    const variant = generateByConcept(concept, baseOffset + i, cleanQ, originalAnswer);
 
     // Always attach remediation so frontend can display it
     variant.remediation = getHumanReadableRemediation(concept, cleanQ);

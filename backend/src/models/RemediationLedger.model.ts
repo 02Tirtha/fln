@@ -1,10 +1,20 @@
 import { Schema, model } from 'mongoose';
 import { IRemediationLedgerDocument } from '../interfaces/remediationLedger.interface';
 
+const subQuestionSchema = new Schema(
+  {
+    prompt: { type: String, required: true },
+    answer: { type: String, default: '' }
+  },
+  { _id: false }
+);
+
 const generatedPracticeQuestionSchema = new Schema(
   {
     question: { type: String, required: true },
-    answer: { type: String, required: true },
+    answer: { type: String, default: '' },
+    options: [{ type: String }],
+    subQuestions: [subQuestionSchema],
     generatedAt: { type: Date, default: Date.now }
   },
   { _id: false }

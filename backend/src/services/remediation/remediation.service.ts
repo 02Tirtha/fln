@@ -76,7 +76,8 @@ export class RemediationService {
           ).map((b: any) => ({
             question: b.question,
             options: b.options,
-            answer: b.answer,
+            answer: b.answer || '',
+            subQuestions: b.subQuestions,
             remediation: b.remediation,
             generatedAt: new Date(),
             aiGenerated: b.aiGenerated ?? false,
@@ -158,13 +159,16 @@ export class RemediationService {
 
       const responses = [...ledger.responses];
 
+      const examHash = (examId || '').split('').reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+      const setSeed = (examHash % 17) * 7;
+
       let qIdx = 0;
       for (const response of responses) {
         try {
           let origQ = response.originalQuestion || '';
           let concept = response.conceptName || 'Mathematics';
           const qType = response.questionType || 'standard';
-          const baseOffset = qIdx * 5;
+          const baseOffset = (qIdx * 5) + setSeed;
 
           // If original question is missing or is just a placeholder like "Question text for Q#N",
           // look up the real question text from the exam paper
@@ -213,7 +217,7 @@ export class RemediationService {
 
 
 
-          let batch: Array<{ question: string; answer: string; aiGenerated?: boolean; needsReview?: boolean }> = [];
+          let batch: Array<{ question: string; answer?: string; subQuestions?: any[]; options?: string[]; aiGenerated?: boolean; needsReview?: boolean }> = [];
 
           try {
             batch = await generativeEngine.generateBatch(origQ, concept, qType, baseOffset);
@@ -230,7 +234,8 @@ export class RemediationService {
           const practiceQuestions: IGeneratedPracticeQuestion[] = batch.map(b => ({
             question: b.question,
             options: (b as any).options,
-            answer: b.answer,
+            answer: b.answer || '',
+            subQuestions: (b as any).subQuestions,
             generatedAt: new Date(),
             aiGenerated: b.aiGenerated ?? false,
             needsReview: b.needsReview ?? false
@@ -402,7 +407,20 @@ export class RemediationService {
     conceptName: string,
     questionType: string,
     baseOffset: number = 0
-  ): Array<{ question: string; options?: string[]; answer: string; remediation?: string; aiGenerated?: boolean; needsReview?: boolean }> {
+  ): Array<{ question: string; options?: string[]; answer?: string; subQuestions?: any[]; remediation?: string; aiGenerated?: boolean; needsReview?: boolean }> {
+    const firstBp = blueprintEngine.generate(originalQuestion, conceptName, questionType, '', baseOffset);
+    if (firstBp.subQuestions && Array.isArray(firstBp.subQuestions) && firstBp.subQuestions.length > 0) {
+      return [{
+        question: firstBp.question,
+        options: firstBp.options,
+        answer: firstBp.answer,
+        subQuestions: firstBp.subQuestions,
+        remediation: firstBp.remediation,
+        aiGenerated: firstBp.aiGenerated,
+        needsReview: firstBp.needsReview
+      }];
+    }
+
     return Array.from({ length: 5 }, (_, i) => {
       const bp = blueprintEngine.generate(originalQuestion, conceptName, questionType, '', baseOffset + i);
       return {
@@ -476,7 +494,11 @@ export class RemediationService {
           const isDivisionTopic = /divis|divide|quotient|sharing|grouping|equal groups/i.test(conceptLower + ' ' + origQ);
           const isMultiplyTopic = /multipl|times|product/i.test(conceptLower + ' ' + origQ);
 
-          const isStale = !r.practiceQuestions || r.practiceQuestions.length === 0 || concept !== r.conceptName ||
+          const pqs = r.practiceQuestions || [];
+          const isMissingSubQuestions = pqs.length > 0 && !pqs[0]?.subQuestions;
+          const hasDuplicateTitles = pqs.length > 1 && pqs[0]?.question === pqs[1]?.question;
+
+          const isStale = !r.practiceQuestions || r.practiceQuestions.length === 0 || concept !== r.conceptName || isMissingSubQuestions || hasDuplicateTitles ||
             r.practiceQuestions.some((pq: any) => {
               const pqQ = pq.question || '';
               if (/Numeric practice for/i.test(pqQ)) return true;
@@ -495,8 +517,9 @@ export class RemediationService {
               if (isSubtractionTopic && /\d+ \+ \d+/.test(pqQ)) return true;
               if (isDivisionTopic && /\d+ \+ \d+/.test(pqQ)) return true;
               if (isMultiplyTopic && /\d+ \+ \d+/.test(pqQ)) return true;
-              if (concept === 'Add and Match' && !/match/i.test(pqQ)) return true;
-              if (concept === 'MatchFingersToFruits' && !/fruit/i.test(pqQ)) return true;
+              if (/Clock showing \d{2}:/i.test(pqQ) || /Clock showing 2\d:/i.test(pqQ)) return true;
+              if (/Read the time shown on each clock:\s*\d*/i.test(pqQ)) return true;
+              if (conceptLower.includes('clock') || conceptLower.includes('time')) return true;
               return false;
             });
 
@@ -510,7 +533,8 @@ export class RemediationService {
                 .map((b: any) => ({
                   question: b.question,
                   options: b.options,
-                  answer: b.answer,
+                  answer: b.answer || '',
+                  subQuestions: b.subQuestions,
                   remediation: b.remediation,
                   generatedAt: new Date(),
                   aiGenerated: b.aiGenerated ?? false,

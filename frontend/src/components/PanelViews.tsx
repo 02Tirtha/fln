@@ -13,7 +13,7 @@ interface PanelViewsProps {
   currentUser: User;
   token: string;
 }
-  
+
 const STUDENTS_FALLBACK: Student[] = [
   { id: 's1', name: 'Amanpreet Singh', age: 8, classGroup: 'Class 2', section: 'A', schoolId: 'gps-mt-001', currentLevel: 12, currentSubLevel: 0, targetLevel: 13, aadharMasked: 'XXXX-XXXX-1234', levelHistory: [{ level: 12, subLevel: 0, date: '2026-03-15', reason: 'Diagnostic' }], streak: 3 },
   { id: 's2', name: 'Jasmine Kaur', age: 7, classGroup: 'Class 2', section: 'A', schoolId: 'gps-mt-001', currentLevel: 8, currentSubLevel: 1, targetLevel: 12, aadharMasked: 'XXXX-XXXX-5678', levelHistory: [{ level: 8, subLevel: 1, date: '2026-02-20', reason: 'Mid-year' }], streak: 1 },
@@ -440,18 +440,18 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   const [userSearch, setUserSearch] = useState('');
   const navigate = useNavigate();
 
- const handleGoToRemediationNote = (studentId: string, examId: string, studentName?: string) => {
+  const handleGoToRemediationNote = (studentId: string, examId: string, studentName?: string) => {
     const query = studentName ? `?studentName=${encodeURIComponent(studentName)}` : '';
     navigate(`/remediation-note/${studentId}/${examId}${query}`);
   };
 
-    const handleRequestRemediation = async (student: Student, report: EvaluationReport, examResponses: any[]) => {
+  const handleRequestRemediation = async (student: Student, report: EvaluationReport, examResponses: any[]) => {
     const failedQuestionNums = examResponses
       .map((item: any, idx: number) => ({ item, idx }))
       .filter(({ item }) => item.status !== 'Correct')
       .map(({ idx }) => idx + 1);
 
-    // 1. Immediately open the remediation note view so user doesn't wait
+    // 1. Immediately open the remediation sheet view so user doesn't wait
     handleGoToRemediationNote(student.id, report.worksheetId, student.name);
 
     if (failedQuestionNums.length === 0) {
@@ -522,7 +522,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   const [remediationLedgers, setRemediationLedgers] = useState<any[]>([]);
   const safePercent = (score: number, totalQuestions?: number, fallbackLength = 0) => {
     const total = Number(totalQuestions) > 0 ? Number(totalQuestions) : fallbackLength;
-   if (total <= 0) return 0;
+    if (total <= 0) return 0;
 
     const value = Number(score) || 0;
 
@@ -558,10 +558,10 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
 
   useEffect(() => {
     const headers = { 'Authorization': `Bearer ${token}` };
-    apiFetch('/api/students', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiStudents(d); }).catch(() => {});
-    apiFetch('/api/schools', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiSchools(d); }).catch(() => {});
-    apiFetch('/api/admin/coordinators', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiUsers(d); }).catch(() => {});
-    apiFetch('/api/evaluation/reports', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setAllReports(d); }).catch(() => {});
+    apiFetch('/api/students', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiStudents(d); }).catch(() => { });
+    apiFetch('/api/schools', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiSchools(d); }).catch(() => { });
+    apiFetch('/api/admin/coordinators', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiUsers(d); }).catch(() => { });
+    apiFetch('/api/evaluation/reports', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setAllReports(d); }).catch(() => { });
     fetchBlueprints();
   }, [token]);
 
@@ -607,9 +607,9 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
       alert('Please allow popups to download/print the PDF report card.');
       return;
     }
-    const failedResponses = examResponses.filter((item: any) => item.status !== 'Correct')       
-  
-    
+    const failedResponses = examResponses.filter((item: any) => item.status !== 'Correct')
+
+
     const tableRows = examResponses.map(item => `
       <tr>
         <td style="font-weight: 500;">${item.question}</td>
@@ -622,7 +622,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
         </td>
       </tr>
     `).join('');
-    const scorePct = safePercent(r.score, r.totalQuestions, examResponses.length);    const conceptBadges = Object.entries(r.conceptMastery)
+    const scorePct = safePercent(r.score, r.totalQuestions, examResponses.length); const conceptBadges = Object.entries(r.conceptMastery)
       .map(([t, m]) => `<span class="badge ${m === 'Strong' ? 'badge-pass' : 'badge-fail'}">${t}: ${m}</span>`)
       .join(' ');
     const htmlContent = `
@@ -732,20 +732,20 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   };
 
   const handleViewRemediationNotes = (studentName: string, studentId: string, examId: string) => {
-  // 1. Locate the targeted complete remediation record inside the active state pool
-  const targetLedger = remediationLedgers.find(
-    l => l.studentId === studentId && l.examId === examId
-  );
+    // 1. Locate the targeted complete remediation record inside the active state pool
+    const targetLedger = remediationLedgers.find(
+      l => l.studentId === studentId && l.examId === examId
+    );
 
-  if (!targetLedger) return;
+    if (!targetLedger) return;
 
-  // 2. Open a direct, clean window for viewing and immediate printing
-  const notesWindow = window.open('', '_blank', 'width=850,height=700');
+    // 2. Open a direct, clean window for viewing and immediate printing
+    const notesWindow = window.open('', '_blank', 'width=850,height=700');
 
-  const notesHtml = `
+    const notesHtml = `
     <html>
       <head>
-        <title>Remediation Notes - ${studentName}</title>
+        <title>Remediation Sheet - ${studentName}</title>
         <style>
           body { font-family: system-ui, -apple-system, sans-serif; padding: 30px; color: #1f2937; line-height: 1.5; }
           .header { margin-bottom: 25px; border-bottom: 2px solid #e5e7eb; padding-bottom: 15px; }
@@ -763,7 +763,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
       </head>
       <body>
         <div class="header">
-          <h1 class="student-title">Remediation Notes: ${studentName}</h1>
+          <h1 class="student-title">Remediation Sheet: ${studentName}</h1>
           <div class="meta-text">Student ID: ${studentId} | Worksheet ID: ${examId}</div>
         </div>
 
@@ -783,11 +783,11 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
     </html>
   `;
 
-  notesWindow.document.write(notesHtml);
-  notesWindow.document.close();
-};
+    notesWindow.document.write(notesHtml);
+    notesWindow.document.close();
+  };
 
-const handlePrintRemediationSlip = (student: Student, ledger: any) => {
+  const handlePrintRemediationSlip = (student: Student, ledger: any) => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
       alert('Please allow popups to print the remediation slip.');
@@ -795,22 +795,81 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
     }
 
     const failedResponses = (ledger.responses || []).filter((r: any) => !r.isCorrect);
-    
+
+    // Helper to render practice questions - supports both subQuestions format (instruction + 5 sub-qs) and flat format
+    const renderPracticeQuestions = (practiceQs: any[], conceptIdx: number) => {
+      return practiceQs.map((pq: any, qIdx: number) => {
+        // Check if this is the new format with subQuestions (instruction + 5 sub-questions)
+        if (pq.subQuestions && Array.isArray(pq.subQuestions) && pq.subQuestions.length > 0) {
+          const instruction = pq.question || pq.topic || 'Practice Questions';
+          const subQs = pq.subQuestions.map((sq: any, sqIdx: number) => {
+            const prompt = sq.prompt || sq.question || '';
+            const answer = sq.answer || '';
+            return `
+              <div class="sub-question" style="margin-bottom: 14px; padding-left: 16px;">
+                <div class="sub-q-text" style="font-size: 13px; color: #1e293b; margin-bottom: 4px;">
+                  <strong style="color: #374151;">Q${sqIdx + 1}.</strong> ${prompt}
+                </div>
+                <div class="answer-line" style="font-size: 12px; color: #94a3b8; font-family: monospace; margin-top: 4px; height: 24px;">
+                  Answer: __________________________________
+                </div>
+              </div>
+            `;
+          }).join('');
+          return `
+            <div class="concept-block" style="margin-bottom: 24px; page-break-inside: avoid;">
+              <div class="instruction-header" style="font-size: 14px; font-weight: 700; color: #1e3a8a; margin-bottom: 12px; padding: 10px 12px; background: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 0 6px 6px 0;">
+                ${instruction}
+              </div>
+              <div class="sub-questions">
+                ${subQs}
+              </div>
+            </div>
+          `;
+        }
+        // Fallback: flat format (old style)
+        return `
+          <div class="question-item" style="margin-bottom: 18px; padding-left: 12px;">
+            <div class="question-text" style="font-size: 13px; color: #1e293b; margin-bottom: 6px;">
+              <strong>Q${qIdx + 1}.</strong> ${pq.question}
+            </div>
+            <div class="answer-space" style="font-size: 12px; color: #94a3b8; font-family: monospace; margin-top: 4px; height: 24px;">
+              Answer: __________________________________
+            </div>
+          </div>
+        `;
+      }).join('');
+    };
+
+    // Helper to render answer key
+    const renderAnswerKey = (practiceQs: any[], conceptName: string) => {
+      return practiceQs.map((pq: any, qIdx: number) => {
+        if (pq.subQuestions && Array.isArray(pq.subQuestions) && pq.subQuestions.length > 0) {
+          const answers = pq.subQuestions.map((sq: any, sqIdx: number) => {
+            const answer = sq.answer || '';
+            return `<span style="margin-right: 16px;"><strong>Q${sqIdx + 1}:</strong> ${answer}</span>`;
+          }).join('');
+          return `
+            <div style="margin-bottom: 10px; font-size: 11px;">
+              <strong>${conceptName}</strong> (Instruction: ${pq.question || pq.topic || ''})<br/>
+              ${answers}
+            </div>
+          `;
+        }
+        return `<div style="margin-bottom: 6px; font-size: 11px;"><strong>Q${qIdx + 1}:</strong> ${pq.answer}</div>`;
+      }).join('');
+    };
+
     const questionsHtml = failedResponses.map((r: any, idx: number) => {
       const practiceQs = r.practiceQuestions || [];
-      const questionsList = practiceQs.map((pq: any, qIdx: number) => `
-        <div class="question-item">
-          <div class="question-text"><strong>Q${qIdx + 1}.</strong> ${pq.question}</div>
-          <div class="answer-space">Answer: __________________________________</div>
-        </div>
-      `).join('');
+      const questionsList = renderPracticeQuestions(practiceQs, idx);
       return `
-        <div class="concept-section">
-          <div class="concept-header">
-            Concept ${idx + 1}: ${r.conceptName} (${r.type.toUpperCase()})
+        <div class="concept-section" style="margin-bottom: 30px; page-break-inside: avoid;">
+          <div class="concept-header" style="font-size: 13px; font-weight: 700; background-color: #f1f5f9; padding: 8px 12px; border-left: 4px solid #4f46e5; border-radius: 0 6px 6px 0; color: #0f172a; margin-bottom: 10px;">
+            Concept ${idx + 1}: ${r.conceptName}
           </div>
-          <div class="original-box">
-            <strong>Original Question got incorrect:</strong> "${r.originalQuestion}"
+          <div class="original-box" style="font-size: 11px; color: #64748b; margin-bottom: 15px; padding: 0 12px; font-style: italic;">
+            <strong>Original Question (Incorrect):</strong> "${r.originalQuestion}"
           </div>
           <div class="practice-list">
             ${questionsList || '<p style="color:#ef4444; font-size:12px;">No practice questions generated for this concept.</p>'}
@@ -819,18 +878,9 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
       `;
     }).join('');
 
-    const answerKeyHtml = failedResponses.map((r: any, idx: number) => {
+    const answerKeyHtml = failedResponses.map((r: any) => {
       const practiceQs = r.practiceQuestions || [];
-      const answersList = practiceQs.map((pq: any, qIdx: number) => `
-        <span><strong>Q${qIdx + 1}:</strong> ${pq.answer}</span>
-      `).join(' &nbsp;|&nbsp; ');
-
-      return `
-        <div style="margin-bottom: 12px; font-size: 11px;">
-          <strong>Concept: ${r.conceptName}</strong><br/>
-          ${answersList}
-        </div>
-      `;
+      return renderAnswerKey(practiceQs, r.conceptName);
     }).join('');
 
     const htmlContent = `
@@ -850,13 +900,17 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
           .concept-section { margin-bottom: 30px; page-break-inside: avoid; }
           .concept-header { font-size: 13px; font-weight: 700; background-color: #f1f5f9; padding: 8px 12px; border-left: 4px solid #4f46e5; border-radius: 0 6px 6px 0; color: #0f172a; margin-bottom: 10px; }
           .original-box { font-size: 11px; color: #64748b; margin-bottom: 15px; padding: 0 12px; font-style: italic; }
-          .question-item { margin-bottom: 20px; padding-left: 12px; }
+          .question-item { margin-bottom: 18px; padding-left: 12px; }
           .question-text { font-size: 13px; color: #1e293b; margin-bottom: 6px; }
-          .answer-space { font-size: 12px; color: #94a3b8; font-family: monospace; margin-top: 4px; }
+          .answer-space { font-size: 12px; color: #94a3b8; font-family: monospace; margin-top: 4px; height: 24px; }
+          .answer-line { font-size: 12px; color: #94a3b8; font-family: monospace; margin-top: 4px; height: 24px; }
+          .sub-q-text { font-size: 13px; color: #1e293b; margin-bottom: 4px; }
+          .instruction-header { font-size: 14px; font-weight: 700; color: #1e3a8a; margin-bottom: 12px; padding: 10px 12px; background: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 0 6px 6px 0; }
           .answer-key-section { margin-top: 50px; border-top: 2px dashed #cbd5e1; padding-top: 20px; page-break-inside: avoid; }
           .footer { text-align: center; margin-top: 30px; font-size: 10px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 10px; }
           @media print {
             body { padding: 20px; }
+            .concept-section, .concept-block { page-break-inside: avoid; }
           }
         </style>
       </head>
@@ -874,7 +928,7 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
         </div>
 
         <div class="section-title" style="font-weight: 700; font-size: 14px; text-transform: uppercase; margin-bottom: 20px; color: #0f172a;">Targeted Practice Exercises</div>
-        
+
         ${questionsHtml}
 
         <div class="answer-key-section">
@@ -995,27 +1049,27 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
     const latestSkills = reports.length > 0 ? Object.entries(reports[0].conceptMastery) : [];
     const weakAreas = latestSkills.filter(([_, m]) => m !== 'Strong').map(([t]) => t);
     const recentActivity = [
-  ...reports.map(r => {
-    const scorePct = Math.min(
-      100,
-      Math.max(0, Number(r.score) || 0)
-    );
+      ...reports.map(r => {
+        const scorePct = Math.min(
+          100,
+          Math.max(0, Number(r.score) || 0)
+        );
 
-    return {
-      type: 'assessment' as const,
-      label: `${r.score}/${r.totalQuestions} on ${r.worksheetId}`,
-      date: r.timestamp,
-      detail: `Score ${scorePct}%`
-    };
-  }),
+        return {
+          type: 'assessment' as const,
+          label: `${r.score}/${r.totalQuestions} on ${r.worksheetId}`,
+          date: r.timestamp,
+          detail: `Score ${scorePct}%`
+        };
+      }),
 
-  ...s.levelHistory.map(lh => ({
-    type: 'level_change' as const,
-    label: `Level changed to L${lh.level}`,
-    date: lh.date,
-    detail: lh.reason
-  })),
-].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      ...s.levelHistory.map(lh => ({
+        type: 'level_change' as const,
+        label: `Level changed to L${lh.level}`,
+        date: lh.date,
+        detail: lh.reason
+      })),
+    ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     const filteredActivity = activityFilter === 'all' ? recentActivity : recentActivity.filter(a => a.type === activityFilter);
 
     const tabs = [
@@ -1150,12 +1204,12 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
                   <div className="relative">
                     <div className="flex items-end gap-3 h-40 border-b border-l border-slate-200 dark:border-slate-700 ml-8 pb-2 pl-2">
                       {reports.map((r, i) => {
-                        const pct = Math.min(100, Math.max(0, Number(r.score) || 0));                        const barH = Math.max(pct * 0.8, 10);
-                        const previousPct = i === 0 
-                          ? 0 
+                        const pct = Math.min(100, Math.max(0, Number(r.score) || 0)); const barH = Math.max(pct * 0.8, 10);
+                        const previousPct = i === 0
+                          ? 0
                           : Math.min(100, Math.max(0, Number(reports[i - 1].score) || 0));
 
-                        const isUp = i === 0 || pct >= previousPct;                        
+                        const isUp = i === 0 || pct >= previousPct;
                         return (
                           <div key={r.id} className="flex-1 flex flex-col items-center gap-1.5 group relative">
                             <div className="flex flex-col items-center opacity-0 group-hover:opacity-100 transition-opacity absolute -top-8">
@@ -1178,11 +1232,11 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
                       <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center gap-4 text-[10px] text-slate-500 dark:text-slate-400">
                         <span>Trend: <strong className={avgScore >= 70 ? 'text-emerald-600' : 'text-amber-600'}>{avgScore}% avg</strong></span>
                         <span>
-                          Best: 
+                          Best:
                           <strong className="text-emerald-600">
                             {Math.max(...reports.map(r => Math.min(100, Math.max(0, Number(r.score) || 0))))}%
                           </strong>
-                        </span>                        
+                        </span>
                         <span>
                           Last: <strong>
                             {Math.min(
@@ -1322,7 +1376,7 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
                         )}%
                       </span>
                     </div>
-                  )}                  
+                  )}
                   {reports.length > 0 && <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Recent Score</span><span className="font-bold text-slate-800 dark:text-slate-100">{Math.round((reports[reports.length - 1].score / reports[reports.length - 1].totalQuestions) * 100)}%</span></div>}
                   <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Levels Gained</span><span className="font-bold text-slate-800 dark:text-slate-100">{s.levelHistory.length > 0 ? s.currentLevel - s.levelHistory[0].level : 0}</span></div>
                   <div className="flex justify-between"><span className="text-slate-500 dark:text-slate-400">Strong Skills</span><span className="font-bold text-slate-800 dark:text-slate-100">{latestSkills.filter(([_, m]) => m === 'Strong').length}/{latestSkills.length}</span></div>
@@ -1337,11 +1391,10 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
                   id="report-diagnostic-tab-btn"
                   name="reportDiagnosticTab"
                   onClick={() => setReportSubTab('diagnostic')}
-                  className={`px-4 py-2.5 text-xs font-bold font-mono rounded-t-lg border-b-2 transition-all flex items-center gap-2 ${
-                    reportSubTab === 'diagnostic'
+                  className={`px-4 py-2.5 text-xs font-bold font-mono rounded-t-lg border-b-2 transition-all flex items-center gap-2 ${reportSubTab === 'diagnostic'
                       ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/40'
                       : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
-                  }`}
+                    }`}
                 >
                   <span>📊 Diagnostic Reports</span>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 font-bold">
@@ -1353,11 +1406,10 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
                   id="report-worksheet-tab-btn"
                   name="reportWorksheetTab"
                   onClick={() => setReportSubTab('worksheet')}
-                  className={`px-4 py-2.5 text-xs font-bold font-mono rounded-t-lg border-b-2 transition-all flex items-center gap-2 ${
-                    reportSubTab === 'worksheet'
+                  className={`px-4 py-2.5 text-xs font-bold font-mono rounded-t-lg border-b-2 transition-all flex items-center gap-2 ${reportSubTab === 'worksheet'
                       ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/40'
                       : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
-                  }`}
+                    }`}
                 >
                   <span>📝 Level Worksheet Results</span>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 font-bold">
@@ -1471,7 +1523,7 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
                                           }}
                                           className="px-3 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-950/40 dark:hover:bg-amber-950/60 dark:text-amber-300 dark:border-amber-700/60 font-mono font-bold text-xs transition-all flex items-center gap-1.5 shadow-sm"
                                         >
-                                          📝 Generate Remediation Note
+                                          📝 Generate Remediation Sheet
                                         </button>
                                       );
                                     }
@@ -1511,7 +1563,7 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
                                           onClick={() => handleViewRemediationNotes(s.name, s.id, r.worksheetId)}
                                           className="px-3 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-950/40 dark:hover:bg-amber-950/60 dark:text-amber-300 dark:border-amber-700/60 font-mono font-bold text-xs transition-all flex items-center gap-1.5 shadow-sm"
                                         >
-                                          📝 View Remediation Note
+                                          📝 View Remediation Sheet
                                         </button>
                                         <button
                                           onClick={() => handlePrintRemediationSlip(s, ledger)}
@@ -1680,7 +1732,7 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
                                       onClick={() => handleRequestRemediation(s, r, r.responses || [])}
                                       className="text-xs font-semibold text-amber-650 hover:text-amber-850 dark:text-amber-400 flex items-center gap-1"
                                     >
-                                      💡 Remediation Notes
+                                      💡 Remediation Sheets
                                     </button>
                                   )}
                                   <button
@@ -1961,19 +2013,19 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <MetricCard title="Total Reports" value={allReports.length} subtext="All evaluations" icon={FileText} />
-            <MetricCard 
+            <MetricCard
               title="Avg Score"
-              value={`${allReports.length > 0 
+              value={`${allReports.length > 0
                 ? Math.round(
-                    allReports.reduce(
-                      (a, r) => a + Math.min(100, Math.max(0, Number(r.score) || 0)),
-                      0
-                    ) / allReports.length
-                  )
+                  allReports.reduce(
+                    (a, r) => a + Math.min(100, Math.max(0, Number(r.score) || 0)),
+                    0
+                  ) / allReports.length
+                )
                 : 0}%`}
               subtext="Across reports"
               icon={BarChart3}
-            />            
+            />
             <MetricCard title="Schools" value={stateSchools.length} subtext={`In ${userState}`} icon={SchoolIcon} />
             <MetricCard title="Districts" value={stateDistricts.length} subtext="Active jurisdictions" icon={MapPin} />
           </div>
@@ -1996,7 +2048,7 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
                         const schStudents = students.filter(st => st.schoolId === sch.id);
                         const schReports = allReports.filter(r => schStudents.some(st => st.id === r.studentId));
                         // Locate this line and replace it:
-                     const avgScore = calculateAveragePercentage(schReports);
+                        const avgScore = calculateAveragePercentage(schReports);
                         return (
                           <div key={sch.id} className="border border-slate-200 dark:border-slate-700 rounded-xl p-4">
                             <div className="flex justify-between items-center mb-3"><h4 className="font-bold text-slate-900 dark:text-white text-sm">{sch.name}</h4><span className="text-xs text-slate-400 dark:text-slate-500">{sch.blockCode} · {sch.strength}</span></div>
@@ -2034,26 +2086,26 @@ const handlePrintRemediationSlip = (student: Student, ledger: any) => {
     }
     console.log("=== REPORTS ===");
 
-allReports.forEach((r, index) => {
-  console.log({
-    report: index + 1,
-    score: r.score,
-    totalQuestions: r.totalQuestions,
-    percentage:
-      (Number(r.score) / Number(r.totalQuestions)) * 100,
-  });
-});
-console.log("=== REPORTS ===");
-allReports.forEach(r => {
-  console.log({
-    student: r.studentId,
-    score: r.score,
-    totalQuestions: r.totalQuestions,
-    percentage: (Number(r.score) / Number(r.totalQuestions)) * 100
-  });
-});
-console.log(allReports[0]);
-const avgScore = calculateAveragePercentage(allReports);
+    allReports.forEach((r, index) => {
+      console.log({
+        report: index + 1,
+        score: r.score,
+        totalQuestions: r.totalQuestions,
+        percentage:
+          (Number(r.score) / Number(r.totalQuestions)) * 100,
+      });
+    });
+    console.log("=== REPORTS ===");
+    allReports.forEach(r => {
+      console.log({
+        student: r.studentId,
+        score: r.score,
+        totalQuestions: r.totalQuestions,
+        percentage: (Number(r.score) / Number(r.totalQuestions)) * 100
+      });
+    });
+    console.log(allReports[0]);
+    const avgScore = calculateAveragePercentage(allReports);
     const diagReports = allReports.filter(r => r.worksheetType !== 'level' && !r.worksheetId?.startsWith('WS-L') && !(r as any).isLevelWorksheet);
     const worksheetReports = allReports.filter(r => r.worksheetType === 'level' || r.worksheetId?.startsWith('WS-L') || (r as any).isLevelWorksheet);
     const displayReports = evalReportTab === 'worksheet' ? worksheetReports : diagReports;
@@ -2063,7 +2115,7 @@ const avgScore = calculateAveragePercentage(allReports);
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <MetricCard title="Total Reports" value={allReports.length} subtext="All evaluations" icon={FileText} />
 
-          <MetricCard 
+          <MetricCard
             title="Avg Score"
             value={`${calculateAveragePercentage(allReports)}%`}
             subtext="Across reports"
@@ -2093,11 +2145,10 @@ const avgScore = calculateAveragePercentage(allReports);
               id="eval-diagnostic-tab-btn"
               name="evalDiagnosticTab"
               onClick={() => setEvalReportTab('diagnostic')}
-              className={`px-4 py-2.5 text-xs font-bold font-mono rounded-t-lg border-b-2 transition-all flex items-center gap-2 ${
-                evalReportTab === 'diagnostic'
+              className={`px-4 py-2.5 text-xs font-bold font-mono rounded-t-lg border-b-2 transition-all flex items-center gap-2 ${evalReportTab === 'diagnostic'
                   ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/40'
                   : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
-              }`}
+                }`}
             >
               <span>📊 Diagnostic Reports</span>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 font-bold">
@@ -2109,11 +2160,10 @@ const avgScore = calculateAveragePercentage(allReports);
               id="eval-worksheet-tab-btn"
               name="evalWorksheetTab"
               onClick={() => setEvalReportTab('worksheet')}
-              className={`px-4 py-2.5 text-xs font-bold font-mono rounded-t-lg border-b-2 transition-all flex items-center gap-2 ${
-                evalReportTab === 'worksheet'
+              className={`px-4 py-2.5 text-xs font-bold font-mono rounded-t-lg border-b-2 transition-all flex items-center gap-2 ${evalReportTab === 'worksheet'
                   ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/40'
                   : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
-              }`}
+                }`}
             >
               <span>📝 Level Worksheet Results</span>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 font-bold">
@@ -2180,7 +2230,7 @@ const avgScore = calculateAveragePercentage(allReports);
                       <button onClick={() => setExpandedReportId(isExpanded ? null : r.id)} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
                         {isExpanded ? 'Hide Exam Sheet' : '📋 View Student Exam Responses'}
                       </button>
-                      
+
                       {student && (
                         <button onClick={() => handleDownloadPDF(student, r, examResponses)} className="text-xs font-semibold text-emerald-600 hover:text-emerald-850 flex items-center gap-1">
                           📥 Download PDF Report
@@ -2193,7 +2243,7 @@ const avgScore = calculateAveragePercentage(allReports);
                           onClick={() => handleRequestRemediation(student || ({ id: r.studentId, name: (r as any).studentName || 'Student' } as any), r, examResponses)}
                           className="px-3 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-950/40 dark:hover:bg-amber-950/60 dark:text-amber-300 dark:border-amber-700/60 font-mono font-bold text-xs transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
                         >
-                          📝 Generate Remediation Note
+                          📝 Generate Remediation Sheet
                         </button>
                       ) : (
                         <span className="text-emerald-600 text-xs font-bold flex items-center gap-1">
@@ -2205,7 +2255,7 @@ const avgScore = calculateAveragePercentage(allReports);
                         🗑️ Clear Report
                       </button>
                     </div>
-                  
+
                     {isWorksheet && (
                       <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800">
                         Evaluated via Worksheet Scanner
@@ -2291,17 +2341,17 @@ const avgScore = calculateAveragePercentage(allReports);
       const reports = allReports.filter(r => r.studentId === s.id);
       const examsGiven = reports.length;
       const lastExam = examsGiven > 0 ? new Date(Math.max(...reports.map(r => new Date(r.timestamp).getTime()))).toLocaleDateString() : 'N/A';
-    const avgScore = allReports.length > 0
-  ? Math.round(
-      (allReports.reduce((acc, r) => {
-        const score = Number(r.score) || 0;
-        const total = Number(r.totalQuestions) > 0 ? Number(r.totalQuestions) : 1;
-        return acc + (score / total);
-      }, 0) / allReports.length) * 100
-    )
-  : 0;
+      const avgScore = allReports.length > 0
+        ? Math.round(
+          (allReports.reduce((acc, r) => {
+            const score = Number(r.score) || 0;
+            const total = Number(r.totalQuestions) > 0 ? Number(r.totalQuestions) : 1;
+            return acc + (score / total);
+          }, 0) / allReports.length) * 100
+        )
+        : 0;
       return { student: s.name, class: `${s.classGroup} - ${s.section}`, examsGiven, lastExam, avgScore, placed: s.levelHistory.length > 0 };
-          });
+    });
     const totalExams = examAttendance.reduce((a, e) => a + e.examsGiven, 0);
     return (
       <div className="space-y-6">
@@ -2727,7 +2777,7 @@ const avgScore = calculateAveragePercentage(allReports);
 
     const filteredBlueprints = blueprints.filter(b => {
       const matchesSearch = b.conceptName.toLowerCase().includes(blueprintSearch.toLowerCase()) ||
-                            b.examName.toLowerCase().includes(blueprintSearch.toLowerCase());
+        b.examName.toLowerCase().includes(blueprintSearch.toLowerCase());
       const matchesExam = selectedExamFilter === 'all' || b.examId === selectedExamFilter;
       return matchesSearch && matchesExam;
     });
@@ -2815,11 +2865,10 @@ const avgScore = calculateAveragePercentage(allReports);
                   </td>
                   <td className="p-3 font-semibold text-slate-800 dark:text-slate-200">{b.conceptName}</td>
                   <td className="p-3">
-                    <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
-                      b.type === 'numeric' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300' :
-                      b.type === 'matrix' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300' :
-                      'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300'
-                    }`}>
+                    <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold font-mono ${b.type === 'numeric' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300' :
+                        b.type === 'matrix' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300' :
+                          'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300'
+                      }`}>
                       {b.type.toUpperCase()}
                     </span>
                   </td>

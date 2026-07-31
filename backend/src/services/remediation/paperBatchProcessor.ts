@@ -49,7 +49,7 @@ export function buildConceptDictionary(reviewPapers: PaperInput[]): Record<strin
       (paper.questions || []).forEach(q => {
         const qText = typeof q === 'string' ? q : q.questionText || '';
         if (!qText) return;
-        
+
         const concept = classifyConcept(qText);
         if (!dictionary[concept]) {
           const keywords = extractKeywords(qText);
@@ -78,7 +78,7 @@ function extractKeywords(questionText: string): string[] {
     .replace(/[^\w\s]/g, ' ')
     .toLowerCase()
     .trim();
-  
+
   const words = cleaned.split(/\s+/).filter(w => w.length > 3);
   return Array.from(new Set(words));
 }
@@ -93,7 +93,7 @@ export function classifyConcept(questionText: string, hintConcept: string = ''):
 
 /**
  * 3. Dynamic Generator
- * Creates varied practice questions with options and plain-language remediation notes.
+ * Creates varied practice questions with options and plain-language remediation sheets.
  */
 export function createDynamicQuestions(
   concept: string,

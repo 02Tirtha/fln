@@ -19,6 +19,7 @@
     "whole fraction"
   ],
   "Place Value": [
+    "tens-units-table",
     "place-value-hto",
     "place-value-4digit",
     "expanded-form-4digit",
@@ -99,7 +100,6 @@
     "spent"
   ],
   "Multiplication": [
-    "count-equal-groups",
     "multiplication",
     "multiply",
     "times",
@@ -359,6 +359,7 @@
     "tallies"
   ],
   "Count Equal Groups": [
+    "count-equal-groups",
     "count equal groups",
     "equal groups",
     "groups of objects"

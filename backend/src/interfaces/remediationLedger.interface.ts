@@ -8,6 +8,8 @@ export interface IGeneratedPracticeQuestion {
   aiGenerated?: boolean;
   needsReview?: boolean;
   answerMode?: 'text' | 'dropdown';
+  // subQuestions for instruction + 5 sub-questions format (e.g., "Read the clock and write its time" + 5 clock times)
+  subQuestions?: Array<{ prompt: string; answer: string }>;
 }
 
 export interface IRemediationResponse {
