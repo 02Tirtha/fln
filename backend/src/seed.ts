@@ -5,6 +5,7 @@ import { UserRole } from './db';
 import dns from 'node:dns';
 dns.setServers(['8.8.8.8', '1.1.1.1']);
 import { STATES_UTS } from './geoData';
+import questionBankSeed from './data/question_bank_seed.json';
 
 // All seeded demo accounts share this password; store only its bcrypt hash
 // (never plaintext) so `passwordHash` matches what login (index.ts) verifies.
@@ -500,7 +501,7 @@ async function main() {
   const studentsResult = await db.collection('students').insertMany(allStudents);
   console.log(`  students:       ${studentsResult.insertedCount} inserted`);
 
-  const questionsResult = await db.collection('questions').insertMany(SEED_QUESTIONS);
+  const questionsResult = await db.collection('questions').insertMany([...SEED_QUESTIONS, ...questionBankSeed]);
   console.log(`  questions:      ${questionsResult.insertedCount} inserted`);
 
   // ════════════════════════════════════════════
@@ -523,7 +524,7 @@ async function main() {
   console.log(`    Principals:   ${allSchools.length}`);
   console.log(`    Teachers:     ${allClasses.length}`);
   console.log(`    Volunteers:   ${allUsers.filter((u) => u.role === UserRole.VOLUNTEER).length}`);
-  console.log(`  Questions:      ${SEED_QUESTIONS.length}`);
+  console.log(`  Questions:      ${SEED_QUESTIONS.length + questionBankSeed.length}`);
   console.log('========================================\n');
 
   await client.close();

@@ -14,6 +14,11 @@ interface PanelViewsProps {
   token: string;
 }
 
+// Panels that render without ever reading the `students` variable — skipping
+// the fetch on these avoids an up-to-86,400-record national payload on
+// screens that don't display any student data.
+const STUDENTS_NOT_NEEDED_PANELS = new Set(['users', 'worksheet_templates', 'content', 'system_settings']);
+
 const STUDENTS_FALLBACK: Student[] = [
   { id: 's1', name: 'Amanpreet Singh', age: 8, classGroup: 'Class 2', section: 'A', schoolId: 'gps-mt-001', currentLevel: 12, currentSubLevel: 0, targetLevel: 13, aadharMasked: 'XXXX-XXXX-1234', levelHistory: [{ level: 12, subLevel: 0, date: '2026-03-15', reason: 'Diagnostic' }], streak: 3 },
   { id: 's2', name: 'Jasmine Kaur', age: 7, classGroup: 'Class 2', section: 'A', schoolId: 'gps-mt-001', currentLevel: 8, currentSubLevel: 1, targetLevel: 12, aadharMasked: 'XXXX-XXXX-5678', levelHistory: [{ level: 8, subLevel: 1, date: '2026-02-20', reason: 'Mid-year' }], streak: 1 },
@@ -67,19 +72,6 @@ const USERS_FALLBACK = [
   { name: 'Rahul Kumar', email: 'vol.rahul@fln.org', role: 'Volunteer', scope: 'Moga Villages', status: 'Active' },
 ];
 
-const QUESTION_BANK = [
-  { id: 'QB-001', topic: 'Number Sense', level: 4, question: 'Count the number of apples: 🍎🍎🍎🍎', type: 'MCQ', difficulty: 'Easy' },
-  { id: 'QB-002', topic: 'Number Sense', level: 8, question: 'What comes after 15?', type: 'Text', difficulty: 'Easy' },
-  { id: 'QB-003', topic: 'Addition', level: 12, question: 'What is 7 + 5?', type: 'Number', difficulty: 'Easy' },
-  { id: 'QB-004', topic: 'Subtraction', level: 16, question: 'What is 23 - 8?', type: 'Number', difficulty: 'Medium' },
-  { id: 'QB-005', topic: 'Multiplication', level: 41, question: 'What is 6 × 7?', type: 'Number', difficulty: 'Medium' },
-  { id: 'QB-006', topic: 'Division', level: 42, question: 'Divide 24 by 6', type: 'Number', difficulty: 'Medium' },
-  { id: 'QB-007', topic: 'Fractions', level: 45, question: 'Which is larger: 1/2 or 1/4?', type: 'MCQ', difficulty: 'Hard' },
-  { id: 'QB-008', topic: 'Place Value', level: 36, question: 'What is the value of 7 in 372?', type: 'Text', difficulty: 'Medium' },
-  { id: 'QB-009', topic: 'Measurement', level: 43, question: 'How many cm in 1 meter?', type: 'Number', difficulty: 'Easy' },
-  { id: 'QB-010', topic: 'Money', level: 46, question: 'You have ₹50. You buy a toy for ₹35. How much change?', type: 'Number', difficulty: 'Hard' },
-];
-
 const WS_TEMPLATES = [
   { id: 'WST-001', name: 'Baseline Assessment L1-L5', grade: 'Preschool 1-2', questions: 8, duration: '30 min', status: 'Published' },
   { id: 'WST-002', name: 'Number Sense L6-L11', grade: 'Class 1', questions: 10, duration: '45 min', status: 'Published' },
@@ -114,36 +106,6 @@ const ATTENDANCE_MOCK = [
   { student: 'Arjun Verma', class: 'Class 2-A', present: 40, total: 45, percentage: 89 },
   { student: 'Neha Gupta', class: 'Class 3-A', present: 43, total: 45, percentage: 96 },
   { student: 'Simran Kaur', class: 'Class 1-A', present: 41, total: 45, percentage: 91 },
-];
-
-const DISTRICTS = [
-  { code: 'LDH', name: 'Ludhiana', state: 'PB', schools: 3, students: 120, certifiedRate: 68 },
-  { code: 'MOG', name: 'Moga', state: 'PB', schools: 1, students: 28, certifiedRate: 45 },
-  { code: 'BTH', name: 'Bathinda', state: 'PB', schools: 1, students: 35, certifiedRate: 72 },
-  { code: 'ASR', name: 'Amritsar', state: 'PB', schools: 1, students: 30, certifiedRate: 60 },
-  { code: 'AMB', name: 'Ambala', state: 'HR', schools: 2, students: 65, certifiedRate: 55 },
-  { code: 'PKL', name: 'Panchkula', state: 'HR', schools: 1, students: 30, certifiedRate: 80 },
-  { code: 'JAI', name: 'Jaipur', state: 'RJ', schools: 2, students: 55, certifiedRate: 50 },
-  { code: 'UDA', name: 'Udaipur', state: 'RJ', schools: 1, students: 25, certifiedRate: 40 },
-  { code: 'LKO', name: 'Lucknow', state: 'UP', schools: 2, students: 48, certifiedRate: 62 },
-  { code: 'KNP', name: 'Kanpur', state: 'UP', schools: 1, students: 32, certifiedRate: 56 },
-];
-
-const BLOCKS = [
-  { code: 'LDH-01', district: 'LDH', schools: 2, students: 70, certifiedRate: 71 },
-  { code: 'LDH-02', district: 'LDH', schools: 1, students: 22, certifiedRate: 45 },
-  { code: 'MOG-01', district: 'MOG', schools: 1, students: 28, certifiedRate: 45 },
-  { code: 'BTH-01', district: 'BTH', schools: 1, students: 35, certifiedRate: 72 },
-  { code: 'ASR-01', district: 'ASR', schools: 1, students: 30, certifiedRate: 60 },
-  { code: 'AMB-01', district: 'AMB', schools: 1, students: 35, certifiedRate: 60 },
-  { code: 'AMB-02', district: 'AMB', schools: 1, students: 30, certifiedRate: 50 },
-  { code: 'PKL-01', district: 'PKL', schools: 1, students: 30, certifiedRate: 80 },
-  { code: 'JAI-01', district: 'JAI', schools: 1, students: 30, certifiedRate: 55 },
-  { code: 'JAI-02', district: 'JAI', schools: 1, students: 25, certifiedRate: 45 },
-  { code: 'UDA-01', district: 'UDA', schools: 1, students: 25, certifiedRate: 40 },
-  { code: 'LKO-01', district: 'LKO', schools: 1, students: 28, certifiedRate: 65 },
-  { code: 'LKO-02', district: 'LKO', schools: 1, students: 20, certifiedRate: 58 },
-  { code: 'KNP-01', district: 'KNP', schools: 1, students: 32, certifiedRate: 56 },
 ];
 
 const CONTENT_ITEMS = [
@@ -521,8 +483,10 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   const [apiStudents, setApiStudents] = useState<Student[]>([]);
   const [apiSchools, setApiSchools] = useState<School[]>([]);
   const [apiUsers, setApiUsers] = useState<any[]>([]);
-  const [allReports, setAllReports] = useState<EvaluationReport[]>([]);
+  const [apiReports, setApiReports] = useState<EvaluationReport[]>([]);
   const [remediationLedgers, setRemediationLedgers] = useState<any[]>([]);
+  const [apiTeachers, setApiTeachers] = useState<any[]>([]);
+
   const safePercent = (score: number, totalQuestions?: number, fallbackLength = 0) => {
     const total = Number(totalQuestions) > 0 ? Number(totalQuestions) : fallbackLength;
     if (total <= 0) return 0;
@@ -532,6 +496,16 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
     // score is already percentage
     return Math.max(0, Math.min(100, Math.round(value)));
   };
+
+  const getReportPct = (r: EvaluationReport) => {
+    const total = Number(r.totalQuestions) || 5;
+    const score = Number(r.score) || 0;
+    if (score > total) {
+      return Math.min(100, score);
+    }
+    return Math.min(100, Math.round((score / total) * 100));
+  };
+
   const fetchLedgers = async () => {
     if (!sel) return;
     try {
@@ -561,12 +535,25 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
 
   useEffect(() => {
     const headers = { 'Authorization': `Bearer ${token}` };
-    apiFetch('/api/students', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiStudents(d); }).catch(() => { });
-    apiFetch('/api/schools', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiSchools(d); }).catch(() => { });
-    apiFetch('/api/admin/coordinators', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiUsers(d); }).catch(() => { });
-    apiFetch('/api/evaluation/reports', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setAllReports(d); }).catch(() => { });
+    apiFetch('/api/schools', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiSchools(d); }).catch(() => {});
+    apiFetch('/api/admin/coordinators', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiUsers(d); }).catch(() => {});
+    apiFetch('/api/evaluation/reports', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiReports(d); }).catch(() => {});
+    if (currentUser.role === UserRole.SCHOOL || currentUser.role === UserRole.BLOCK_ADMIN) {
+      apiFetch('/api/teachers', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiTeachers(d); }).catch(() => {});
+    }
     fetchBlueprints();
-  }, [token]);
+  }, [token, currentUser.role]);
+
+  // GET /api/students returns the caller's whole role-scoped list — up to
+  // 86,400 records nationally for Superadmin — so skip it entirely on the
+  // handful of Superadmin-only panels that never read `students` at all
+  // (verified by grepping for the identifier in each branch below).
+  useEffect(() => {
+    if (apiStudents.length > 0) return;
+    if (STUDENTS_NOT_NEEDED_PANELS.has(activePanel)) return;
+    const headers = { 'Authorization': `Bearer ${token}` };
+    apiFetch('/api/students', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiStudents(d); }).catch(() => {});
+  }, [token, activePanel, apiStudents.length]);
 
   useEffect(() => {
     fetchLedgers();
@@ -588,6 +575,46 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   const students = apiStudents;
   const schools = apiSchools.length > 0 ? apiSchools : SCHOOLS_FALLBACK;
   const usersList = apiUsers.length > 0 ? apiUsers : USERS_FALLBACK;
+  const reportsList: EvaluationReport[] = apiReports.length > 0 ? apiReports : REPORTS_MOCK;
+  const teachersList = apiTeachers.length > 0 ? apiTeachers : TEACHERS_MOCK;
+
+  // Real per-district / per-block rollups, derived from the already-fetched
+  // schools + students (no dedicated aggregation endpoint exists).
+  const getDistrictStats = (stateCode: string) => {
+    const stateSchools = schools.filter(s => s.stateCode === stateCode);
+    const codes: string[] = Array.from(new Set(stateSchools.map(s => s.districtCode)));
+    return codes.map(code => {
+      const distSchools = stateSchools.filter(s => s.districtCode === code);
+      const distStudents = students.filter(st => distSchools.some(s => s.id === st.schoolId));
+      const certified = distStudents.filter(st => st.currentLevel >= 5).length;
+      return {
+        code,
+        name: DISTRICT_NAMES[code] || code,
+        state: stateCode,
+        schools: distSchools.length,
+        students: distStudents.length,
+        certifiedRate: distStudents.length > 0 ? Math.round((certified / distStudents.length) * 100) : 0,
+      };
+    });
+  };
+
+  const getBlockStats = (districtCode: string) => {
+    const distSchools = schools.filter(s => s.districtCode === districtCode);
+    const codes: string[] = Array.from(new Set(distSchools.map(s => s.blockCode)));
+    return codes.map(code => {
+      const blockSchools = distSchools.filter(s => s.blockCode === code);
+      const blockStudents = students.filter(st => blockSchools.some(s => s.id === st.schoolId));
+      const certified = blockStudents.filter(st => st.currentLevel >= 5).length;
+      return {
+        code,
+        name: BLOCK_NAMES[code] || code,
+        district: districtCode,
+        schools: blockSchools.length,
+        students: blockStudents.length,
+        certifiedRate: blockStudents.length > 0 ? Math.round((certified / blockStudents.length) * 100) : 0,
+      };
+    });
+  };
 
   useEffect(() => {
     if (students.length > 0 && !sel) {
@@ -968,14 +995,14 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
         headers
       });
       if (res.ok) {
-        setAllReports(prev => prev.filter(r => r.id !== reportId));
+        setApiReports(prev => prev.filter(r => r.id !== reportId));
       } else {
         const err = await res.json();
         alert(err.error || 'Failed to clear report.');
       }
     } catch {
       // Clear from local state as fallback for offline/mock reports
-      setAllReports(prev => prev.filter(r => r.id !== reportId));
+      setApiReports(prev => prev.filter(r => r.id !== reportId));
     }
   };
 
@@ -988,14 +1015,14 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
         headers
       });
       if (res.ok) {
-        setAllReports([]);
+        setApiReports([]);
       } else {
         const err = await res.json();
         alert(err.error || 'Failed to clear all reports.');
       }
     } catch {
       // Clear from local state as fallback for offline/mock reports
-      setAllReports([]);
+      setApiReports([]);
     }
   };
 
@@ -1037,7 +1064,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
     };
 
     const profile = EXTENDED_PROFILES[s.id] || {};
-    const reports = allReports.filter(r => r.studentId === s.id);
+    const reports = reportsList.filter(r => r.studentId === s.id);
     const studentSchool = schools.find(sch => sch.id === s.schoolId);
     const att = ATTENDANCE_MOCK.find(a => a.student === s.name);
     const enrollmentDate = s.levelHistory[0]?.date;
@@ -2121,24 +2148,12 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
     if (isStateAdmin) {
       const userState = currentUser.stateCode || 'PB';
       const stateSchools = schools.filter(s => s.stateCode === userState);
-      const stateDistricts = [...new Set(stateSchools.map(s => s.districtCode))];
+      const stateDistricts = Array.from(new Set(stateSchools.map(s => s.districtCode))) as string[];
       return (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <MetricCard title="Total Reports" value={allReports.length} subtext="All evaluations" icon={FileText} />
-            <MetricCard
-              title="Avg Score"
-              value={`${allReports.length > 0
-                ? Math.round(
-                  allReports.reduce(
-                    (a, r) => a + Math.min(100, Math.max(0, Number(r.score) || 0)),
-                    0
-                  ) / allReports.length
-                )
-                : 0}%`}
-              subtext="Across reports"
-              icon={BarChart3}
-            />
+            <MetricCard title="Total Reports" value={reportsList.length} subtext="All evaluations" icon={FileText} />
+            <MetricCard title="Avg Score" value={reportsList.length > 0 ? `${Math.round(reportsList.reduce((a, r) => a + getReportPct(r), 0) / reportsList.length)}%` : '—'} subtext="Across reports" icon={BarChart3} />
             <MetricCard title="Schools" value={stateSchools.length} subtext={`In ${userState}`} icon={SchoolIcon} />
             <MetricCard title="Districts" value={stateDistricts.length} subtext="Active jurisdictions" icon={MapPin} />
           </div>
@@ -2151,7 +2166,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
                 <div key={dc}>
                   <button onClick={() => setExpandedDistRpt(isExpanded ? null : dc)} className={`w-full flex items-center gap-3 p-3 border rounded-lg text-left hover:bg-slate-50 dark:hover:bg-slate-800 transition-all ${isExpanded ? 'border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950' : 'border-slate-100 dark:border-slate-700'}`}>
                     <span className="font-bold text-sm w-16">{dc}</span>
-                    <span className="text-sm flex-1">{DISTRICTS.find(d => d.code === dc)?.name || dc}</span>
+                    <span className="text-sm flex-1">{DISTRICT_NAMES[dc] || dc}</span>
                     <span className="text-xs text-slate-500 dark:text-slate-400">{distSchools.length} schools</span>
                     <ChevronDown className={`w-4 h-4 text-slate-400 dark:text-slate-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                   </button>
@@ -2159,9 +2174,8 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
                     <div className="ml-6 mt-2 space-y-4 pl-4 border-l-2 border-indigo-200 dark:border-indigo-800">
                       {distSchools.map(sch => {
                         const schStudents = students.filter(st => st.schoolId === sch.id);
-                        const schReports = allReports.filter(r => schStudents.some(st => st.id === r.studentId));
-                        // Locate this line and replace it:
-                        const avgScore = calculateAveragePercentage(schReports);
+                        const schReports = reportsList.filter(r => schStudents.some(st => st.id === r.studentId));
+                        const avgScore = schReports.length > 0 ? Math.round(schReports.reduce((a, r) => a + getReportPct(r), 0) / schReports.length) : 0;
                         return (
                           <div key={sch.id} className="border border-slate-200 dark:border-slate-700 rounded-xl p-4">
                             <div className="flex justify-between items-center mb-3"><h4 className="font-bold text-slate-900 dark:text-white text-sm">{sch.name}</h4><span className="text-xs text-slate-400 dark:text-slate-500">{sch.blockCode} · {sch.strength}</span></div>
@@ -2199,7 +2213,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
     }
     console.log("=== REPORTS ===");
 
-    allReports.forEach((r, index) => {
+    reportsList.forEach((r, index) => {
       console.log({
         report: index + 1,
         score: r.score,
@@ -2209,7 +2223,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
       });
     });
     console.log("=== REPORTS ===");
-    allReports.forEach(r => {
+    reportsList.forEach(r => {
       console.log({
         student: r.studentId,
         score: r.score,
@@ -2217,24 +2231,18 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
         percentage: (Number(r.score) / Number(r.totalQuestions)) * 100
       });
     });
-    console.log(allReports[0]);
-    const avgScore = calculateAveragePercentage(allReports);
-    const diagReports = allReports.filter(r => r.worksheetType !== 'level' && !r.worksheetId?.startsWith('WS-L') && !(r as any).isLevelWorksheet);
-    const worksheetReports = allReports.filter(r => r.worksheetType === 'level' || r.worksheetId?.startsWith('WS-L') || (r as any).isLevelWorksheet);
+    console.log(reportsList[0]);
+    const avgScore = reportsList.length > 0 ? Math.round(reportsList.reduce((a, r) => a + getReportPct(r), 0) / reportsList.length) : 0;
+    const diagReports = reportsList.filter(r => r.worksheetType !== 'level' && !r.worksheetId?.startsWith('WS-L') && !(r as any).isLevelWorksheet);
+    const worksheetReports = reportsList.filter(r => r.worksheetType === 'level' || r.worksheetId?.startsWith('WS-L') || (r as any).isLevelWorksheet);
     const displayReports = evalReportTab === 'worksheet' ? worksheetReports : diagReports;
 
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <MetricCard title="Total Reports" value={allReports.length} subtext="All evaluations" icon={FileText} />
-
-          <MetricCard
-            title="Avg Score"
-            value={`${calculateAveragePercentage(allReports)}%`}
-            subtext="Across reports"
-            icon={BarChart3}
-          />
-          <MetricCard title="Strong Concepts" value={allReports.reduce((a, r) => a + Object.values(r.conceptMastery).filter(v => v === 'Strong').length, 0)} subtext="Mastered topics" icon={Award} />
+          <MetricCard title="Total Reports" value={reportsList.length} subtext="All evaluations" icon={FileText} />
+          <MetricCard title="Avg Score" value={reportsList.length > 0 ? `${avgScore}%` : '—'} subtext="Across reports" icon={BarChart3} />
+          <MetricCard title="Strong Concepts" value={reportsList.reduce((a, r) => a + Object.values(r.conceptMastery).filter(v => v === 'Strong').length, 0)} subtext="Mastered topics" icon={Award} />
         </div>
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm space-y-4">
           <div className="flex justify-between items-start border-b border-slate-200 dark:border-slate-700 pb-4 flex-wrap gap-2">
@@ -2242,7 +2250,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
               <h2 className="text-lg font-bold text-slate-900 dark:text-white">Evaluation Reports</h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">Detailed assessment narratives and concept mastery breakdowns</p>
             </div>
-            {allReports.length > 0 && (
+            {reportsList.length > 0 && (
               <button
                 onClick={handleClearAllReports}
                 className="shrink-0 rounded-lg border-0 bg-red-400 dark:bg-red-850 px-4 py-2 text-sm font-medium text-white shadow-sm outline-none transition-all duration-200 hover:bg-red-700 focus:outline-none"
@@ -2451,16 +2459,16 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
 
   if (panel === 'attendance') {
     const examAttendance = students.map(s => {
-      const reports = allReports.filter(r => r.studentId === s.id);
+      const reports = reportsList.filter(r => r.studentId === s.id);
       const examsGiven = reports.length;
       const lastExam = examsGiven > 0 ? new Date(Math.max(...reports.map(r => new Date(r.timestamp).getTime()))).toLocaleDateString() : 'N/A';
-      const avgScore = allReports.length > 0
+      const avgScore = reports.length > 0
         ? Math.round(
-          (allReports.reduce((acc, r) => {
+          (reports.reduce((acc, r) => {
             const score = Number(r.score) || 0;
             const total = Number(r.totalQuestions) > 0 ? Number(r.totalQuestions) : 1;
             return acc + (score / total);
-          }, 0) / allReports.length) * 100
+          }, 0) / reports.length) * 100
         )
         : 0;
       return { student: s.name, class: `${s.classGroup} - ${s.section}`, examsGiven, lastExam, avgScore, placed: s.levelHistory.length > 0 };
@@ -2494,13 +2502,21 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   }
 
   // ===================== PRINCIPAL / SCHOOL ADMIN PANELS =====================
-  if (panel === 'teachers' && currentUser.role === UserRole.SCHOOL) {
+  if (panel === 'teachers' && (currentUser.role === UserRole.SCHOOL || currentUser.role === UserRole.BLOCK_ADMIN)) {
+    const isBlockAdmin = currentUser.role === UserRole.BLOCK_ADMIN;
+    const schoolById = new Map<string, School>(schools.map(s => [s.id, s]));
     return (
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm space-y-4">
-        <PageHeader title="Teacher Roster" desc="Manage teaching staff at your school" icon={<Users className="h-5 w-5" />} />
-        <div className="space-y-3">{TEACHERS_MOCK.filter(t => t.schoolId === currentUser.schoolId).map(t => (
+        <PageHeader title="Teacher Roster" desc={isBlockAdmin ? 'Teaching staff across your block' : 'Manage teaching staff at your school'} icon={<Users className="h-5 w-5" />} />
+        <div className="space-y-3">{teachersList.map((t: any) => (
           <div key={t.id} className="flex justify-between items-center p-3 border border-slate-200 dark:border-slate-700 rounded-lg">
-            <div><div className="font-semibold text-sm">{t.name}</div><div className="text-xs text-slate-400 dark:text-slate-500">{t.email} · {t.classes.join(', ')}</div></div>
+            <div>
+              <div className="font-semibold text-sm">{t.name}</div>
+              <div className="text-xs text-slate-400 dark:text-slate-500">
+                {t.email}{t.classes?.length ? ` · ${t.classes.join(', ')}` : ''}
+                {isBlockAdmin && t.schoolId && ` · ${schoolById.get(t.schoolId)?.name || t.schoolId}`}
+              </div>
+            </div>
             <div className="text-right"><span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${t.status === 'Active' ? 'text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800' : 'text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800'}`}>{t.status}</span><div className="text-xs text-slate-400 dark:text-slate-500 mt-1">{t.studentsCount} students</div></div>
           </div>
         ))}</div>
@@ -2539,7 +2555,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
 
   if (panel === 'districts') {
     const userState = currentUser.stateCode || 'PB';
-    const stateDistricts = DISTRICTS.filter(d => d.state === userState);
+    const stateDistricts = getDistrictStats(userState);
     const distSchools = expandedDist ? schools.filter(s => s.districtCode === expandedDist) : [];
     return (
       <div className="space-y-6">
@@ -2547,7 +2563,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
           <MetricCard title="State Districts" value={stateDistricts.length} subtext={`${userState} jurisdiction`} icon={MapPin} />
           <MetricCard title="Total Schools" value={stateDistricts.reduce((a, d) => a + d.schools, 0)} subtext="Registered facilities" icon={SchoolIcon} />
           <MetricCard title="Total Students" value={stateDistricts.reduce((a, d) => a + d.students, 0)} subtext="Across all districts" icon={Users} />
-          <MetricCard title="Avg Certification" value={`${Math.round(stateDistricts.reduce((a, d) => a + d.certifiedRate, 0) / stateDistricts.length)}%`} subtext="State weighted average" icon={Award} />
+          <MetricCard title="Avg Certification" value={stateDistricts.length > 0 ? `${Math.round(stateDistricts.reduce((a, d) => a + d.certifiedRate, 0) / stateDistricts.length)}%` : '—'} subtext="State weighted average" icon={Award} />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -2621,12 +2637,14 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   }
 
   if (panel === 'blocks') {
+    const userDistrict = currentUser.districtCode || '';
+    const districtBlocks = getBlockStats(userDistrict);
     return (
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm space-y-4">
         <PageHeader title="Block Administration" desc="All blocks under your district jurisdiction" icon={<MapPin className="h-5 w-5" />} />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">{BLOCKS.map(b => (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">{districtBlocks.map(b => (
           <div key={b.code} className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-2">
-            <div className="flex justify-between"><span className="font-bold text-sm">{b.code}</span><span className="text-xs text-slate-400 dark:text-slate-500">Dist: {b.district}</span></div>
+            <div className="flex justify-between"><span className="font-bold text-sm">{b.name}</span><span className="text-xs text-slate-400 dark:text-slate-500">Dist: {DISTRICT_NAMES[b.district] || b.district}</span></div>
             <div className="flex gap-4 text-xs"><span>🏫 {b.schools} schools</span><span>👨‍🎓 {b.students} students</span></div>
             <div><div className="flex justify-between text-[10px] mb-0.5"><span>Certification</span><span>{b.certifiedRate}%</span></div><div className="h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden"><div className="h-full bg-emerald-500 rounded-full" style={{ width: `${b.certifiedRate}%` }} /></div></div>
           </div>
@@ -2738,7 +2756,10 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
 
   if (panel === 'analytics') {
     const isAdmin = [UserRole.ADMIN, UserRole.DISTRICT_ADMIN, UserRole.BLOCK_ADMIN].includes(currentUser.role);
-    const data = isAdmin ? DISTRICTS : schools;
+    let data: any[] = schools;
+    if (currentUser.role === UserRole.ADMIN) data = getDistrictStats(currentUser.stateCode || '');
+    else if (currentUser.role === UserRole.DISTRICT_ADMIN) data = getBlockStats(currentUser.districtCode || '');
+    else if (currentUser.role === UserRole.BLOCK_ADMIN) data = schools.filter(s => s.blockCode === currentUser.blockCode);
     const title = isAdmin ? 'Geographical Analytics' : 'Performance Analytics';
     const desc = isAdmin ? 'Cross-regional performance metrics and benchmarking' : 'School-level performance data and trends';
     return (

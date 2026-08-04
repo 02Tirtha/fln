@@ -11,6 +11,9 @@ import { generateDiagnosticPaper } from './paperGenerator';
 import { generateQuestionsForLevel } from './levelGenerator';
 import * as levelsBackendClient from './levelsBackendClient';
 import { STATES_UTS } from './geoData';
+import { getAuthUser, canAccessStudent, sanitizeUser, JWT_SECRET, JWT_EXPIRES_IN } from './auth';
+import { registerAnnouncementRoutes } from './routes/announcements';
+import { registerStatsRoutes } from './routes/stats';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
 import remediationRoutes from './routes/remediation.routes';
@@ -33,19 +36,6 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 // a sibling of backend/). Both overridable by env for non-standard deployments.
 const PYTHON_BIN = process.env.PYTHON_BIN || 'python3';
 const AI_SERVICES_DIR = process.env.AI_SERVICES_DIR || path.resolve(ROOT_DIR, '..', 'ai-services');
-
-// --- Auth config (signed JWTs) ---
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-insecure-secret-change-me';
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
-if (JWT_SECRET === 'dev-insecure-secret-change-me' && process.env.NODE_ENV === 'production') {
-  console.warn('[auth] WARNING: JWT_SECRET is unset in production — set it to a strong random value.');
-}
-
-// Strip fields that must never be sent to clients (e.g. the bcrypt password hash).
-function sanitizeUser(user: User): Omit<User, 'passwordHash'> {
-  const { passwordHash, ...safe } = user;
-  return safe;
-}
 
 // Throttle auth endpoints to slow down brute-force / credential-stuffing attempts.
 const authRateLimiter = rateLimit({
@@ -84,117 +74,10 @@ async function startServer() {
   app.use('/worksheets', express.static(path.join(ROOT_DIR, 'public', 'worksheets')));
   app.use('/api/remediation', remediationRoutes);
   app.use('/api/blueprints', blueprintRoutes);
-  // --- Auth Middleware & Helper ---
-  // A simple token-based auth helper. Token is email address for easy stateless authentication.
-  function getAuthUser(req: express.Request): User | null {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) return null;
-    const email = authHeader.replace('Bearer ', '').trim();
-
-    // Find preseeded user in database
-    const found = dbStore.getUserSync(email);
-    if (found) return found;
-
-    // Direct fallback mapping if not pre-seeded but conforms to email format
-    if (email.endsWith('@fln.org')) {
-      const parts = email.split('@')[0];
-      let role = UserRole.TEACHER;
-      let name = 'User';
-      let schoolId = undefined;
-
-      if (email === 'superadmin@fln.org') {
-        role = UserRole.SUPERADMIN;
-        name = 'Jinal Gupta';
-      } else if (email.startsWith('admin.')) {
-        role = UserRole.ADMIN;
-        name = 'State Admin';
-      } else if (email.startsWith('district.')) {
-        role = UserRole.DISTRICT_ADMIN;
-        name = 'District Officer';
-      } else if (email.startsWith('block.')) {
-        role = UserRole.BLOCK_ADMIN;
-        name = 'Block Coordinator';
-      } else if (email.startsWith('vol.')) {
-        role = UserRole.VOLUNTEER;
-        name = 'Volunteer';
-      } else if (parts.includes('.t')) {
-        role = UserRole.TEACHER;
-        name = 'Teacher';
-        schoolId = parts.split('.t')[0];
-      } else {
-        role = UserRole.SCHOOL;
-        name = 'School Principal';
-        schoolId = parts;
-      }
-
-      const safeId = `u_${email.split('@')[0].replace(/[^a-z0-9]/gi, '_').toLowerCase()}`;
-      return {
-        id: safeId,
-        email,
-        name,
-        role,
-        schoolId
-      };
-    }
-
-    return null;
-  }
-
-  // Authorization check for by-ID student endpoints (PATCH/diagnostic/diagnostic-submit).
-  // Mirrors the scoping already applied to GET /api/students' list filtering, so a
-  // teacher/volunteer/school user can't act on a student outside their own school(s)
-  // by guessing/enumerating IDs (IDOR). Superadmin/state/district/block admins keep
-  // their existing broad access — restricting THAT scope is a separate, tracked fix.
-  function canAccessStudent(user: User, student: Student): boolean {
-    switch (user.role) {
-      case UserRole.SUPERADMIN:
-      case UserRole.ADMIN:
-      case UserRole.DISTRICT_ADMIN:
-      case UserRole.BLOCK_ADMIN:
-        return true;
-      case UserRole.SCHOOL:
-      case UserRole.TEACHER:
-        return student.schoolId === user.schoolId;
-      case UserRole.VOLUNTEER:
-        return user.assignedSchools?.includes(student.schoolId) ?? false;
-      default:
-        return false;
-    }
-  }
 
   // --- API Endpoints ---
 
-  // Public stats (no auth required — used by landing page)
-  app.get('/api/stats', async (_req, res) => {
-    const db = dbStore.getDb();
-    if (!db) return res.json({ totalStates: 0, totalDistricts: 0, totalSchools: 0, totalStudents: 0, totalAssessments: 0, avgFlnLevel: 0, totalUsers: 0, certifiedCount: 0, certifiedPercent: 0 });
-
-    const [totalSchools, totalStudents, totalUsers, totalAssessments, stateCodes, districtCodes, avgResult, certifiedResult] = await Promise.all([
-      db.collection('schools').countDocuments(),
-      db.collection('students').countDocuments(),
-      db.collection('users').countDocuments(),
-      db.collection('worksheets').countDocuments(),
-      db.collection('schools').distinct('stateCode'),
-      db.collection('schools').distinct('districtCode'),
-      db.collection('students').aggregate([{ $group: { _id: null, avg: { $avg: '$currentLevel' } } }]).toArray(),
-      db.collection('students').aggregate([{ $match: { currentLevel: { $gte: 5 } } }, { $count: 'count' }]).toArray(),
-    ]);
-
-    const certifiedCount = certifiedResult[0]?.count ?? 0;
-    const avgFlnLevel = totalStudents > 0 ? Math.round(avgResult[0]?.avg ?? 0) : 0;
-
-    res.json({
-      totalStates: stateCodes.length,
-      totalDistricts: districtCodes.length,
-      totalSchools,
-      totalStudents,
-      totalAssessments,
-      avgFlnLevel,
-      totalUsers,
-      certifiedCount,
-      certifiedPercent: totalStudents > 0 ? Math.round((certifiedCount / totalStudents) * 100) : 0,
-    });
-  });
+  registerStatsRoutes(app);
 
   // Auth: Login
   app.post('/api/auth/login', authRateLimiter, async (req, res) => {
@@ -226,44 +109,7 @@ async function startServer() {
     return res.json({ user });
   });
 
-  // Announcements
-  app.get('/api/announcements', async (req, res) => {
-    const anns = await dbStore.getAnnouncements();
-    res.json(anns);
-  });
-
-  app.post('/api/announcements/create', async (req, res) => {
-    const user = getAuthUser(req);
-    if (!user || user.role !== UserRole.SUPERADMIN) {
-      return res.status(403).json({ error: 'Forbidden. Superadmin only.' });
-    }
-    const { title, message, isUrgent } = req.body;
-    const newAnn: Announcement = {
-      id: 'ann_' + Date.now(),
-      title,
-      message,
-      isUrgent: !!isUrgent,
-      authorEmail: user.email,
-      createdAt: new Date().toISOString()
-    };
-    await dbStore.addAnnouncement(newAnn);
-
-    // Logging
-    await dbStore.addLog({
-      id: 'log_' + Date.now(),
-      timestamp: new Date().toISOString(),
-      schoolId: '',
-      schoolName: 'National Framework',
-      userId: user.id,
-      userEmail: user.email,
-      userRole: user.role,
-      activityType: 'ticket',
-      status: 'Success',
-      details: `Created announcement: ${title}`
-    });
-
-    res.json(newAnn);
-  });
+  registerAnnouncementRoutes(app);
 
   // Tickets (In-App Feedback)
   app.get('/api/tickets', async (req, res) => {
@@ -429,6 +275,42 @@ async function startServer() {
     res.json(schools.filter(s => s.blockCode === blockCode));
   });
 
+  app.get('/api/teachers', async (req, res) => {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+    if (![UserRole.SCHOOL, UserRole.BLOCK_ADMIN, UserRole.SUPERADMIN].includes(user.role)) {
+      return res.status(403).json({ error: 'Forbidden.' });
+    }
+
+    const [users, schools, classes, students] = await Promise.all([
+      dbStore.getUsers(),
+      dbStore.getSchools(),
+      dbStore.getClasses(),
+      dbStore.getStudents(),
+    ]);
+    const schoolById = new Map(schools.map(s => [s.id, s]));
+
+    let teachers = users.filter(u => u.role === UserRole.TEACHER);
+    if (user.role === UserRole.SCHOOL) {
+      teachers = teachers.filter(t => t.schoolId === user.schoolId);
+    } else if (user.role === UserRole.BLOCK_ADMIN) {
+      teachers = teachers.filter(t => schoolById.get(t.schoolId || '')?.blockCode === user.blockCode);
+    }
+
+    const enriched = teachers.map(t => {
+      const teacherClasses = classes.filter(c => c.teacherId === t.id);
+      const studentsCount = students.filter(s => s.teacherId === t.id).length;
+      return {
+        ...sanitizeUser(t),
+        classes: teacherClasses.map(c => `${c.className} ${c.section}`),
+        studentsCount,
+        status: t.isBanned ? 'Inactive' : 'Active',
+      };
+    });
+
+    res.json(enriched);
+  });
+
   app.post('/api/teachers', async (req, res) => {
     const user = getAuthUser(req);
     if (!user || !COORDINATOR_ROLES.includes(user.role)) {
@@ -494,6 +376,8 @@ async function startServer() {
 
   // Schools
   app.get('/api/schools', async (req, res) => {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
     const schools = await dbStore.getSchools();
     res.json(schools);
   });
@@ -582,55 +466,63 @@ async function startServer() {
       const canSeeGuardianPII = (role: UserRole) =>
         role === UserRole.SUPERADMIN || role === UserRole.SCHOOL || role === UserRole.TEACHER;
 
-      // Mask Aadhar for non-Superadmins (§13.2 R-6); redact guardian contact/address similarly.
-      const maskedStudents = students.map(s => {
-        const masked = user.role !== UserRole.SUPERADMIN
-          ? { ...s, aadharMasked: 'XXXX-XXXX-' + s.aadharMasked.slice(-4) }
-          : { ...s };
-        if (!canSeeGuardianPII(user.role)) {
-          delete masked.guardianContact;
-          delete masked.address;
-        }
-        return masked;
+
+    // Mask Aadhar for non-Superadmins (§13.2 R-6); redact guardian contact/address similarly.
+    const maskedStudents = students.map(s => {
+      const masked = user.role !== UserRole.SUPERADMIN
+        ? { ...s, aadharMasked: 'XXXX-XXXX-' + s.aadharMasked.slice(-4) }
+        : { ...s };
+      if (!canSeeGuardianPII(user.role)) {
+        delete masked.guardianContact;
+        delete masked.address;
+      }
+      return masked;
+    });
+
+    let scoped: typeof maskedStudents;
+    if (user.role === UserRole.SUPERADMIN) {
+      scoped = students;
+    } else if (user.role === UserRole.SCHOOL || user.role === UserRole.TEACHER) {
+      scoped = maskedStudents.filter(s => s.schoolId === user.schoolId);
+    } else if (user.role === UserRole.VOLUNTEER) {
+      scoped = maskedStudents.filter(s => user.assignedSchools?.includes(s.schoolId));
+    } else if (user.role === UserRole.ADMIN || user.role === UserRole.DISTRICT_ADMIN || user.role === UserRole.BLOCK_ADMIN) {
+      // Geo-scope by the admin's own state/district/block, joined via each student's school.
+      const schools = await dbStore.getSchools();
+      const schoolById = new Map(schools.map(sc => [sc.id, sc]));
+      scoped = maskedStudents.filter(s => {
+        const school = schoolById.get(s.schoolId);
+        if (!school) return false;
+        if (user.role === UserRole.ADMIN) return school.stateCode === user.stateCode;
+        if (user.role === UserRole.DISTRICT_ADMIN) return school.districtCode === user.districtCode;
+        return school.blockCode === user.blockCode; // BLOCK_ADMIN
       });
+    } else {
+      scoped = maskedStudents;
+    }
 
-      if (user.role === UserRole.SUPERADMIN) {
-        return res.json(students);
-      }
-      if (user.role === UserRole.SCHOOL || user.role === UserRole.TEACHER) {
-        return res.json(maskedStudents.filter(s => s.schoolId === user.schoolId));
-      }
-      if (user.role === UserRole.VOLUNTEER) {
-        return res.json(maskedStudents.filter(s => user.assignedSchools?.includes(s.schoolId)));
-      }
-      if (user.role === UserRole.ADMIN || user.role === UserRole.DISTRICT_ADMIN || user.role === UserRole.BLOCK_ADMIN) {
-        // Geo-scope by the admin's own state/district/block, joined via each student's school.
-        const schools = await dbStore.getSchools();
-        const schoolById = new Map(schools.map(sc => [sc.id, sc]));
-        const geoFiltered = maskedStudents.filter(s => {
-          const school = schoolById.get(s.schoolId);
-          if (!school) return false;
-          if (user.role === UserRole.ADMIN) return school.stateCode === user.stateCode;
-          if (user.role === UserRole.DISTRICT_ADMIN) return school.districtCode === user.districtCode;
-          return school.blockCode === user.blockCode; // BLOCK_ADMIN
-        });
-        return res.json(geoFiltered);
-      }
+    // Pagination is opt-in via ?page & ?limit — omitting them returns the full
+    // scoped array exactly as before, so existing callers (aggregate/rollup
+    // panels that need the whole scope) are unaffected. Callers that just need
+    // a page to display (the Student List table) can request one directly
+    // instead of always paying for the full national fetch.
+    const pageParam = req.query.page as string | undefined;
+    const limitParam = req.query.limit as string | undefined;
+    if (pageParam || limitParam) {
+      const page = Math.max(1, parseInt(pageParam || '1', 10) || 1);
+      const limit = Math.max(1, Math.min(500, parseInt(limitParam || '50', 10) || 50));
+      const total = scoped.length;
+      const start = (page - 1) * limit;
+      res.set('X-Total-Count', String(total));
+      res.set('X-Page', String(page));
+      res.set('X-Pages', String(Math.max(1, Math.ceil(total / limit))));
+      return res.json(scoped.slice(start, start + limit));
+    }
 
-      // Debugging ke liye:
-      const filtered = students.filter(s => {
-        if (currentUserRole === 'SUPERADMIN') return true;
-        if (currentUserRole === 'SCHOOL' || currentUserRole === 'TEACHER') {
-          return String(s.schoolId).trim() === String(user.schoolId).trim();
-        }
-        return false;
-      });
-
-      console.log("Students after filter:", filtered.length);
-      res.json(filtered);
+    res.json(scoped);
     } catch (err) {
+      console.error(err);
       res.status(500).json({ error: "Failed to fetch" });
-      console.log("EEEEEE");
     }
   });
   // ── PRODUCTION DYNAMIC DATABASE INTEGRATION: POST STUDENT ──
@@ -2383,72 +2275,79 @@ async function startServer() {
     res.json({ submission, report, evaluation });
   });
 
-  // Get all evaluation reports (with resolved responses)
-  // ── PRODUCTION MONGOOSE INTEGRATION: GET DYNAMIC EVALUATION REPORTS ──
+  // Bulk evaluation reports, scoped identically to GET /api/students (§14).
   app.get('/api/evaluation/reports', async (req, res) => {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
     try {
-      // Direct dynamic load out of persistent MongoDB collections
-      const reps = await dbStore.getEvaluationReports();
-      const students = await dbStore.getStudents();
+      const [reports, students, schools] = await Promise.all([
+        dbStore.getEvaluationReports(),
+        dbStore.getStudents(),
+        dbStore.getSchools(),
+      ]);
 
-      const currentUserRole = String(user.role).toUpperCase();
+      if (user.role === UserRole.SUPERADMIN) {
+        const reportsWithResponses = reports.map(r => {
+          const rawReport = r as any;
+          let responses = rawReport.responses || [];
+          if (!responses || responses.length === 0) {
+            responses = [
+              { question: 'Q1: One-to-One Correspondence', studentAnswer: 'Correct', correctAnswer: 'Correct', status: 'Correct' },
+              { question: 'Q2: Odd One Out', studentAnswer: 'Correct', correctAnswer: 'Correct', status: 'Correct' }
+            ];
+          }
+          return {
+            ...rawReport,
+            studentName: students.find(s => s.id === rawReport.studentId)?.name || rawReport.studentName || 'Student',
+            responses
+          };
+        });
+        return res.json(reportsWithResponses);
+      }
 
-      // Filter reports safely based on persistent schoolId boundaries
-      const filteredReps = reps.filter(r => {
-        const student = students.find(s => s.id === r.studentId);
-        if (!student) return false;
+      let scopedStudentIds: Set<string>;
+      if (user.role === UserRole.SCHOOL || user.role === UserRole.TEACHER) {
+        scopedStudentIds = new Set(students.filter(s => s.schoolId === user.schoolId).map(s => s.id));
+      } else if (user.role === UserRole.VOLUNTEER) {
+        scopedStudentIds = new Set(students.filter(s => user.assignedSchools?.includes(s.schoolId)).map(s => s.id));
+      } else if (user.role === UserRole.ADMIN || user.role === UserRole.DISTRICT_ADMIN || user.role === UserRole.BLOCK_ADMIN) {
+        const schoolById = new Map(schools.map(sc => [sc.id, sc]));
+        scopedStudentIds = new Set(students.filter(s => {
+          const school = schoolById.get(s.schoolId);
+          if (!school) return false;
+          if (user.role === UserRole.ADMIN) return school.stateCode === user.stateCode;
+          if (user.role === UserRole.DISTRICT_ADMIN) return school.districtCode === user.districtCode;
+          return school.blockCode === user.blockCode; // BLOCK_ADMIN
+        }).map(s => s.id));
+      } else {
+        scopedStudentIds = new Set(students.map(s => s.id));
+      }
 
-        if (currentUserRole === 'SUPERADMIN') {
-          return true;
-        }
+      const filteredReps = reports.filter(r => scopedStudentIds.has(r.studentId));
 
-        if (currentUserRole === 'TEACHER' || currentUserRole === 'SCHOOL') {
-          if (!student.schoolId || !user.schoolId) return false;
-          return String(student.schoolId).trim().toLowerCase() === String(user.schoolId).trim().toLowerCase();
-        }
-
-        if (currentUserRole === 'VOLUNTEER') {
-          return user.assignedSchools?.includes(student.schoolId || '');
-        }
-
-        return true;
-      });
-
-      // Map dynamic answers framework strictly matching frontend structure
-      // Map dynamic answers framework strictly matching frontend structure
       const reportsWithResponses = filteredReps.map(r => {
-        // 🎯 FIX: Explicitly cast 'r' as 'any' to bypass strict TypeScript interface checking for 'studentName'
         const rawReport = r as any;
-
         let responses = rawReport.responses || [];
-
-        // Structure mapping fallback validation check
         if (!responses || responses.length === 0) {
           responses = [
             { question: 'Q1: One-to-One Correspondence', studentAnswer: 'Correct', correctAnswer: 'Correct', status: 'Correct' },
             { question: 'Q2: Odd One Out', studentAnswer: 'Correct', correctAnswer: 'Correct', status: 'Correct' }
           ];
         }
-
         return {
           ...rawReport,
-          // Safely lookup name from students array, fallback to raw property or 'Student'
           studentName: students.find(s => s.id === rawReport.studentId)?.name || rawReport.studentName || 'Student',
           responses
         };
       });
 
       return res.json(reportsWithResponses);
-
     } catch (err: any) {
       console.error("Evaluation collection retrieval loop crash:", err);
       return res.status(500).json([]);
     }
   });
-  // Evaluation History (with resolved responses)
   app.get('/api/evaluation/:studentId/history', async (req, res) => {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
