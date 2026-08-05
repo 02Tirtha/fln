@@ -224,8 +224,6 @@
     "half past"
   ],
   "Geometry": [
-    "odd-one-out",
-    "odd-one-out-same-icon",
     "symmetry-identify",
     "triangle",
     "square",
@@ -453,5 +451,12 @@
     "acute",
     "obtuse",
     "right angle"
+  ],
+  "Odd One Out": [
+    "odd-one-out",
+    "odd-one-out-same-icon",
+    "odd one out",
+    "does not belong",
+    "classification"
   ]
 }

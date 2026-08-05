@@ -86,17 +86,35 @@ async function startServer() {
       return res.status(400).json({ error: 'Email and password are required.' });
     }
 
+    console.log(`[login] Attempting login for email: ${email}`);
     // Check if the user is preloaded
     const users = await dbStore.getUsers();
     const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
     if (!user) {
+      console.log(`[login] User not found in DB: ${email}`);
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    // In a real production app we'd hash and compare, here we return JWT-like email token
+    console.log(`[login] User found: ${user.email}, passwordHash exists: ${!!user.passwordHash}`);
+    // Verify the submitted password against the stored bcrypt hash.
+    const passwordOk = user.passwordHash
+      ? await bcrypt.compare(password, user.passwordHash)
+      : false;
+    console.log(`[login] Password matches: ${passwordOk}`);
+    if (!passwordOk) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    // Issue a signed JWT; it is verified on every subsequent request (see getAuthUser).
+    const token = jwt.sign(
+      { sub: user.id, email: user.email, role: user.role },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN } as jwt.SignOptions
+    );
+
     return res.json({
-      token: user.email,
-      user
+      token,
+      user: sanitizeUser(user)
     });
   });
 
@@ -1390,9 +1408,11 @@ async function startServer() {
     const cNum = parseFloat(cNorm.replace(/[^0-9.-]/g, ''));
     if (!isNaN(sNum) && !isNaN(cNum) && Math.abs(sNum - cNum) < 0.001) return true;
 
-    // 7. Substring match
-    if (sNorm.length >= 2 && cNorm.length >= 2) {
-      if (cNorm.includes(sNorm) || sNorm.includes(cNorm)) return true;
+    // 7. Substring match (only if not a JSON object)
+    if (parsedCorrect === null && sNorm.length >= 2 && cNorm.length >= 2) {
+      const sWords = sNorm.split(/\s+/);
+      const cWords = cNorm.split(/\s+/);
+      if (sWords.some(w => w.length >= 2 && cWords.includes(w)) || cWords.some(w => w.length >= 2 && sWords.includes(w))) return true;
     }
 
     return false;

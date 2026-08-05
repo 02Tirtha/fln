@@ -55,6 +55,9 @@ export function getHumanReadableRemediation(concept: string, questionText: strin
   if (c.includes('place value')) {
     return 'Identify the position of each digit: Hundreds, Tens, and Ones/Units.';
   }
+  if (c.includes('odd one out') || c.includes('does not belong') || c.includes('classification')) {
+    return 'Look at the categories of the items (fruits, animals, stationery, vehicles). Choose the item that does not belong to the same category as the others.';
+  }
   if (c.includes('geometry') || c.includes('shape') || c.includes('angle')) {
     if (/\b(angle|angles|degree|degrees|protractor|90|acute|obtuse|right)\b/i.test(questionText)) {
       return 'An angle measures the turn between two lines meeting at a point: Right angle (90°), Acute angle (< 90°), Obtuse angle (> 90°), Straight angle (180°).';
@@ -872,6 +875,62 @@ const generateGeometry: ConceptGenerator = (v, originalQ = '') => {
 };
 
 
+const generateOddOneOut: ConceptGenerator = (v, originalQ = '') => {
+  const CATEGORY_MAP: Record<string, string[]> = {
+    fruits: ['Apple', 'Banana', 'Orange', 'Grapes', 'Mango', 'Strawberry', 'Watermelon', 'Pineapple'],
+    vehicles: ['Car', 'Bus', 'Train', 'Bicycle', 'Truck', 'Airplane', 'Helicopter', 'Boat'],
+    stationery: ['Pencil', 'Book', 'Ruler', 'Eraser', 'Sharpener', 'Pen', 'Marker', 'Notebook'],
+    animals: ['Lion', 'Tiger', 'Elephant', 'Giraffe', 'Zebra', 'Cat', 'Dog', 'Cow'],
+    shapes: ['Circle', 'Square', 'Triangle', 'Rectangle', 'Star', 'Pentagon', 'Hexagon', 'Oval'],
+    foods: ['Cake', 'Cookie', 'Bread', 'Pizza', 'Burger', 'Sandwich', 'Donut', 'Candy'],
+    tools: ['Hammer', 'Screwdriver', 'Wrench', 'Pliers', 'Axe', 'Shovel', 'Rake', 'Saw'],
+    clothes: ['Shirt', 'Pants', 'Socks', 'Hat', 'Shoes', 'Dress', 'Jacket', 'Gloves'],
+    furniture: ['Table', 'Chair', 'Bed', 'Sofa', 'Desk', 'Bookshelf', 'Cabinet', 'Wardrobe'],
+    toys: ['Doll', 'Teddy', 'Ball', 'Blocks', 'Kite', 'Balloon', 'Yo-yo', 'Robot']
+  };
+
+  const keys = Object.keys(CATEGORY_MAP);
+
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const mainKey = keys[(v + i) % keys.length];
+    
+    // Choose an odd key that is guaranteed to be different from the main key
+    const oddKey = keys[(v + i + 1 + Math.floor(v / keys.length)) % keys.length];
+    
+    const mainPool = CATEGORY_MAP[mainKey];
+    const oddPool = CATEGORY_MAP[oddKey];
+
+    // Select 5 unique items from the main category
+    const mainItems: string[] = [];
+    for (let k = 0; k < 5; k++) {
+      mainItems.push(mainPool[(v + k) % mainPool.length]);
+    }
+
+    // Select 1 item from the odd category
+    const oddItem = oddPool[v % oddPool.length];
+
+    // Position of odd item is deterministic but changes for each sub-question
+    const insertPos = (v + i) % 6;
+    const options = [...mainItems];
+    options.splice(insertPos, 0, oddItem);
+
+    return {
+      prompt: `[${options.join(', ')}]`,
+      answer: oddItem
+    };
+  });
+
+  return {
+    question: "Select the odd one out from each group of objects:",
+    subQuestions: sets,
+    answer: "",
+    topic: "Odd One Out",
+    aiGenerated: false,
+    remediation: getHumanReadableRemediation("Odd One Out", originalQ)
+  };
+};
+
+
 const generateAlgebra: ConceptGenerator = (v) => {
   const sets = Array.from({ length: 5 }, (_, i) => {
     const x = (v + i) % 7 + 2;
@@ -1614,6 +1673,12 @@ const GENERATORS: Record<string, ConceptGenerator> = {
   'unit conversion': generateUnitConversion,
   'time': generateTime,
   'geometry': generateGeometry,
+  'odd one out': generateOddOneOut,
+  'odd-one-out': generateOddOneOut,
+  'odd-one-out-same-icon': generateOddOneOut,
+  'odd one out (6 objects)': generateOddOneOut,
+  'odd one out (5 objects)': generateOddOneOut,
+  'odd one out (same picture)': generateOddOneOut,
   'algebra': generateAlgebra,
   'decimals': generateDecimals,
   'percentages': generatePercentages,
@@ -1694,6 +1759,8 @@ function _generateByConcept(
     c.startsWith('geometry (')
   ) {
     // Keep exact sub-concept key for dedicated context-aware generator
+  } else if (c.includes('odd one out') || c.includes('odd-one-out')) {
+    c = 'odd one out';
   } else if (c.includes('ordinal') || c.includes('position')) {
     c = 'ordinal numbers';
   } else if (c.includes('measurement') || c.includes('ruler-measure') || c.includes('measure-objects')) {
