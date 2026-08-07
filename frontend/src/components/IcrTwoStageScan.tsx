@@ -75,6 +75,67 @@ function formatMs(ms: number): string {
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // matches backend's 8MB cap
 const MAX_UPLOAD_LABEL = '8 MB';
 
+// Brand-ish Tailwind color name per cloud provider. Drives both the
+// provider-toggle pills above the cloud BigButton AND the BigButton's
+// own background so the active model is obvious at a glance.
+//
+// IMPORTANT: All class strings below must be LITERAL (no template-literal
+// interpolation) so Vite's Tailwind v4 JIT picks them up during the
+// source scan. The PROVider_CLASSES map below uses pre-built class strings
+// for each provider — that way Tailwind sees every class as a literal.
+const PROVIDER_COLORS: Record<
+  'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace',
+  'violet'
+> = {
+  google: 'violet',
+  aws: 'violet',
+  azure: 'violet',
+  minimax: 'violet',
+  ocrspace: 'violet',
+};
+
+// Pre-built Tailwind class strings for each provider. Two sets: the
+// "active" pill (solid background, white text, ring) and the "inactive"
+// pill (soft background, colored text, bordered). Kept as full literals
+// so Tailwind's JIT sees every class.
+//
+// NOTE: Per user request, ALL providers share the same violet palette
+// (matching MiniMax). And per follow-up request, the active vs inactive
+// pills also look the same — the user wants one uniform violet row, with
+// the active model indicated by the "Run via Cloud API" button subtitle
+// ("Using GOOGLE — admin-configured on server"), NOT by pill color.
+const PROVIDER_PILL_CLASS: Record<'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace', string> = {
+  google:   'bg-violet-600 hover:bg-violet-700 text-white border border-violet-700 dark:border-violet-800',
+  aws:      'bg-violet-600 hover:bg-violet-700 text-white border border-violet-700 dark:border-violet-800',
+  azure:    'bg-violet-600 hover:bg-violet-700 text-white border border-violet-700 dark:border-violet-800',
+  minimax:  'bg-violet-600 hover:bg-violet-700 text-white border border-violet-700 dark:border-violet-800',
+  ocrspace: 'bg-violet-600 hover:bg-violet-700 text-white border border-violet-700 dark:border-violet-800',
+};
+
+// Pre-built BigButton bg class strings per provider. Same JIT-safety
+// reason as the pill maps above.
+const PROVIDER_BUTTON_BG: Record<'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace', string> = {
+  google:   'bg-violet-600 hover:bg-violet-700',
+  aws:      'bg-violet-600 hover:bg-violet-700',
+  azure:    'bg-violet-600 hover:bg-violet-700',
+  minimax:  'bg-violet-600 hover:bg-violet-700',
+  ocrspace: 'bg-violet-600 hover:bg-violet-700',
+};
+const PROVIDER_BUTTON_BG_RUNNING: Record<'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace', string> = {
+  google:   'bg-violet-500 cursor-wait',
+  aws:      'bg-violet-500 cursor-wait',
+  azure:    'bg-violet-500 cursor-wait',
+  minimax:  'bg-violet-500 cursor-wait',
+  ocrspace: 'bg-violet-500 cursor-wait',
+};
+const PROVIDER_BUTTON_BG_DONE: Record<'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace', string> = {
+  google:   'bg-violet-700',
+  aws:      'bg-violet-700',
+  azure:    'bg-violet-700',
+  minimax:  'bg-violet-700',
+  ocrspace: 'bg-violet-700',
+};
+
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -288,11 +349,15 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
   // the key — it just picks a provider and asks the backend to OCR.
   // The button is disabled until the backend confirms at least one
   // provider is configured.
-  const [cloudProvider, setCloudProvider] = useState<'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace'>(
-    () => (localStorage.getItem('icrCloudProvider') as 'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace') || 'google'
-  );
-  const [cloudProvidersConfigured, setCloudProvidersConfigured] = useState<Record<string, boolean>>({});
-  const [cloudError, setCloudError] = useState<string | null>(null);
+  const [cloudProvider, setCloudProviderState] = useState<'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace'>(
+      () => (localStorage.getItem('icrCloudProvider') as 'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace') || 'google'
+    );
+    const setCloudProvider = (p: 'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace') => {
+      setCloudProviderState(p);
+      localStorage.setItem('icrCloudProvider', p);
+    };
+    const [cloudProvidersConfigured, setCloudProvidersConfigured] = useState<Record<string, boolean>>({});
+    const [cloudError, setCloudError] = useState<string | null>(null);
 
   // On mount, fetch which providers the server has configured. The ICR
   // UI uses this to enable/disable the cloud button.
@@ -318,69 +383,79 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
   }, [token]);
 
   const runCloudOcr = async () => {
-    if (!uploadedFile) return;
-    if (uploadedFile.size > MAX_UPLOAD_BYTES) {
-      setOcrError(
-        `File too large: ${(uploadedFile.size / 1024 / 1024).toFixed(1)} MB (max ${MAX_UPLOAD_LABEL}). ` +
-        `Try compressing the image, or use a smaller scan resolution.`
-      );
-      setOcrState('error');
-      return;
-    }
-    const imageToSend = filteredImageDataUrl
-      ? await Promise.resolve(filteredImageDataUrl)
-      : await fileToDataUrl(uploadedFile);
-    setOcrState('running');
-    setOcrError(null);
-    const t0 = performance.now();
-    try {
-      // Send only {imageDataUrl, provider} — NO apiKey from the frontend.
-      const res = await apiFetch('/api/icr/evaluate-cloud', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          imageDataUrl: imageToSend,
-          provider: cloudProvider,
-        }),
-      });
-      const clientMs = Math.round(performance.now() - t0);
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        setOcrError(data.error || `Cloud OCR HTTP ${res.status}`);
-        setOcrState('error');
+      if (!uploadedFile) return;
+      if (uploadedFile.size > MAX_UPLOAD_BYTES) {
+        setCloudError(
+          `File too large: ${(uploadedFile.size / 1024 / 1024).toFixed(1)} MB (max ${MAX_UPLOAD_LABEL}). ` +
+          `Try compressing the image, or use a smaller scan resolution.`
+        );
         return;
       }
-      const normalized: ScanResponse = {
-        success: true,
-        ocrAnalysis: {
-          rawOcrText: data.rawOcrText || '',
-          extractedTokens: (data.extractedTokens || []).map((t: any) => ({
-            text: t.text,
-            confidence: t.confidence ?? 0.9,
-            bbox: t.bbox,
-          })),
+      const imageToSend = filteredImageDataUrl
+        ? await Promise.resolve(filteredImageDataUrl)
+        : await fileToDataUrl(uploadedFile);
+      setOcrState('running');
+      setCloudError(null);
+      const t0 = performance.now();
+      try {
+        // Send only {imageDataUrl, provider} — NO apiKey from the frontend.
+        const res = await apiFetch('/api/icr/evaluate-cloud', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            imageDataUrl: imageToSend,
+            provider: cloudProvider,
+          }),
+        });
+        const clientMs = Math.round(performance.now() - t0);
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          // Surface the backend's provider-specific message verbatim. The 502
+          // body already says things like "Google Vision: billing not enabled"
+          // or "OCR.space: rate limit" — pass that straight to the user with a
+          // short admin-action hint appended so they know who to ask.
+          const providerMsg = data.error || `Cloud OCR HTTP ${res.status}`;
+          const adminHint =
+            res.status === 503
+              ? ` Admin must set the ICR_CLOUD_API_KEY_${cloudProvider.toUpperCase()} env var or POST a key to /api/icr/cloud-config.`
+              : res.status === 502
+              ? ` The upstream provider rejected the request — likely an invalid/revoked key, billing not enabled, or rate limit. Ask the admin to verify the ICR_CLOUD_API_KEY_${cloudProvider.toUpperCase()} value.`
+              : '';
+          setCloudError(providerMsg + adminHint);
+          setOcrState('error');
+          return;
+        }
+        const normalized: ScanResponse = {
+          success: true,
+          ocrAnalysis: {
+            rawOcrText: data.rawOcrText || '',
+            extractedTokens: (data.extractedTokens || []).map((t: any) => ({
+              text: t.text,
+              confidence: t.confidence ?? 0.9,
+              bbox: t.bbox,
+            })),
+            processingTimeMs: data.processingTimeMs ?? clientMs,
+            ocrEngine: data.ocrEngine || 'Cloud OCR',
+          },
           processingTimeMs: data.processingTimeMs ?? clientMs,
-          ocrEngine: data.ocrEngine || 'Cloud OCR',
-        },
-        processingTimeMs: data.processingTimeMs ?? clientMs,
-      };
-      setOcrResult(normalized);
-      setOcrTiming({
-        clientMs,
-        serverMs: data.processingTimeMs ?? null,
-        startedAt: new Date().toISOString(),
-      });
-      setOcrState('done');
-      onOcrSuccess(normalized);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setOcrError(`Network or client error: ${msg}`);
-      setOcrState('error');
-    }
-  };
+        };
+        setOcrResult(normalized);
+        setOcrTiming({
+          clientMs,
+          serverMs: data.processingTimeMs ?? null,
+          startedAt: new Date().toISOString(),
+        });
+        setOcrState('done');
+        onOcrSuccess(normalized);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setCloudError(`Network or client error: ${msg}`);
+        setOcrState('error');
+      }
+    };
 
   const disabled = !uploadedFile;
 
@@ -453,21 +528,49 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
           // that's confusing. Just allow OCR anytime; the backend is idempotent.
           // (Re-enabling.)
         />
-        <BigButton
-          variant="purple"
-          icon={<CloudIcon />}
-          title="3. Run via Cloud API"
-          subtitle={
-            cloudProvidersConfigured[cloudProvider]
-              ? `Using ${cloudProvider.toUpperCase()} — admin-configured on server`
-              : 'No API key configured — ask admin to set ICR_CLOUD_API_KEY_' + cloudProvider.toUpperCase()
-          }
-          timeTaken={null}
-          liveElapsed={ocrState === 'running' ? elapsedMs : null}
-          state={ocrState}
-          onClick={runCloudOcr}
-          disabled={disabled || !cloudProvidersConfigured[cloudProvider]}
-        />
+        {/* Provider toggle — only shows providers the server has keys for.
+                    Each provider gets a brand-ish color so the cloud button below
+                    visually echoes the active pick. If exactly one provider is
+                    configured, we hide the row (no choice to make). */}
+                {(() => {
+                  const configuredProviders = (['google', 'minimax', 'ocrspace', 'aws', 'azure'] as const)
+                    .filter((p) => cloudProvidersConfigured[p]);
+                  if (configuredProviders.length < 2) return null;
+                                    return (
+                              <div className="flex flex-wrap items-center gap-1.5 px-1">
+                                                              <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mr-1">
+                                                                Model:
+                                                              </span>
+                                                              {configuredProviders.map((p) => (
+                                                                <button
+                                                                  key={p}
+                                                                  type="button"
+                                                                  onClick={() => setCloudProvider(p)}
+                                                                  className={`px-2.5 py-1 rounded-full text-xs font-mono font-bold shadow-sm transition-all ${PROVIDER_PILL_CLASS[p]}`}
+                                                                  title={p.toUpperCase()}
+                                                                >
+                                                                  {p.toUpperCase()}
+                                                                </button>
+                                                              ))}
+                                                            </div>
+                                                          );
+                })()}
+
+                <BigButton
+                                  providerKey={cloudProvider}
+                                  icon={<CloudIcon />}
+                                  title="3. Run via Cloud API"
+                                  subtitle={
+                                    cloudProvidersConfigured[cloudProvider]
+                                      ? `Using ${cloudProvider.toUpperCase()} — admin-configured on server`
+                                      : 'No API key configured — ask admin to set ICR_CLOUD_API_KEY_' + cloudProvider.toUpperCase()
+                                  }
+                                  timeTaken={null}
+                                  liveElapsed={ocrState === 'running' ? elapsedMs : null}
+                                  state={ocrState}
+                                  onClick={runCloudOcr}
+                                  disabled={disabled || !cloudProvidersConfigured[cloudProvider]}
+                                />
       </div>
 
       {/* Filtered preview + stats panel */}
@@ -597,15 +700,29 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
             </div>
             )}
 
-      {/* OCR error panel */}
-      {ocrState === 'error' && ocrError && (
-        <ErrorPanel
-          title="OCR failed"
-          error={ocrError}
-          onRetry={runOcr}
-          onDismiss={() => setOcrError(null)}
-        />
-      )}
+      {/* OCR error panel (local PaddleOCR/EasyOCR pipeline) */}
+            {ocrState === 'error' && ocrError && (
+              <ErrorPanel
+                title="OCR failed"
+                error={ocrError}
+                onRetry={runOcr}
+                onDismiss={() => setOcrError(null)}
+              />
+            )}
+
+            {/* Cloud OCR error panel — separate from the local OCR panel so the
+                message and retry target are correct. Triggered when /api/icr/evaluate-cloud
+                rejects (no key, bad key, billing, rate limit, etc.). Doesn't
+                require ocrState==='error' because cloud errors may come back before
+                that state was set if the request never started (e.g. file too large). */}
+            {cloudError && (
+              <ErrorPanel
+                title={`Cloud OCR failed (${cloudProvider.toUpperCase()})`}
+                error={cloudError}
+                onRetry={runCloudOcr}
+                onDismiss={() => setCloudError(null)}
+              />
+            )}
 
       {/* Cloud OCR status hint. Visible only when the user picked the
           cloud provider but the server has no key for it. Tells the
@@ -648,7 +765,12 @@ const StepBadge: React.FC<{
 };
 
 interface BigButtonProps {
-  variant: 'indigo' | 'blue' | 'purple';
+  // Generic color names (kept for backward compat with non-cloud buttons),
+  // OR one of the five literal PROVIDER_BUTTON_BG keys so a single
+  // BigButton can render any provider's brand color. We split them into
+  // two props to avoid a discriminated-union ceremony at every call site.
+  variant?: 'indigo' | 'blue' | 'purple' | 'violet' | 'teal' | 'orange' | 'sky';
+  providerKey?: 'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace';
   icon: React.ReactNode;
   title: string;
   subtitle: string;
@@ -659,8 +781,27 @@ interface BigButtonProps {
   disabled: boolean;
 }
 
+// Fallback for non-cloud call sites that pass `variant` directly. Kept as
+// full Tailwind literals so the JIT picks them up.
+const LEGACY_VARIANT_BG: Record<'indigo' | 'blue' | 'purple', string> = {
+  indigo: 'bg-indigo-600 hover:bg-indigo-700',
+  blue: 'bg-blue-600 hover:bg-blue-700',
+  purple: 'bg-purple-600 hover:bg-purple-700',
+};
+const LEGACY_VARIANT_BG_RUNNING: Record<'indigo' | 'blue' | 'purple', string> = {
+  indigo: 'bg-indigo-500 cursor-wait',
+  blue: 'bg-blue-500 cursor-wait',
+  purple: 'bg-purple-500 cursor-wait',
+};
+const LEGACY_VARIANT_BG_DONE: Record<'indigo' | 'blue' | 'purple', string> = {
+  indigo: 'bg-indigo-700',
+  blue: 'bg-blue-700',
+  purple: 'bg-purple-700',
+};
+
 const BigButton: React.FC<BigButtonProps> = ({
   variant,
+  providerKey,
   icon,
   title,
   subtitle,
@@ -670,14 +811,26 @@ const BigButton: React.FC<BigButtonProps> = ({
   onClick,
   disabled,
 }) => {
-  const baseColor = variant;
   const isRunning = state === 'running';
   const isDone = state === 'done';
-  const bgClass = isRunning
-    ? `bg-${baseColor}-500 cursor-wait`
-    : isDone
-      ? `bg-${baseColor}-700`
-      : `bg-${baseColor}-600 hover:bg-${baseColor}-700`;
+  // Pick the bg class from a literal lookup so Tailwind's JIT sees every
+  // class as a literal. providerKey (preferred for cloud buttons) wins
+  // over the legacy generic variant prop.
+  let bgClass: string;
+  if (providerKey) {
+    bgClass = isRunning
+      ? PROVIDER_BUTTON_BG_RUNNING[providerKey]
+      : isDone
+        ? PROVIDER_BUTTON_BG_DONE[providerKey]
+        : PROVIDER_BUTTON_BG[providerKey];
+  } else {
+    const v = (variant || 'indigo') as 'indigo' | 'blue' | 'purple';
+    bgClass = isRunning
+      ? LEGACY_VARIANT_BG_RUNNING[v]
+      : isDone
+        ? LEGACY_VARIANT_BG_DONE[v]
+        : LEGACY_VARIANT_BG[v];
+  }
 
   return (
     <button
