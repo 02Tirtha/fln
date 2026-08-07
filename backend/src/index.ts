@@ -1040,77 +1040,135 @@ const students = await dbStore.getStudents();
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
     const { imageDataUrl } = req.body || {};
-    if (!imageDataUrl || !imageDataUrl.startsWith('data:image/')) {
-      return res.status(400).json({ error: 'imageDataUrl is required and must be a data URL.' });
-    }
+        if (!imageDataUrl || !imageDataUrl.startsWith('data:')) {
+          return res.status(400).json({ error: 'imageDataUrl is required and must be a data URL.' });
+        }
 
-    const match = /^data:image\/([a-zA-Z0-9+.-]+);base64,(.+)$/.exec(imageDataUrl);
-    if (!match) {
-      return res.status(400).json({ error: 'imageDataUrl must be base64-encoded.' });
-    }
-    const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
-    const buf = Buffer.from(match[2], 'base64');
-    if (buf.length === 0) {
-      return res.status(400).json({ error: 'imageDataUrl decoded to zero bytes.' });
-    }
-    // Cap at 8 MB to match the evaluate-pdf endpoint's existing limit.
-    if (buf.length > 8 * 1024 * 1024) {
-      return res.status(413).json({ error: 'Image too large (max 8 MB).' });
-    }
+        // Accept raster images (PNG/JPEG/WebP) AND PDFs. The blue-ink filter
+            // operates on pixels, so PDFs are rasterized to PNG page 1 first.
+            // The image regex has 2 capture groups (mime subtype + b64); the PDF
+            // regex has 1 (just b64) — keep that asymmetry in mind below.
+            const imgMatch = /^data:image\/([a-zA-Z0-9+.-]+);base64,(.+)$/.exec(imageDataUrl);
+            const pdfMatch = /^data:application\/pdf;base64,(.+)$/.exec(imageDataUrl);
+            if (!imgMatch && !pdfMatch) {
+              return res.status(400).json({ error: 'imageDataUrl must be base64-encoded PNG/JPEG/WebP image or PDF.' });
+            }
+            let ext: string;
+                let b64: string;
+                const isPdf = !!pdfMatch;
+                if (isPdf) {
+                  ext = 'pdf';
+                  b64 = pdfMatch![1];
+                } else {
+                  ext = imgMatch![1] === 'jpeg' ? 'jpg' : imgMatch![1];
+                  b64 = imgMatch![2];
+                }
+                const buf = Buffer.from(b64, 'base64');
+        if (buf.length === 0) {
+          return res.status(400).json({ error: 'imageDataUrl decoded to zero bytes.' });
+        }
+        // Cap at 8 MB to match the evaluate-pdf endpoint's existing limit.
+        if (buf.length > 8 * 1024 * 1024) {
+          return res.status(413).json({ error: 'File too large (max 8 MB).' });
+        }
 
-    const tempDir = path.join(AI_SERVICES_DIR, 'scratch');
-    fs.mkdirSync(tempDir, { recursive: true });
-    const stamp = Date.now();
-    const inputPath = path.join(tempDir, `filter_${stamp}_in.${ext}`);
-    const outputPath = path.join(tempDir, `filter_${stamp}_out.jpg`);
+        const tempDir = path.join(AI_SERVICES_DIR, 'scratch');
+        fs.mkdirSync(tempDir, { recursive: true });
+        const stamp = Date.now();
+        const inputPath = path.join(tempDir, `filter_${stamp}_in.${ext}`);
+        // After this point, the path the blue-ink filter reads from is `filterInputPath`.
+        // For images, it's the raw uploaded file; for PDFs, it's the rasterized PNG.
+        let filterInputPath = inputPath;
+            let pdfRasterizedPath: string | null = null;
+            const outputPath = path.join(tempDir, `filter_${stamp}_out.jpg`);
 
-    try {
-      fs.writeFileSync(inputPath, buf);
-      const { execFileSync } = await import('child_process');
-      const scriptPath = path.join(AI_SERVICES_DIR, 'scripts', 'bluepen_filter.py');
-      const stdout = execFileSync(
-        PYTHON_BIN,
-        [scriptPath, inputPath, outputPath],
-        { cwd: AI_SERVICES_DIR, timeout: 30000, encoding: 'utf8' }
-      );
-      // Last non-empty line is the JSON result.
-      const jsonLine = stdout.trim().split('\n').filter(Boolean).pop() || '{}';
-      let parsed: any = {};
-      try {
-        parsed = JSON.parse(jsonLine);
-      } catch {
-        return res.status(500).json({ success: false, error: `Filter returned non-JSON: ${stdout.slice(0, 300)}` });
-      }
-      if (!parsed.success) {
-        return res.status(500).json({ success: false, error: parsed.error || 'Filter failed.' });
-      }
-      const filteredBuf = fs.readFileSync(outputPath);
-      const filteredDataUrl = `data:image/jpeg;base64,${filteredBuf.toString('base64')}`;
-      return res.json({
-        success: true,
-        imageDataUrl: filteredDataUrl,
-        bluePixelRatio: parsed.blue_pixel_ratio,
-        bluePixelCount: parsed.blue_pixel_count,
-        imageSize: parsed.image_size,
-        // Pass the temp output path so the OCR step can read the same file
-        // without re-running the filter. (Frontend currently ignores this
-        // and re-uploads the data URL — both work; this is just an
-        // optimization for server-side chaining later.)
-        filteredPath: outputPath,
+        try {
+          fs.writeFileSync(inputPath, buf);
+
+          // PDF path: rasterize page 1 to PNG, then point filterInputPath at the PNG.
+          if (isPdf) {
+            const rasterScript = path.join(AI_SERVICES_DIR, 'scripts', 'pdf_rasterize.py');
+            const { execFileSync: execPdf } = await import('child_process');
+            const pdfOut = path.join(tempDir, `filter_${stamp}_raster.png`);
+            let pdfStdout: string;
+            try {
+              pdfStdout = execPdf(
+                PYTHON_BIN,
+                [rasterScript, inputPath, pdfOut],
+                { cwd: AI_SERVICES_DIR, timeout: 30000, encoding: 'utf8' }
+              );
+            } catch (e: any) {
+              return res.status(500).json({
+                success: false,
+                error: `PDF rasterization failed: ${e?.message || e}`,
+              });
+            }
+            const pdfLine = pdfStdout.trim().split('\n').filter(Boolean).pop() || '{}';
+            let pdfResult: any = {};
+            try {
+              pdfResult = JSON.parse(pdfLine);
+            } catch {
+              return res.status(500).json({
+                success: false,
+                error: `PDF rasterizer returned non-JSON: ${pdfStdout.slice(0, 300)}`,
+              });
+            }
+            if (!pdfResult.success) {
+              return res.status(500).json({ success: false, error: pdfResult.error || 'PDF rasterization failed.' });
+            }
+            filterInputPath = pdfOut;
+                        pdfRasterizedPath = pdfOut;
+                      }
+
+          const { execFileSync } = await import('child_process');
+          const scriptPath = path.join(AI_SERVICES_DIR, 'scripts', 'bluepen_filter.py');
+          const stdout = execFileSync(
+            PYTHON_BIN,
+            [scriptPath, filterInputPath, outputPath],
+            { cwd: AI_SERVICES_DIR, timeout: 30000, encoding: 'utf8' }
+          );
+          // Last non-empty line is the JSON result.
+          const jsonLine = stdout.trim().split('\n').filter(Boolean).pop() || '{}';
+          let parsed: any = {};
+          try {
+            parsed = JSON.parse(jsonLine);
+          } catch {
+            return res.status(500).json({ success: false, error: `Filter returned non-JSON: ${stdout.slice(0, 300)}` });
+          }
+          if (!parsed.success) {
+            return res.status(500).json({ success: false, error: parsed.error || 'Filter failed.' });
+          }
+          const filteredBuf = fs.readFileSync(outputPath);
+          const filteredDataUrl = `data:image/jpeg;base64,${filteredBuf.toString('base64')}`;
+          return res.json({
+            success: true,
+            imageDataUrl: filteredDataUrl,
+            bluePixelRatio: parsed.blue_pixel_ratio,
+            bluePixelCount: parsed.blue_pixel_count,
+            imageSize: parsed.image_size,
+            // Tell the client the input was a PDF so it can show a one-time
+            // "rasterized from PDF" note if it wants. Pure informational.
+            sourceType: isPdf ? 'pdf' : 'image',
+            // Pass the temp output path so the OCR step can read the same file
+            // without re-running the filter. (Frontend currently ignores this
+            // and re-uploads the data URL — both work; this is just an
+            // optimization for server-side chaining later.)
+            filteredPath: outputPath,
+          });
+        } catch (err: any) {
+          const msg = err?.message || String(err);
+          console.error('[icr-filter] failed:', msg);
+          return res.status(500).json({ success: false, error: msg });
+        } finally {
+          // Clean up the input; leave outputPath around briefly so the OCR
+          // endpoint could pick it up if it wanted (filteredPath). For now
+          // the frontend re-uploads the data URL, so outputPath is also safe
+          // to delete.
+          try { fs.unlinkSync(inputPath); } catch { /* noop */ }
+          if (pdfRasterizedPath) { try { fs.unlinkSync(pdfRasterizedPath); } catch { /* noop */ } }
+          try { fs.unlinkSync(outputPath); } catch { /* noop */ }
+        }
       });
-    } catch (err: any) {
-      const msg = err?.message || String(err);
-      console.error('[icr-filter] failed:', msg);
-      return res.status(500).json({ success: false, error: msg });
-    } finally {
-      // Clean up the input; leave outputPath around briefly so the OCR
-      // endpoint could pick it up if it wanted (filteredPath). For now
-      // the frontend re-uploads the data URL, so outputPath is also safe
-      // to delete.
-      try { fs.unlinkSync(inputPath); } catch { /* noop */ }
-      try { fs.unlinkSync(outputPath); } catch { /* noop */ }
-    }
-  });
 
   // ICR Answer Sheet Scanner (Single or Bulk Class Evaluation for PDF & Image uploads with EasyOCR)
   app.post('/api/icr/evaluate-pdf', async (req, res) => {

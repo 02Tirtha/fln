@@ -163,44 +163,62 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
       return;
     }
     setFilterState('filtering');
-    setFilterError(null);
-    const t0 = performance.now();
-    try {
-      const dataUrl = await fileToDataUrl(uploadedFile);
-      const res = await apiFetch('/api/icr/filter', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ imageDataUrl: dataUrl }),
-      });
-      const clientMs = Math.round(performance.now() - t0);
-      const data: ScanResponse = await res.json();
-      if (!res.ok || !data.success) {
-        setFilterError(data.error || `Server returned HTTP ${res.status}`);
-        setFilterState('error');
-        return;
-      }
-      setFilteredImageDataUrl((data as ScanResponse & { imageDataUrl?: string }).imageDataUrl ?? null);
-      setBluePixelRatio(data.debug?.blue_pixel_ratio ?? null);
-      setFilterTiming({
-        clientMs,
-        serverMs: data.processingTimeMs ?? null,
-        startedAt: new Date().toISOString(),
-      });
-      setFilterState('done');
-      // Reset any previous OCR state — user has a new filtered image.
-      setOcrState('idle');
-      setOcrResult(null);
-      setOcrTiming(null);
-      setOcrError(null);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setFilterError(`Network or client error: ${msg}`);
-      setFilterState('error');
-    }
-  };
+        setFilterError(null);
+        const t0 = performance.now();
+        try {
+          const dataUrl = await fileToDataUrl(uploadedFile);
+          // Guard: an empty/invalid data URL is the most common source of the
+          // cryptic "imageDataUrl is required" backend error. Catch it here and
+          // show a clearer message instead.
+          // dataUrl is empty/null OR starts with something other than data:image/
+                // or data:application/pdf. Distinguish so the user gets an actionable message.
+                const isImage = dataUrl?.startsWith('data:image/');
+                const isPdf = dataUrl?.startsWith('data:application/pdf');
+                if (!dataUrl || (!isImage && !isPdf)) {
+                  const mimeHint = dataUrl?.startsWith('data:')
+                    ? ` (got data URL of type ${dataUrl.slice(5, dataUrl.indexOf(';')) || 'unknown'})`
+                    : '';
+                  setFilterError(
+                    `Could not read the uploaded file as an image or PDF${mimeHint}. ` +
+                    `Only PNG/JPEG/WebP scans and PDFs work with the blue-ink filter — try re-exporting the scan.`
+                  );
+                  setFilterState('error');
+                  return;
+                }
+          const res = await apiFetch('/api/icr/filter', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({ imageDataUrl: dataUrl }),
+          });
+          const clientMs = Math.round(performance.now() - t0);
+          const data: ScanResponse = await res.json();
+          if (!res.ok || !data.success) {
+            setFilterError(data.error || `Server returned HTTP ${res.status}`);
+            setFilterState('error');
+            return;
+          }
+          setFilteredImageDataUrl((data as ScanResponse & { imageDataUrl?: string }).imageDataUrl ?? null);
+          setBluePixelRatio(data.debug?.blue_pixel_ratio ?? null);
+          setFilterTiming({
+            clientMs,
+            serverMs: data.processingTimeMs ?? null,
+            startedAt: new Date().toISOString(),
+          });
+          setFilterState('done');
+          // Reset any previous OCR state — user has a new filtered image.
+          setOcrState('idle');
+          setOcrResult(null);
+          setOcrTiming(null);
+          setOcrError(null);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          setFilterError(`Network or client error: ${msg}`);
+          setFilterState('error');
+        }
+      };
 
   const runOcr = async () => {
     if (!uploadedFile) return;
