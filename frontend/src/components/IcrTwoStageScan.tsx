@@ -35,6 +35,15 @@ interface ExtractedAnswer {
 interface ScanResponse {
   success: boolean;
   answers?: Record<string, ExtractedAnswer>;
+  // Cloud OCR responses put per-token details under ocrAnalysis; local
+  // PaddleOCR responses (no-classId path) put them under ocrAnalysis too
+  // (see backend /api/icr/evaluate-pdf). Both flows share this shape.
+  ocrAnalysis?: {
+    rawOcrText: string;
+    extractedTokens: Array<{ text: string; confidence: number; bbox?: number[][] }>;
+    processingTimeMs: number;
+    ocrEngine: string;
+  };
   debug?: {
     image_size?: [number, number];
     blue_pixel_ratio?: number;
@@ -256,6 +265,105 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
     setBluePixelRatio(null);
   };
 
+  // Cloud OCR: backend stores the API key server-side (env var or
+  // admin-configured via /api/icr/cloud-config). Frontend NEVER sees
+  // the key — it just picks a provider and asks the backend to OCR.
+  // The button is disabled until the backend confirms at least one
+  // provider is configured.
+  const [cloudProvider, setCloudProvider] = useState<'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace'>(
+    () => (localStorage.getItem('icrCloudProvider') as 'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace') || 'google'
+  );
+  const [cloudProvidersConfigured, setCloudProvidersConfigured] = useState<Record<string, boolean>>({});
+  const [cloudError, setCloudError] = useState<string | null>(null);
+
+  // On mount, fetch which providers the server has configured. The ICR
+  // UI uses this to enable/disable the cloud button.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiFetch('/api/icr/cloud-config', {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (!cancelled && data.providers) {
+          setCloudProvidersConfigured(data.providers);
+        }
+      } catch {
+        // Ignore — button stays disabled
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  const runCloudOcr = async () => {
+    if (!uploadedFile) return;
+    if (uploadedFile.size > MAX_UPLOAD_BYTES) {
+      setOcrError(
+        `File too large: ${(uploadedFile.size / 1024 / 1024).toFixed(1)} MB (max ${MAX_UPLOAD_LABEL}). ` +
+        `Try compressing the image, or use a smaller scan resolution.`
+      );
+      setOcrState('error');
+      return;
+    }
+    const imageToSend = filteredImageDataUrl
+      ? await Promise.resolve(filteredImageDataUrl)
+      : await fileToDataUrl(uploadedFile);
+    setOcrState('running');
+    setOcrError(null);
+    const t0 = performance.now();
+    try {
+      // Send only {imageDataUrl, provider} — NO apiKey from the frontend.
+      const res = await apiFetch('/api/icr/evaluate-cloud', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          imageDataUrl: imageToSend,
+          provider: cloudProvider,
+        }),
+      });
+      const clientMs = Math.round(performance.now() - t0);
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setOcrError(data.error || `Cloud OCR HTTP ${res.status}`);
+        setOcrState('error');
+        return;
+      }
+      const normalized: ScanResponse = {
+        success: true,
+        ocrAnalysis: {
+          rawOcrText: data.rawOcrText || '',
+          extractedTokens: (data.extractedTokens || []).map((t: any) => ({
+            text: t.text,
+            confidence: t.confidence ?? 0.9,
+            bbox: t.bbox,
+          })),
+          processingTimeMs: data.processingTimeMs ?? clientMs,
+          ocrEngine: data.ocrEngine || 'Cloud OCR',
+        },
+        processingTimeMs: data.processingTimeMs ?? clientMs,
+      };
+      setOcrResult(normalized);
+      setOcrTiming({
+        clientMs,
+        serverMs: data.processingTimeMs ?? null,
+        startedAt: new Date().toISOString(),
+      });
+      setOcrState('done');
+      onOcrSuccess(normalized);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setOcrError(`Network or client error: ${msg}`);
+      setOcrState('error');
+    }
+  };
+
   const disabled = !uploadedFile;
 
   return (
@@ -326,6 +434,21 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
           // they can run OCR first (it'll still filter server-side) — wait,
           // that's confusing. Just allow OCR anytime; the backend is idempotent.
           // (Re-enabling.)
+        />
+        <BigButton
+          variant="purple"
+          icon={<CloudIcon />}
+          title="3. Run via Cloud API"
+          subtitle={
+            cloudProvidersConfigured[cloudProvider]
+              ? `Using ${cloudProvider.toUpperCase()} — admin-configured on server`
+              : 'No API key configured — ask admin to set ICR_CLOUD_API_KEY_' + cloudProvider.toUpperCase()
+          }
+          timeTaken={null}
+          liveElapsed={ocrState === 'running' ? elapsedMs : null}
+          state={ocrState}
+          onClick={runCloudOcr}
+          disabled={disabled || !cloudProvidersConfigured[cloudProvider]}
         />
       </div>
 
@@ -465,6 +588,19 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
           onDismiss={() => setOcrError(null)}
         />
       )}
+
+      {/* Cloud OCR status hint. Visible only when the user picked the
+          cloud provider but the server has no key for it. Tells the
+          user how to enable it (admin env var or admin POST to
+          /api/icr/cloud-config). The key itself never enters the UI. */}
+      {cloudProvidersConfigured[cloudProvider] === false && (
+        <div className="p-3 bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 rounded-xl text-xs text-purple-800 dark:text-purple-200">
+          <strong>{cloudProvider.toUpperCase()}</strong> is not configured on this server.
+          Ask an admin to set the <code className="font-mono">ICR_CLOUD_API_KEY_{cloudProvider.toUpperCase()}</code> environment
+          variable, or POST the key to <code className="font-mono">/api/icr/cloud-config</code> as an admin.
+          Until then, use the local OCR button (PaddleOCR).
+        </div>
+      )}
     </div>
   );
 };
@@ -494,7 +630,7 @@ const StepBadge: React.FC<{
 };
 
 interface BigButtonProps {
-  variant: 'indigo' | 'blue';
+  variant: 'indigo' | 'blue' | 'purple';
   icon: React.ReactNode;
   title: string;
   subtitle: string;
@@ -516,7 +652,7 @@ const BigButton: React.FC<BigButtonProps> = ({
   onClick,
   disabled,
 }) => {
-  const baseColor = variant === 'indigo' ? 'indigo' : 'blue';
+  const baseColor = variant;
   const isRunning = state === 'running';
   const isDone = state === 'done';
   const bgClass = isRunning
@@ -629,6 +765,12 @@ const FilterIcon = () => (
 const ScanIcon = () => (
   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+  </svg>
+);
+
+const CloudIcon = () => (
+  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 000-10 7 7 0 00-13.4 2.1A4 4 0 003 15z" />
   </svg>
 );
 
