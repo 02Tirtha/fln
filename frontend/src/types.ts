@@ -74,6 +74,7 @@ export interface Question {
   question: string;
   answer: string;
   answer_type: 'text' | 'number' | 'choice';
+  questionType?: string;
   choices?: string[];
   topic: string;
   subtopic: string;

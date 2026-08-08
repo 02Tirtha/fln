@@ -155,8 +155,8 @@ export const RemediationNotesView: React.FC = () => {
     // Helper to render practice questions - supports instruction + 5 sub-questions
     const renderPracticeQuestions = (practiceQs: any[], conceptName: string) => {
       const formattedItems = normalizePracticeFormat(practiceQs, conceptName);
-      return formattedItems.map((item) => {
-        const subQsHtml = item.subQuestions.map((sq, sqIdx) => `
+      return formattedItems.map((item: { instruction: string; subQuestions: Array<{ prompt: string; answer: string }> }) => {
+        const subQsHtml = item.subQuestions.map((sq: { prompt: string; answer: string }, sqIdx: number) => `
           <li class="subq-item">
             <div style="font-weight: 600; color: #1e293b; margin-bottom: 4px;">Q${sqIdx + 1}. ${sq.prompt}</div>
             <div class="answer-line">Answer: <span style="font-weight: 700; color: #059669;">${sq.answer ? sq.answer : '__________________________________'}</span></div>
@@ -352,6 +352,7 @@ export const RemediationNotesView: React.FC = () => {
     printWindow.document.close();
   };
 
+  const responseItems = ledger?.responses ?? [];
   const nameToShow = ledger?.studentName || studentNameFromQuery || studentId || 'Student';
 
   return (
@@ -432,8 +433,8 @@ export const RemediationNotesView: React.FC = () => {
 
             {/* Practice Questions Section */}
             <div className="space-y-8 mt-6">
-              {(ledger.responses || []).length > 0 ? (
-                ledger.responses.map((response: any, idx: number) => (
+              {responseItems.length > 0 ? (
+                responseItems.map((response: RemediationResponse, idx: number) => (
                   <div key={idx} className="space-y-3 pb-6 border-b border-slate-200 dark:border-slate-800 last:border-0">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                       <h3 className="text-base font-bold text-indigo-900 dark:text-indigo-300">

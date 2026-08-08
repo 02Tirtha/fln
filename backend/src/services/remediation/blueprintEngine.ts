@@ -473,6 +473,39 @@ const generatePlaceValue: ConceptGenerator = (v, originalQ = '') => {
   };
 };
 
+/**
+ * Underlined-digit place value practice questions — matches the paper
+ * generator's exact wording ("Identify the place value of the underlined
+ * digit: 7_8_4") where the digit wrapped between underscores is the one
+ * being asked about. Produces 5 unique numbers, keeps the same instruction,
+ * and returns the place value (digit × its place) as the answer.
+ */
+const generateUnderlinedPlaceValue: ConceptGenerator = (v, originalQ = '') => {
+  const numbers = [
+    [7, 8, 4], [5, 9, 2], [3, 6, 7], [9, 1, 4], [2, 6, 8],
+    [4, 5, 3], [7, 3, 1], [8, 2, 6], [5, 4, 9], [1, 7, 2],
+    [6, 3, 8], [9, 8, 5], [2, 4, 7], [3, 9, 6], [8, 1, 3],
+  ];
+  const sets = Array.from({ length: 5 }, (_, i) => {
+    const digits = numbers[(v * 5 + i) % numbers.length];
+    const [h, t, o] = digits;
+    // Same format as the original: 7_8_4 → the middle digit (Tens) is underlined.
+    return {
+      prompt: `${h}_${t}_${o}`,
+      answer: String(t * 10),
+    };
+  });
+
+  return {
+    question: 'Identify the place value of the underlined digit:',
+    subQuestions: sets,
+    answer: '',
+    topic: 'Place Value (Underlined Digit)',
+    aiGenerated: false,
+    remediation: 'The digit between the underscores is the underlined digit. Its place value = digit × its place (Tens = 10, so 8 in 7_8_4 = 80).',
+  };
+};
+
 const generateNumberSense: ConceptGenerator = (v, originalQ = '') => {
   const isNumeral = /numeral|write the numeral|write.*as a number/i.test(originalQ);
   const isWordForm = /in words|word form|write the number name/i.test(originalQ);
@@ -1707,6 +1740,9 @@ const GENERATORS: Record<string, ConceptGenerator> = {
   'addition (objects)': generateAdditionObjects,
   'subtraction (objects)': generateSubtractionObjects,
   'number sense (place value)': generateNumberSensePlaceValue,
+  'place value (underlined digit)': generateUnderlinedPlaceValue,
+  'place value (underlined)': generateUnderlinedPlaceValue,
+  'placevalueunderlineddigit': generateUnderlinedPlaceValue,
   'number sense (counting)': generateNumberSenseCounting,
   'geometry (perimeter)': generateGeometryPerimeter,
   'geometry (angles)': generateGeometryAngles,
@@ -1841,6 +1877,13 @@ function _generateByConcept(
       aiGenerated: false,
       remediation: getHumanReadableRemediation('Match Time and Clock', originalQ)
     };
+  }
+
+  // ── UNDERLINED-DIGIT PLACE VALUE (paper format 7_8_4) ─────
+  // Route on the exact instruction wording from the paper generator so every
+  // variant matches the original question format, whatever the concept slug is.
+  if (/identify the place value of the underlined digit/i.test(originalQ)) {
+    return generateUnderlinedPlaceValue(variantIndex, originalQ);
   }
 
   // ── OTHER REGISTERED GENERATORS ───────────────────────────
