@@ -876,23 +876,33 @@ async function run() {
       }),
       // Non-numeric: digit morphology is meaningless.
       q({ question_id: 'c', question: 'Which shape has four equal sides?', answer: 'square' }),
+      // Same misparsed prompt as b, but answered 5 * 27 — which reads as "they
+      // multiplied instead of adding" off operands we never verified.
+      q({
+        question_id: 'd',
+        question: 'Sita has 5 crates of 27 apples and picks 15 more. How many apples altogether?',
+        answer: '42',
+      }),
     ]);
     const map = new Map([[ws.id, ws]]);
-    const fp = buildFingerprint(
-      student('s1'),
-      [submission('s1', { a: '312', b: '312', c: 'circle' })],
-      map,
-    );
+    const answers = { a: '312', b: '312', c: 'circle', d: '135' };
+    const fp = buildFingerprint(student('s1'), [submission('s1', answers)], map);
 
     assert.ok(fp);
     const byId = Object.fromEntries(fp!.errors.map(e => [e.questionId, e]));
     assert.strictEqual(byId.a.unparsed, false, 'a clean sum is readable');
-    assert.strictEqual(byId.b.unparsed, true, 'an extra number defeats operand parsing');
+    // The operand misparse does not touch this verdict: 312 against 42 is an
+    // answer of wildly wrong size however the prompt was read. Being unable to
+    // verify the question is not the same as having no diagnosis.
+    assert.strictEqual(byId.b.unparsed, false, 'a magnitude verdict survives a bad operand parse');
     assert.strictEqual(byId.c.unparsed, true, 'a non-numeric answer has no digit morphology');
+    // This one does rest on the parse, so an unverified prompt discards it.
+    assert.strictEqual(byId.d.morphology, 'operationSubstitution');
+    assert.strictEqual(byId.d.unparsed, true, 'an operand-derived reading needs a verified prompt');
 
-    const analysis = await analyseCohort([student('s1')], [submission('s1', { a: '312', b: '312', c: 'circle' })], [ws]);
+    const analysis = await analyseCohort([student('s1')], [submission('s1', answers)], [ws]);
     assert.strictEqual(analysis.unclassifiedCount, 2);
-    assert.ok(analysis.unclassifiedRate > 0.6);
+    assert.ok(analysis.unclassifiedRate > 0.4);
     assert.strictEqual(analysis.residue.length, 2, 'residue is deduplicated by question and answer');
   });
 

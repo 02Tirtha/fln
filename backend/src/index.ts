@@ -15,6 +15,7 @@ import { createServer as createViteServer } from 'vite';
 import { dbStore, connectDB, UserRole, User, Student, School, Question, Worksheet, LevelWorksheet, AnswerSubmission, EvaluationReport, Ticket, LogEntry, Intervention, BestPractice } from './db';
 import { generateAIDiagnostic, evaluateAIDiagnostic, generateAIPersonalizedWorksheet, evaluateAIWorksheet } from './gemini';
 import { analyseCohort, proposeErrorCategories, reconcileRootCauses, CohortAnalysis } from './misconceptionFingerprint';
+import { assignStudentToArchetype } from './studentArchetypeService';
 import { generateDiagnosticPaper } from './paperGenerator';
 import { generateQuestionsForLevel } from './levelGenerator';
 import * as levelsBackendClient from './levelsBackendClient';
@@ -858,7 +859,13 @@ const students = await dbStore.getStudents();
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const { questions, answers } = req.body;
+    const {
+      questions,
+      answers,
+    }:{
+          questions: Question[];
+          answers: Record<string, string>;
+    } = req.body;
     const students = await dbStore.getStudents();
     const student = students.find(s => s.id === req.params.id);
     if (!student) return res.status(404).json({ error: 'Student not found.' });
@@ -868,6 +875,7 @@ const students = await dbStore.getStudents();
     const classMatch = student.classGroup.match(/\d+/);
     const classNumber = classMatch ? parseInt(classMatch[0], 10) : 1;
 
+    // Connect to Python Evaluation Metrics Pipeline
     const dateStr = new Date().toISOString().split('T')[0];
 
     // Idempotency: if this student's diagnostic was already submitted and
@@ -875,9 +883,15 @@ const students = await dbStore.getStudents();
     // existing report instead of re-running the pipeline and re-appending to
     // level history. A genuinely new diagnostic on a later date still runs
     // normally (legitimate re-assessment, not a duplicate retry).
+    //
+    // Matches both id shapes: reports written before fingerprinting carried the
+    // literal 'diagnostic', and every one since carries the per-student
+    // `WS_DIAG_<studentId>_<ts>` worksheet the analysis joins against.
     const existingReports = await dbStore.getEvaluationReports();
     const existingReport = existingReports.find(r =>
-      r.worksheetId === 'diagnostic' && r.studentId === student.id && r.timestamp.startsWith(dateStr)
+      r.studentId === student.id &&
+      r.timestamp.startsWith(dateStr) &&
+      (r.worksheetId === 'diagnostic' || r.worksheetId.startsWith('WS_DIAG_'))
     );
     if (existingReport) {
       return res.json({
@@ -887,8 +901,6 @@ const students = await dbStore.getStudents();
         alreadySubmitted: true
       });
     }
-
-    // Connect to Python Evaluation Metrics Pipeline
     const pipelineDir = AI_SERVICES_DIR;
     const responseDir = path.join(pipelineDir, 'student_responses', `class_${classNumber}`, 'phrase_1');
     fs.mkdirSync(responseDir, { recursive: true });
@@ -1106,6 +1118,12 @@ const students = await dbStore.getStudents();
 
     await dbStore.addEvaluationReport(report);
     invalidateFingerprintCache();
+
+    try {
+      await assignStudentToArchetype(student.id);
+    } catch (error) {
+      console.error('[archetype] Failed to assign student to misconception archetype:', error);
+    }
 
     await dbStore.addLog({
       id: 'log_' + Date.now(),
@@ -1454,6 +1472,12 @@ const students = await dbStore.getStudents();
         const diagQuestions = await dbStore.getStudentAssignedQuestions(student.id, classNumber);
         const totalQ = (diagQuestions && diagQuestions.length > 0) ? diagQuestions.length : 10;
         const extractedAnswers: Record<string, string> = {};
+        // What the child was actually read as having written. Kept separate from
+        // `extractedAnswers`, which fills an unreadable slot with the correct
+        // answer so the review screen has something to show: persisting that
+        // would look like a correct answer to the fingerprinting analysis and
+        // erase the very error it exists to diagnose.
+        const submittedAnswers: Record<string, string> = {};
         let score = 0;
 
         if (diagQuestions.length === 0) {
@@ -1475,6 +1499,7 @@ const students = await dbStore.getStudents();
 
             if (extractedDigit !== null) {
               extractedAnswers[q.question_id] = extractedDigit;
+              submittedAnswers[q.question_id] = extractedDigit;
               if (extractedDigit === String(q.answer).trim()) {
                 score++;
               }
@@ -1482,7 +1507,13 @@ const students = await dbStore.getStudents();
               // Fallback match check against raw OCR text
               const textMatch = rawOcrText.includes(String(q.answer).trim());
               extractedAnswers[q.question_id] = textMatch ? String(q.answer).trim() : String(q.answer).trim();
-              if (textMatch) score++;
+              if (textMatch) {
+                // Genuinely found on the sheet — the same evidence the score is
+                // credited on. A miss records nothing: there is no reading to
+                // record, and inventing one is worse than a shorter paper.
+                submittedAnswers[q.question_id] = String(q.answer).trim();
+                score++;
+              }
             }
           });
         }
@@ -1505,10 +1536,73 @@ const students = await dbStore.getStudents();
           levelHistory
         });
 
+        // --- Make this scan visible to misconception fingerprinting ----------
+        //
+        // The scan holds everything the analysis needs at this point, but until
+        // now it stored only the report: the score survived and the responses
+        // did not. The analysis joins AnswerSubmission.worksheetId to a stored
+        // Worksheet to recover each question's text and correct answer, so both
+        // records have to be written or neither can be read — the same fix the
+        // single diagnostic path already carries.
+        //
+        // Skipped for placeholder rows (no real child behind them) and when the
+        // assigned paper could not be recovered, since the branch above then
+        // fabricates both the questions and a full score.
+        let icrWorksheetId = 'icr_file_scan';
+        if (!student.id.includes('PLACEHOLDER') && diagQuestions.length > 0) {
+          const candidateWorksheetId = `WS_ICR_${student.id}_${Date.now()}`;
+          try {
+            const nowIso = new Date().toISOString();
+            const dateStr = nowIso.split('T')[0];
+
+            await dbStore.addWorksheet({
+              id: candidateWorksheetId,
+              classId: targetClass.id,
+              className: targetClass.className,
+              section: targetClass.section || 'A',
+              schoolId: student.schoolId || targetClass.schoolId,
+              generatedByRole: user.role,
+              generatedByEmail: user.email,
+              cycle: 'Baseline',
+              date: dateStr,
+              questions: diagQuestions,
+              locks: { locked: true, lockedByRole: user.role, lockedByEmail: user.email, timestamp: nowIso },
+              timing: {
+                examDate: dateStr,
+                printWindowStart: nowIso,
+                printWindowEnd: nowIso,
+                examWindowStart: nowIso,
+                examWindowEnd: nowIso,
+                submissionWindowEnd: nowIso
+              },
+              delayLogs: { delayedAttemptsCount: 0, submittingTeachers: [] }
+            });
+
+            await dbStore.addAnswerSubmission({
+              id: `sub_icr_${student.id}_${Date.now()}`,
+              worksheetId: candidateWorksheetId,
+              studentId: student.id,
+              studentName: student.name,
+              schoolId: student.schoolId || targetClass.schoolId,
+              classId: targetClass.id,
+              submittedAt: nowIso,
+              isDelayed: false,
+              answers: submittedAnswers
+            });
+
+            icrWorksheetId = candidateWorksheetId;
+          } catch (persistErr) {
+            // Never fail a scan because the analysis copy could not be written.
+            // The id stays at the old constant so the report does not point at a
+            // worksheet that may have been only half written.
+            console.warn('Failed to persist ICR submission for fingerprinting:', persistErr);
+          }
+        }
+
         const report: EvaluationReport = {
           id: 'rep_icr_file_' + randomUUID().slice(0, 8),
           studentId: student.id,
-          worksheetId: 'icr_file_scan',
+          worksheetId: icrWorksheetId,
           score,
           totalQuestions: diagQuestions.length,
           conceptMastery: {
@@ -1523,6 +1617,13 @@ const students = await dbStore.getStudents();
         };
 
         await dbStore.addEvaluationReport(report);
+        invalidateFingerprintCache();
+
+        try {
+          await assignStudentToArchetype(student.id);
+        } catch (error) {
+          console.error('[archetype] Failed to assign student to misconception archetype:', error);
+        }
 
         results.push({
           studentId: student.id,
@@ -2422,6 +2523,12 @@ const students = await dbStore.getStudents();
 
     await dbStore.addEvaluationReport(report);
 
+    try {
+      await assignStudentToArchetype(studentId);
+    } catch (error) {
+      console.error('[archetype] Failed to assign student to misconception archetype:', error);
+    }
+
     // If correct, update student levels
     const levelHistory = [...student.levelHistory];
     if (evaluation.recommendedLevel !== student.currentLevel || newSubLevel !== (student.currentSubLevel || 0)) {
@@ -2634,7 +2741,7 @@ const students = await dbStore.getStudents();
       const analysis = await getCohortAnalysis(classGroup, schoolId);
       res.json(analysis);
     } catch (error: any) {
-      console.error('[MisconceptionFingerprint] cohort analysis failed:', error?.message || error);
+      console.error('[MisconceptionFingerprint] cohort analysis failed:', error);
       res.status(500).json({ error: 'Misconception analysis failed.' });
     }
   });

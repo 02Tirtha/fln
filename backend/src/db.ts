@@ -363,6 +363,26 @@ export interface BestPractice {
   viewCount: number;
   createdAt: string;
 }
+export interface MisconceptionCluster {
+  id: string;
+  name: string;
+  description: string;
+  teacherAction: string;
+  forwardRisk: string;
+  studentIds: string[];
+  centroid?: number[];
+  /**
+   * The class this archetype belongs to. Archetypes never span classes: the
+   * same-looking error means something different at each level (an off-by-one
+   * in Class 2 counting is not the off-by-one of Class 4 regrouping), and a
+   * teaching group a teacher can act on has to be one class they actually
+   * teach. Optional only because clusters created before this field existed
+   * carry no class; those are treated as belonging to no class and skipped.
+   */
+  classGroup?: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 interface DatabaseSchema {
   users: User[];
@@ -382,6 +402,7 @@ interface DatabaseSchema {
   interventions: Intervention[];
   bestPractices: BestPractice[];
   diagnosticAnswerKeys: DiagnosticAnswerKey[];
+  misconceptionClusters: MisconceptionCluster[];
 }
 
 const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
@@ -402,6 +423,7 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
   interventions: 'interventions',
   bestPractices: 'best_practices',
   diagnosticAnswerKeys: 'diagnostic_answer_keys',
+  misconceptionClusters: "misconception_clusters",
 };
 
 export class DBStore {
@@ -458,6 +480,17 @@ export class DBStore {
           }
         } catch (e: any) {
           console.warn('Collection check info:', e.message);
+        }
+
+        // `students.id` is the business key every lookup goes through, but the
+        // collection was only indexed on schoolId/teacherId — so getStudentById()
+        // was a full scan of 86k documents. createIndex is idempotent, so this is
+        // a no-op once the index exists. Non-blocking: an index failure must not
+        // stop the server from booting.
+        try {
+          await db.collection('students').createIndex({ id: 1 }, { name: 'id_1' });
+        } catch (e: any) {
+          console.warn('students.id index not created:', e.message);
         }
 
         for (const [key, collName] of Object.entries(COLLECTION_NAMES)) {
@@ -590,6 +623,19 @@ export class DBStore {
       if (opts?.offset) result = result.slice(opts.offset);
       if (opts?.limit) result = result.slice(0, opts.limit);
       return result;
+    }
+    /**
+     * One student by business id, without pulling the collection.
+     *
+     * `getStudents()` ships all 86k student documents to the caller; anything
+     * that needs a single child (archetype assignment runs once per evaluation,
+     * and once per student inside the bulk ICR loop) must not pay that.
+     */
+    async getStudentById(id: string): Promise<Student | null> {
+      if (this.mongoDb) {
+        return await this.mongoDb.collection<Student>('students').findOne({ id });
+      }
+      return (this.data?.students || []).find(s => s.id === id) || null;
     }
     async countStudents(opts?: { schoolId?: string; teacherId?: string }) {
       if (this.mongoDb) {
@@ -881,6 +927,39 @@ export class DBStore {
   async getAnnouncements() {
     if (this.mongoDb) return await this.mongoDb.collection<Announcement>('announcements').find({}).toArray();
     return this.data?.announcements || [];
+  }
+
+  /** Archetypes for one class, or every class when no class is named. */
+  async getMisconceptionClusters(classGroup?: string) {
+    const filter = classGroup ? { classGroup } : {};
+    if (this.mongoDb) {
+      return await this.mongoDb
+        .collection<MisconceptionCluster>('misconception_clusters')
+        .find(filter)
+        .toArray();
+    }
+    const all = this.data?.misconceptionClusters || [];
+    return classGroup ? all.filter(c => c.classGroup === classGroup) : all;
+  }
+
+  async createMisconceptionCluster(cluster: MisconceptionCluster) {
+    if (this.mongoDb) await this.mongoDb.collection('misconception_clusters').insertOne(cluster);
+    if (this.data) {
+      if (!this.data.misconceptionClusters) this.data.misconceptionClusters = [];
+      this.data.misconceptionClusters.push(cluster);
+    }
+    return cluster;
+  }
+
+  async updateMisconceptionCluster(cluster: MisconceptionCluster) {
+    if (this.mongoDb) await this.mongoDb.collection('misconception_clusters').replaceOne({ id: cluster.id }, cluster, { upsert: true });
+    if (this.data) {
+      if (!this.data.misconceptionClusters) this.data.misconceptionClusters = [];
+      const idx = this.data.misconceptionClusters.findIndex(x => x.id === cluster.id);
+      if (idx !== -1) this.data.misconceptionClusters[idx] = cluster;
+      else this.data.misconceptionClusters.push(cluster);
+    }
+    return cluster;
   }
 
   // --- Write / Update Helpers ---
@@ -3000,7 +3079,8 @@ export class DBStore {
       announcements,
       interventions,
       bestPractices,
-      diagnosticAnswerKeys: []
+      diagnosticAnswerKeys: [],
+      misconceptionClusters: []
     };
   }
 }

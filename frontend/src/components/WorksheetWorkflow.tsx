@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { ClassGroup, Worksheet, Student, AnswerSubmission, EvaluationReport } from '../types';
 import { SvgLibraryResolver } from './SvgLibraryResolver';
 import { WorksheetIframeModal } from './WorksheetIframeModal';
+import { simulateWrongAnswer } from '../services/simulatedAnswers';
 
 interface WorksheetWorkflowProps {
   classGroup: ClassGroup;
@@ -400,7 +401,8 @@ export const WorksheetWorkflow: React.FC<WorksheetWorkflowProps> = ({ classGroup
                           const filled: { [key: string]: string } = {};
                           const qs = worksheet.questions.filter(q => q.question_id.startsWith(activeStudentId + '_'));
                           qs.forEach((q, idx) => {
-                            filled[q.question_id] = idx === 0 ? 'FAIL' : q.answer;
+                            filled[q.question_id] =
+                              idx === 0 ? simulateWrongAnswer(q.answer, activeStudentId) : q.answer;
                           });
                           setStudentAnswers(filled);
                         }}
@@ -415,7 +417,7 @@ export const WorksheetWorkflow: React.FC<WorksheetWorkflowProps> = ({ classGroup
                           worksheet.questions
                             .filter(q => q.question_id.startsWith(activeStudentId + '_'))
                             .forEach(q => {
-                              filled[q.question_id] = 'WRONG';
+                              filled[q.question_id] = simulateWrongAnswer(q.answer, activeStudentId);
                             });
                           setStudentAnswers(filled);
                         }}

@@ -550,12 +550,22 @@ export const ChildErrorSignature: React.FC<{ studentId: string; token: string }>
 
 /* ---------- panel ---------- */
 
-const MisconceptionFingerprint: React.FC<Props> = ({ token, classGroup = 'Class 3' }) => {
+/** The classes the platform assesses. Archetypes never span them. */
+const CLASS_GROUPS = ['Class 2', 'Class 3', 'Class 4'];
+
+const MisconceptionFingerprint: React.FC<Props> = ({ token, classGroup: fixedClassGroup }) => {
+  // Selectable rather than fixed. The board used to default to a hard-coded
+  // class with no control to leave it, so archetypes belonging to any other
+  // class were unreachable however many the analysis had found.
+  const [selectedClass, setSelectedClass] = useState(fixedClassGroup ?? CLASS_GROUPS[0]);
+  const classGroup = fixedClassGroup ?? selectedClass;
   const [compare, setCompare] = useState<ComparePayload | null>(null);
   const [cohort, setCohort] = useState<CohortPayload | null>(null);
   const [revealed, setRevealed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  /** No two children share a score across archetypes — an absence, not a fault. */
+  const [noCollision, setNoCollision] = useState(false);
   const [leftId, setLeftId] = useState('');
   const [rightId, setRightId] = useState('');
   const [residue, setResidue] = useState<ResiduePayload | null>(null);
@@ -567,6 +577,7 @@ const MisconceptionFingerprint: React.FC<Props> = ({ token, classGroup = 'Class 
     async (a?: string, b?: string) => {
       setLoading(true);
       setError('');
+      setNoCollision(false);
       try {
         const qs = new URLSearchParams({ classGroup });
         if (a && b) {
@@ -581,13 +592,23 @@ const MisconceptionFingerprint: React.FC<Props> = ({ token, classGroup = 'Class 
         if (!cmpRes.ok) {
           const text = await cmpRes.text();
           let msg = `Comparison unavailable (HTTP ${cmpRes.status}).`;
+          let reason = '';
           try {
             const parsed = JSON.parse(text);
             if (parsed.error) msg = parsed.error;
+            if (parsed.reason) reason = parsed.reason;
           } catch {
             /* non-JSON error page: keep the status-based message */
           }
-          setError(msg);
+          // The side-by-side comparison needs two children on the same score in
+          // different archetypes. Having no such pair is an ordinary property of
+          // a cohort — guaranteed, in fact, whenever no archetypes were found —
+          // so it is an absent optional panel, not a failure to report in red.
+          if (reason === 'NO_COLLISION') {
+            setNoCollision(true);
+          } else {
+            setError(msg);
+          }
           setCompare(null);
         } else {
           const payload: ComparePayload = await cmpRes.json();
@@ -659,7 +680,30 @@ const MisconceptionFingerprint: React.FC<Props> = ({ token, classGroup = 'Class 
               </p>
             </div>
           </div>
-          <button
+          <div className="flex items-center gap-2">
+            {!fixedClassGroup && (
+              <select
+                value={selectedClass}
+                onChange={e => {
+                  // A different class is a different cohort: drop the pair being
+                  // compared so the next load picks its own, rather than asking
+                  // for two children who are not in it.
+                  setLeftId('');
+                  setRightId('');
+                  setRevealed(false);
+                  setSelectedClass(e.target.value);
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                aria-label="Class"
+              >
+                {CLASS_GROUPS.map(c => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            )}
+            <button
             onClick={() => {
               setRevealed(false);
               load(leftId || undefined, rightId || undefined);
@@ -668,7 +712,8 @@ const MisconceptionFingerprint: React.FC<Props> = ({ token, classGroup = 'Class 
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
             Re-analyse
-          </button>
+            </button>
+          </div>
         </div>
 
         {compare && (
@@ -698,7 +743,7 @@ const MisconceptionFingerprint: React.FC<Props> = ({ token, classGroup = 'Class 
         an error: children who answered everything correctly leave no failure
         signature. Say which it is, rather than surfacing the comparison's 404.
       */}
-      {error && cohort && cohort.analysedCount === 0 ? (
+      {cohort && cohort.analysedCount === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-700 dark:bg-slate-900">
           <h3 className="font-sans text-base font-bold text-slate-900 dark:text-white">
             Nothing to fingerprint in {classGroup} yet
@@ -727,6 +772,13 @@ const MisconceptionFingerprint: React.FC<Props> = ({ token, classGroup = 'Class 
             {error}
           </div>
         )
+      )}
+
+      {noCollision && cohort && cohort.analysedCount > 0 && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+          No side-by-side comparison for {classGroup}: it needs two children on the same score who
+          fail in different ways, and this cohort has no such pair. Everything below is unaffected.
+        </div>
       )}
 
       {loading && !compare && (

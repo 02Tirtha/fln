@@ -34,8 +34,10 @@ import type {
   Student,
   Question,
   Worksheet,
-  AnswerSubmission
+  AnswerSubmission,
+  EvaluationReport
 } from "./db";
+import { dbStore, type MisconceptionCluster } from "./db";
 
 /* ------------------------------------------------------------------ *
  * Feature space
@@ -198,6 +200,22 @@ function toNumber(raw: string | undefined | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * The prompt text of a question, or null when the stored record carries none.
+ *
+ * `Question.question` is typed as a string, but some diagnostic banks persist
+ * the item's ordinal there instead of its wording (`q.question === 1`). Handing
+ * that to the text parsers below is what produced `prompt.match is not a
+ * function`. A number is not a malformed prompt — it is the absence of one — so
+ * it is excluded rather than stringified: "1" would parse as the operand 1 and
+ * yield a confident wrong reading, which is worse than no reading at all.
+ */
+function questionText(question: Question): string | null {
+  const raw: unknown = question?.question;
+  if (typeof raw !== "string") return null;
+  return raw.trim() === "" ? null : raw;
+}
+
 /** Every integer appearing in a question prompt, in order — the operands. */
 function parseOperands(prompt: string): number[] {
   const matches = prompt.match(/\d+(?:\.\d+)?/g);
@@ -309,8 +327,11 @@ function isReadable(question: Question, submitted: string): boolean {
   const actual = toNumber(submitted);
   if (expected === null || actual === null) return false;
 
-  const operands = parseOperands(question.question);
-  const op = detectOperation(question.question);
+  const text = questionText(question);
+  if (!text) return false;
+
+  const operands = parseOperands(text);
+  const op = detectOperation(text);
   if (operands.length < 2 || !op) return false;
 
   const [a, b] = operands;
@@ -342,8 +363,11 @@ export function classifyError(
     return "grossMagnitude";
   }
 
-  const operands = parseOperands(question.question);
-  const op = detectOperation(question.question);
+  // Without prompt text there are no operands to reason about; the digit-level
+  // and magnitude rules below still apply, since they need only the two numbers.
+  const text = questionText(question);
+  const operands = text ? parseOperands(text) : [];
+  const op = text ? detectOperation(text) : null;
 
   if (operands.length >= 2 && op) {
     const [a, b] = operands;
@@ -644,8 +668,9 @@ export function buildFingerprint(
       if (!q) continue;
       totalAnswered++;
 
-      const operands = parseOperands(q.question);
-      const op = detectOperation(q.question);
+      const text = questionText(q);
+      const operands = text ? parseOperands(text) : [];
+      const op = text ? detectOperation(text) : null;
       const requiredRegrouping =
         operands.length >= 2 && op ? requiresRegrouping(operands[0], operands[1], op) : false;
 
@@ -668,19 +693,43 @@ export function buildFingerprint(
         continue;
       }
 
+      const answer = String(submitted);
+      const morphology = classifyError(q, submitted);
+
+      // "No diagnosis at all" means we could not line the child's answer up
+      // against the expected one — a non-numeric response where a number was
+      // wanted. A specific shape (off-by-one, reversal) or a numeric answer of
+      // wildly wrong size IS a diagnosis, whether or not the prompt happens to
+      // be two-operand arithmetic.
+      //
+      // Gating this on the prompt instead, as it was, made the count report on
+      // the questions rather than the mistakes: a class whose answers were all
+      // cleanly classified as offByOne and nearMiss still read "89% did not
+      // match any of the nine known error patterns", because "Identify the
+      // place value of the underlined digit" has no operands to verify.
+      const comparable = toNumber(q.answer) !== null && toNumber(answer) !== null;
+
+      // The two operand-derived readings are only as good as our parse of the
+      // prompt. If the operands do not reproduce the known answer we misread the
+      // question, and a confident "they subtracted instead of adding" is worse
+      // than admitting we have nothing.
+      const operandDerived =
+        morphology === "digitConcatenation" || morphology === "operationSubstitution";
+
       errors.push({
         questionId: qid,
-        prompt: q.question,
+        prompt: text ?? "",
         expected: q.answer,
-        submitted: String(submitted),
-        morphology: classifyError(q, submitted),
+        submitted: answer,
+        morphology,
         topic: q.topic || "Unclassified",
         sourceLevel: q.source_level,
         difficulty: q.difficulty,
         requiredRegrouping,
         multiDigit: operands.some(n => Math.abs(n) > 9),
         // A blank is a genuine finding (omission), not a parse failure.
-        unparsed: String(submitted).trim() !== "" && !isReadable(q, String(submitted))
+        unparsed:
+          answer.trim() !== "" && (!comparable || (operandDerived && !isReadable(q, answer)))
       });
     }
   }
@@ -731,6 +780,165 @@ export function buildFingerprint(
     signature: topFeatures(vector),
     weakness: buildWeakness(attempts, errors),
     errors,
+    glyph: buildGlyph(vector, student.id)
+  };
+}
+
+/**
+ * Build one child's signature from a completed EvaluationReport.
+ *
+ * The submission-based path above needs `AnswerSubmission.answers` joined to
+ * `Worksheet.questions`. Several diagnostics — the 36-question paper among them
+ * — are persisted only as an `EvaluationReport`, so those children had no
+ * fingerprint at all and were silently dropped from clustering.
+ *
+ * A report records what the child got wrong and where, but never what they
+ * wrote. The nine morphology dimensions are therefore structurally unavailable
+ * here and are left at zero rather than guessed at — a fabricated morphology
+ * would be indistinguishable from a real one downstream. What a report *does*
+ * carry (per-error topic, FLN level and error type; per-difficulty attempt
+ * counts; the per-topic mastery verdicts) drives the distribution and
+ * consistency blocks, which is what the archetype decision reads.
+ */
+export function buildFingerprintFromEvaluationReport(
+  student: Student,
+  report: EvaluationReport
+): StudentFingerprint | null {
+  const totalAnswered = Math.trunc(Number(report.totalQuestions));
+  if (!Number.isFinite(totalAnswered) || totalAnswered <= 0) return null;
+
+  const rawScore = Math.trunc(Number(report.score));
+  const totalCorrect = Number.isFinite(rawScore)
+    ? Math.max(0, Math.min(totalAnswered, rawScore))
+    : 0;
+  const totalIncorrect = totalAnswered - totalCorrect;
+
+  const rootCauses = report.rootCauses ?? [];
+  const vector = emptyVector();
+
+  /* --- Distribution block ------------------------------------------------ */
+
+  if (rootCauses.length > 0) {
+    const topicCounts = new Map<string, number>();
+    for (const rc of rootCauses) {
+      const topic = rc.topic || "Unclassified";
+      topicCounts.set(topic, (topicCounts.get(topic) ?? 0) + 1);
+    }
+    vector.topicConcentration = concentration(topicCounts);
+
+    const referenceLevel = Number.isFinite(student.currentLevel)
+      ? student.currentLevel
+      : report.recommendedLevel;
+    vector.belowLevelFailure =
+      rootCauses.filter(rc => Number(rc.flnLevel) < referenceLevel).length / rootCauses.length;
+
+    // `errorType` is the only account of error *shape* a report keeps. An even
+    // spread across conceptual/careless/prerequisite is the report-level
+    // equivalent of mistakes with no consistent shape; total focus on one type
+    // is a child applying one wrong rule.
+    const typeCounts = new Map<string, number>();
+    for (const rc of rootCauses) {
+      const errorType = rc.errorType || "unclassified";
+      typeCounts.set(errorType, (typeCounts.get(errorType) ?? 0) + 1);
+    }
+    vector.errorDispersion = 1 - concentration(typeCounts);
+  } else {
+    // No per-error records. The mastery verdicts are the only account of where
+    // the failures sit, so concentration is measured over those instead.
+    const masteryWeights = new Map<string, number>();
+    for (const [topic, mastery] of Object.entries(report.conceptMastery ?? {})) {
+      if (mastery === "Strong") continue;
+      masteryWeights.set(topic, mastery === "Needs Practice" ? 2 : 1);
+    }
+    if (masteryWeights.size > 0) vector.topicConcentration = concentration(masteryWeights);
+  }
+
+  /* --- Consistency block ------------------------------------------------- */
+
+  // `performanceByDifficulty` is a genuine cell structure — attempts grouped by
+  // a property of the question — which is exactly what the consistency features
+  // are defined over. Topic and regrouping are unknown per attempt and so are
+  // held constant; they drop out of the cell key rather than distorting it.
+  const attempts: Attempt[] = [];
+  for (const [difficulty, performance] of Object.entries(report.performanceByDifficulty ?? {})) {
+    const attempted = Math.max(0, Math.trunc(Number(performance?.attempted)) || 0);
+    const correct = Math.max(0, Math.min(attempted, Math.trunc(Number(performance?.correct)) || 0));
+    for (let i = 0; i < attempted; i++) {
+      attempts.push({
+        correct: i < correct,
+        topic: "Unclassified",
+        difficulty: difficulty as Question["difficulty"],
+        requiredRegrouping: false,
+        sourceLevel: report.recommendedLevel
+      });
+    }
+  }
+
+  const wrongByDifficulty = attempts.filter(a => !a.correct).length;
+  if (wrongByDifficulty > 0) {
+    vector.hardOnlyFailure =
+      attempts.filter(a => !a.correct && a.difficulty === "hard").length / wrongByDifficulty;
+  }
+
+  const consistency = consistencyStats(attempts);
+  vector.skillInconsistency = consistency.inconsistency;
+  vector.contextSpecificity = consistency.specificity;
+
+  /* --- Weakness ---------------------------------------------------------- */
+
+  const failedLevels = Array.from(
+    new Set(
+      (report.levelsFailed ?? rootCauses.map(rc => Number(rc.flnLevel)))
+        .map(Number)
+        .filter(Number.isFinite)
+    )
+  ).sort((a, b) => a - b);
+
+  let weakTopics: ChildWeakness["topics"];
+  if (rootCauses.length > 0) {
+    const wrongByTopic = new Map<string, number>();
+    for (const rc of rootCauses) {
+      const topic = rc.topic || "Unclassified";
+      wrongByTopic.set(topic, (wrongByTopic.get(topic) ?? 0) + 1);
+    }
+    // Attempts per topic are not recorded on a report, so `wrong` stands in for
+    // `attempted` — the same convention `buildWeakness` uses when a topic has
+    // errors but no matching attempt records.
+    weakTopics = Array.from(wrongByTopic.entries())
+      .map(([topic, wrong]) => ({ topic, wrong, attempted: wrong, rate: 1 }))
+      .sort((a, b) => b.wrong - a.wrong);
+  } else {
+    // Counts are genuinely unknown here, so they are reported as zero and only
+    // the rate carries meaning — translated from the mastery verdict.
+    weakTopics = Object.entries(report.conceptMastery ?? {})
+      .filter(([, mastery]) => mastery !== "Strong")
+      .map(([topic, mastery]) => ({
+        topic,
+        wrong: 0,
+        attempted: 0,
+        rate: mastery === "Needs Practice" ? 1 : 0.5
+      }))
+      .sort((a, b) => b.rate - a.rate);
+  }
+
+  return {
+    studentId: student.id,
+    studentName: student.name,
+    classGroup: student.classGroup,
+    currentLevel: student.currentLevel,
+    score: Math.round((totalCorrect / totalAnswered) * 100),
+    totalAnswered,
+    totalIncorrect,
+    vector,
+    signature: topFeatures(vector),
+    weakness: {
+      weakestLevel: failedLevels.length > 0 ? failedLevels[0] : null,
+      levelsFailed: failedLevels,
+      topics: weakTopics
+    },
+    // The report does not retain the child's own responses, so there is no
+    // per-error evidence to show. Left empty rather than reconstructed.
+    errors: [],
     glyph: buildGlyph(vector, student.id)
   };
 }
@@ -996,6 +1204,14 @@ function isIncoherent(centroid: FeatureVector): boolean {
   );
 }
 
+function fromArray(point: number[]): FeatureVector {
+  const vector = emptyVector();
+  for (let i = 0; i < FEATURE_KEYS.length; i++) {
+    vector[FEATURE_KEYS[i]] = point[i] ?? 0;
+  }
+  return vector;
+}
+
 /**
  * Fixed copy for the incoherent group.
  *
@@ -1030,7 +1246,12 @@ function carelessNaming(): Pick<
  *
  * Incoherent clusters are withheld from the model entirely and named above.
  */
-async function nameArchetypes(allArchetypes: Archetype[], classGroup: string): Promise<void> {
+/**
+ * Exported for the re-naming pass over archetypes that were created while the
+ * model was unreachable. Mutates in place and sets `namedByFallback`, which is
+ * how a caller tells a real name from a deterministic stand-in.
+ */
+export async function nameArchetypes(allArchetypes: Archetype[], classGroup: string): Promise<void> {
   // Incoherent groups are settled here and excluded from everything below.
   for (const a of allArchetypes) {
     if (!a.incoherent) continue;
@@ -1450,8 +1671,13 @@ export interface CohortAnalysis {
  * Below this many wrong answers a signature is noise, not a profile: with two
  * errors the morphology vector is one-hot and the child would be handed an
  * archetype on the evidence of one slip.
+ *
+ * Exported because the persistent-archetype path in `studentArchetypeService`
+ * has to hold the same line. When only the cohort view enforced it, a child
+ * could be a member of a saved archetype and simultaneously be listed under
+ * "Not enough evidence yet" on the screen that shows it.
  */
-const MIN_ERRORS_FOR_CLUSTERING = 3;
+export const MIN_ERRORS_FOR_CLUSTERING = 3;
 
 /**
  * Silhouette below this and the partition is not describing real groups.
@@ -1716,6 +1942,134 @@ export async function analyseCohort(
     ...summariseWeakness(fingerprints),
     ...summariseResidue(fingerprints)
   };
+
+  // Only this class's archetypes. Without the filter a cohort screen renders
+  // groups founded by children it does not contain, and the class-less clusters
+  // written before archetypes were scoped would reappear in every class at once.
+  const persistentClusters = await dbStore.getMisconceptionClusters(options.classGroup);
+  if (persistentClusters.length > 0) {
+    const clusters = [...persistentClusters].sort(
+      (a, b) =>
+        String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? "")) ||
+        String(a.id).localeCompare(String(b.id))
+    );
+
+    const clusterIndexById = new Map<string, number>();
+    clusters.forEach((cluster, index) => clusterIndexById.set(cluster.id, index));
+
+    const clusterAssignments = new Map<string, number>();
+    for (const fingerprint of clusterable) {
+      const clusterIndex = clusters.findIndex(cluster => cluster.studentIds.includes(fingerprint.studentId));
+      if (clusterIndex !== -1) {
+        fingerprint.clusterId = clusterIndex;
+        clusterAssignments.set(fingerprint.studentId, clusterIndex);
+      }
+    }
+
+    const assignedFingerprints = clusterable.filter(f => f.clusterId !== undefined);
+    analysis.clusteredCount = assignedFingerprints.length;
+
+    const persistentArchetypes: Archetype[] = [];
+    if (assignedFingerprints.length > 0) {
+      const cohortMean = emptyVector();
+      for (const key of FEATURE_KEYS) {
+        cohortMean[key] = assignedFingerprints.reduce((a, f) => a + f.vector[key], 0) / assignedFingerprints.length;
+      }
+
+      for (const cluster of clusters) {
+        const clusterId = clusterIndexById.get(cluster.id);
+        if (clusterId === undefined) continue;
+        const members = assignedFingerprints.filter(f => f.clusterId === clusterId);
+        if (members.length === 0) continue;
+
+        const centroidPoint = meanPoint(members.map(m => toArray(m.vector)));
+        const centroid = fromArray(centroidPoint);
+
+        const distinctiveFeatures = FEATURE_KEYS.map(key => {
+          const value = centroid[key];
+          const base = cohortMean[key];
+          const lift = base > 0.001 ? value / base : value > 0.001 ? 3 : 0;
+          return { key, label: FEATURE_LABELS[key], value, lift };
+        })
+          .filter(f => f.value > 0.08 && f.lift > 1.1)
+          .sort((a, b) => b.lift * b.value - a.lift * a.value)
+          .slice(0, 6);
+
+        persistentArchetypes.push({
+          clusterId,
+          slug: cluster.id,
+          stableName: cluster.name,
+          name: cluster.name,
+          description: cluster.description,
+          forwardRisk: cluster.forwardRisk,
+          teacherAction: cluster.teacherAction,
+          memberCount: members.length,
+          memberIds: members.map(m => m.studentId),
+          distinctiveFeatures,
+          centroid,
+          namedByFallback: false,
+          incoherent: isIncoherent(centroid)
+        });
+      }
+
+      const centroidPoints = persistentArchetypes.map(a => ({ clusterId: a.clusterId, point: toArray(a.centroid) }));
+      for (const f of assignedFingerprints) {
+        if (f.clusterId === undefined) continue;
+        const ranked = centroidPoints
+          .map(c => ({ clusterId: c.clusterId, d: distance(toArray(f.vector), c.point) }))
+          .sort((x, y) => x.d - y.d);
+        const own = ranked.find(r => r.clusterId === f.clusterId);
+        if (own) f.clusterDistance = Number(own.d.toFixed(4));
+
+        const { top, second } = morphologyMix(f.vector);
+        if (top > 0 && second / top >= MIXED_PROFILE_RATIO) {
+          f.mixedProfile = true;
+          const runnerUp = ranked.find(r => r.clusterId !== f.clusterId);
+          if (runnerUp) {
+            f.secondaryClusterId = runnerUp.clusterId;
+            f.secondaryDistance = Number(runnerUp.d.toFixed(4));
+          }
+        }
+      }
+
+      assignStableIdentity(persistentArchetypes);
+      analysis.archetypes = persistentArchetypes;
+      analysis.silhouette = Number.isFinite(persistentArchetypes.length)
+        ? Number(
+            silhouette(
+              assignedFingerprints.map(f => toArray(f.vector)),
+              assignedFingerprints.map(f => f.clusterId ?? 0),
+              Math.max(1, persistentArchetypes.length)
+            ).toFixed(4)
+          )
+        : 0;
+      analysis.lowSeparation = analysis.silhouette < MIN_SILHOUETTE;
+      analysis.usedFallbackNaming = false;
+
+      const nameFor = new Map(persistentArchetypes.map(a => [a.clusterId, a.name]));
+      for (let i = 0; i < assignedFingerprints.length; i++) {
+        for (let j = i + 1; j < assignedFingerprints.length; j++) {
+          const a = assignedFingerprints[i];
+          const b = assignedFingerprints[j];
+          if (a.clusterId === undefined || b.clusterId === undefined) continue;
+          if (a.clusterId === b.clusterId) continue;
+          if (a.currentLevel !== b.currentLevel) continue;
+          if (Math.abs(a.score - b.score) > 2) continue;
+          analysis.collisions.push({
+            a: a.studentId,
+            b: b.studentId,
+            score: a.score,
+            level: a.currentLevel,
+            archetypeA: nameFor.get(a.clusterId) ?? "",
+            archetypeB: nameFor.get(b.clusterId) ?? ""
+          });
+        }
+      }
+      analysis.collisions.sort((x, y) => Math.abs(x.score - y.score) - Math.abs(x.score - y.score));
+    }
+
+    return analysis;
+  }
 
   // Clustering needs enough distinct children to be meaningful at all.
   if (clusterable.length < 4) return analysis;
