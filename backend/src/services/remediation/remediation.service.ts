@@ -7,7 +7,7 @@ import { IRemediationLedger, IGeneratedPracticeQuestion } from '../../interfaces
 import { randomUUID } from 'crypto';
 import { generativeEngine } from './generativeEngine';
 import { blueprintService } from './blueprintService';
-import { blueprintEngine, detectConcept } from './blueprintEngine';
+import { blueprintEngine, detectConcept, isUnderlinedPlaceValueQuestion, isUnderlinedPlaceValuePractice } from './blueprintEngine';
 import { generateQuestionsForLevel } from '../../levelGenerator';
 import { processPaper, processAllPapers, PaperInput, PaperOutput } from './paperBatchProcessor';
 
@@ -546,7 +546,13 @@ export class RemediationService {
           const isMissingSubQuestions = pqs.length > 0 && !pqs[0]?.subQuestions;
           const hasDuplicateTitles = pqs.length > 1 && pqs[0]?.question === pqs[1]?.question;
 
-          const isStale = !r.practiceQuestions || r.practiceQuestions.length === 0 || concept !== r.conceptName || isMissingSubQuestions || hasDuplicateTitles ||
+          // Underlined-digit questions must keep the 7_8_4 format; the old
+          // "Write each number in Tens and Ones / HTO form" output is stale.
+          const isUnderlinedMismatch =
+            isUnderlinedPlaceValueQuestion(origQ) &&
+            !isUnderlinedPlaceValuePractice(pqs);
+
+          const isStale = !r.practiceQuestions || r.practiceQuestions.length === 0 || concept !== r.conceptName || isMissingSubQuestions || hasDuplicateTitles || isUnderlinedMismatch ||
             r.practiceQuestions.some((pq: any) => {
               const pqQ = pq.question || '';
               if (/Numeric practice for/i.test(pqQ)) return true;

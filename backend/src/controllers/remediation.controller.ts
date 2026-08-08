@@ -4,7 +4,7 @@ import { RemediationLedger } from '../models/RemediationLedger.model';
 import { remediationService } from '../services/remediation/remediation.service';
 import { IRemediationLedger } from '../interfaces/remediationLedger.interface';
 import { formatRemediationSheetSimple } from '../utils/remediaitionFormatter';
-import { blueprintEngine } from '../services/remediation/blueprintEngine';
+import { blueprintEngine, isUnderlinedPlaceValueQuestion, isUnderlinedPlaceValuePractice } from '../services/remediation/blueprintEngine';
 
 export class RemediationController {
   // POST /api/remediation/generate
@@ -75,6 +75,12 @@ export class RemediationController {
       for (const r of ledger.responses || []) {
         const pqs = r.practiceQuestions || [];
         const isDuplicateFlat = pqs.length > 1 && pqs[0].question === pqs[1].question;
+
+        // Underlined-digit questions must keep the 7_8_4 format; anything else (e.g. the
+        // old "Write each number in Tens and Ones / HTO form" output) is stale.
+        const isUnderlinedMismatch =
+          isUnderlinedPlaceValueQuestion(r.originalQuestion || '') &&
+          !isUnderlinedPlaceValuePractice(pqs);
         
         // Only consider missing subQuestions if the concept generator actually produces them
         const firstBp = blueprintEngine.generate(r.originalQuestion, r.conceptName, r.questionType || 'standard');
@@ -82,7 +88,7 @@ export class RemediationController {
         const hasSub = !!(pqs.length > 0 && pqs[0]?.subQuestions && Array.isArray(pqs[0].subQuestions));
         const isMissingSub = shouldHaveSub && !hasSub;
         
-        if (isDuplicateFlat || isMissingSub || pqs.length === 0) {
+        if (isDuplicateFlat || isMissingSub || isUnderlinedMismatch || pqs.length === 0) {
           console.log(`[RemediationController] Auto-refreshing stale practice questions for concept: ${r.conceptName}`);
           r.practiceQuestions = remediationService.getInlineFallback(r.originalQuestion, r.conceptName, r.questionType || 'standard') as any;
           needSave = true;

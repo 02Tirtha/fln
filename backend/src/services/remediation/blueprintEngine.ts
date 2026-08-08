@@ -506,6 +506,21 @@ const generateUnderlinedPlaceValue: ConceptGenerator = (v, originalQ = '') => {
   };
 };
 
+/** True when the original question is the underlined-digit place value format (7_8_4). */
+export function isUnderlinedPlaceValueQuestion(originalQuestion: string): boolean {
+  return /identify the place value of the underlined digit/i.test(originalQuestion || '');
+}
+
+/** True when stored practice questions already use the underlined-digit format. */
+export function isUnderlinedPlaceValuePractice(practiceQuestions: any[]): boolean {
+  return (practiceQuestions || []).some((pq: any) => {
+    if (/underlined digit/i.test(String(pq?.question || ''))) return true;
+    const subs = pq?.subQuestions || [];
+    if (Array.isArray(subs) && subs.some((s: any) => /^\d+_\d+_\d+$/.test(String(s?.prompt || '')))) return true;
+    return /^\d+_\d+_\d+$/.test(String(pq?.question || ''));
+  });
+}
+
 const generateNumberSense: ConceptGenerator = (v, originalQ = '') => {
   const isNumeral = /numeral|write the numeral|write.*as a number/i.test(originalQ);
   const isWordForm = /in words|word form|write the number name/i.test(originalQ);
