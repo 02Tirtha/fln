@@ -32,6 +32,14 @@ interface ExtractedAnswer {
   blue_pixels: number;
 }
 
+interface FilteredPage {
+  pageNumber: number;
+  imageDataUrl: string;
+  bluePixelRatio?: number;
+  bluePixelCount?: number;
+  imageSize?: number[];
+}
+
 interface ScanResponse {
   success: boolean;
   answers?: Record<string, ExtractedAnswer>;
@@ -53,6 +61,9 @@ interface ScanResponse {
   };
   processingTimeMs?: number;
   error?: string;
+  // Multi-page filter response (PDFs): one entry per rasterized page.
+  pageCount?: number;
+  pages?: FilteredPage[];
 }
 
 interface IcrTwoStageScanProps {
@@ -153,6 +164,7 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
   // Filter stage state
   const [filterState, setFilterState] = useState<FilterState>('idle');
   const [filteredImageDataUrl, setFilteredImageDataUrl] = useState<string | null>(null);
+  const [filteredPages, setFilteredPages] = useState<FilteredPage[]>([]);
   const [filterTiming, setFilterTiming] = useState<ScanTiming | null>(null);
   const [filterError, setFilterError] = useState<string | null>(null);
   const [bluePixelRatio, setBluePixelRatio] = useState<number | null>(null);
@@ -202,6 +214,7 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
       // confuse them.
       setFilterState('idle');
       setFilteredImageDataUrl(null);
+      setFilteredPages([]);
       setFilterTiming(null);
       setFilterError(null);
       setBluePixelRatio(null);
@@ -261,7 +274,24 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
             setFilterState('error');
             return;
           }
-          setFilteredImageDataUrl((data as ScanResponse & { imageDataUrl?: string }).imageDataUrl ?? null);
+          // Multi-page: build pages[] first (server returns either a pages[]
+          // array for PDFs, or a single imageDataUrl for plain image uploads).
+          // Then derive the legacy `filteredImageDataUrl` from pages[0] so the
+          // OCR stage (which only reads one image) and the gallery gate both
+          // work without further changes.
+          const legacySingle = (data as ScanResponse & { imageDataUrl?: string }).imageDataUrl;
+          const pages = (data.pages && data.pages.length > 0)
+            ? data.pages
+            : legacySingle
+              ? [{
+                  pageNumber: 1,
+                  imageDataUrl: legacySingle,
+                  bluePixelRatio: data.debug?.blue_pixel_ratio ?? undefined,
+                  imageSize: data.debug?.image_size,
+                }]
+              : [];
+          setFilteredPages(pages);
+          setFilteredImageDataUrl(pages[0]?.imageDataUrl ?? null);
           setBluePixelRatio(data.debug?.blue_pixel_ratio ?? null);
           setFilterTiming({
             clientMs,
@@ -291,26 +321,32 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
       setOcrState('error');
       return;
     }
-    // If user skipped filter stage, send the raw file. Backend re-applies
-    // the filter internally (idempotent for already-filtered input), so
-    // behavior is consistent regardless of which path the user took.
-    const imageToSend = filteredImageDataUrl
-      ? await Promise.resolve(filteredImageDataUrl)
-      : await fileToDataUrl(uploadedFile);
     setOcrState('running');
     setOcrError(null);
     const t0 = performance.now();
     try {
+      // Prefer the new pages[] shape so the backend runs OCR on every
+      // filtered page (one OCR call per page, per-page timeout 180s).
+      // Falls back to the legacy single-image path if the user skipped
+      // the filter stage.
+      const body: Record<string, unknown> = { filename: uploadedFile.name };
+      if (filteredPages.length > 0) {
+        body.pages = filteredPages.map((p) => ({ pageNumber: p.pageNumber, imageDataUrl: p.imageDataUrl }));
+      } else {
+        // No filter done — send the raw uploaded file (backend re-applies
+        // the filter internally, idempotent for already-filtered input).
+        const imageToSend = filteredImageDataUrl
+          ? filteredImageDataUrl
+          : await fileToDataUrl(uploadedFile);
+        body.fileBase64 = imageToSend;
+      }
       const res = await apiFetch('/api/icr/evaluate-pdf', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          fileBase64: imageToSend,
-          filename: uploadedFile.name,
-        }),
+        body: JSON.stringify(body),
       });
       const clientMs = Math.round(performance.now() - t0);
       const data: ScanResponse = await res.json();
@@ -339,6 +375,7 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
   const clearFilter = () => {
     setFilterState('idle');
     setFilteredImageDataUrl(null);
+    setFilteredPages([]);
     setFilterTiming(null);
     setFilterError(null);
     setBluePixelRatio(null);
@@ -575,50 +612,12 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
 
       {/* Filtered preview + stats panel */}
       {filterState === 'done' && filteredImageDataUrl && (
-        <div className="p-4 bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-indigo-950/40 dark:to-blue-950/40 border-2 border-indigo-300 dark:border-indigo-700 rounded-2xl shadow-sm">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <CheckIcon />
-              <h4 className="text-sm font-semibold text-indigo-900 dark:text-indigo-100">
-                Filter applied successfully
-              </h4>
-            </div>
-            <button
-              onClick={clearFilter}
-              className="text-xs font-mono text-indigo-600 dark:text-indigo-300 hover:text-indigo-800 dark:hover:text-indigo-100 px-2 py-1 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900/50"
-            >
-              Clear filter
-            </button>
-          </div>
-
-          {/* Stats grid */}
-          <div className="grid grid-cols-3 gap-2 mb-3 text-center">
-            <StatBox
-              label="Blue ink"
-              value={bluePixelRatio !== null ? `${(bluePixelRatio * 100).toFixed(2)}%` : '—'}
-              sub={bluePixelRatio !== null ? `${Math.round(bluePixelRatio * 1920000)} px` : ''}
-            />
-            <StatBox
-              label="Filter time"
-              value={filterTiming ? formatMs(filterTiming.clientMs) : '—'}
-              sub={filterTiming?.serverMs != null ? `server: ${formatMs(filterTiming.serverMs)}` : ''}
-            />
-            <StatBox
-              label="Image"
-              value="1200×1600"
-              sub="JPEG"
-            />
-          </div>
-
-          <img
-            src={filteredImageDataUrl}
-            alt="Blue-pen filtered preview"
-            className="w-full h-auto max-h-64 object-contain border border-indigo-200 dark:border-indigo-700 rounded-xl bg-white shadow-inner"
-          />
-          <p className="text-xs text-indigo-700 dark:text-indigo-300 mt-2 italic text-center">
-            Black marks = blue ink kept. OCR will read only these.
-          </p>
-        </div>
+        <FilteredPagesGallery
+          pages={filteredPages}
+          onClearFilter={clearFilter}
+          filterTiming={filterTiming}
+          primaryBlueRatio={bluePixelRatio}
+        />
       )}
 
       {/* Filter error panel */}
@@ -968,3 +967,117 @@ const ClockIcon = () => (
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
   </svg>
 );
+/**
+ * Multi-page filter preview gallery.
+ *
+ * Shows one large preview + a thumbnail strip for PDFs that have multiple
+ * pages. Click a thumbnail to swap it into the main preview. Stats are
+ * shown for the active page; the overall filter timing is constant.
+ */
+const FilteredPagesGallery: React.FC<{
+  pages: FilteredPage[];
+  onClearFilter: () => void;
+  filterTiming: ScanTiming | null;
+  primaryBlueRatio: number | null;
+}> = ({ pages, onClearFilter, filterTiming, primaryBlueRatio }) => {
+  const [activeIdx, setActiveIdx] = useState(0);
+  const active = pages[Math.max(0, Math.min(activeIdx, pages.length - 1))] || pages[0];
+  if (!active) return null;
+
+  const ratio = active.bluePixelRatio ?? primaryBlueRatio;
+  const isMulti = pages.length > 1;
+
+  return (
+    <div className="p-4 bg-gradient-to-br from-indigo-50 to-blue-50 dark:from-indigo-950/40 dark:to-blue-950/40 border-2 border-indigo-300 dark:border-indigo-700 rounded-2xl shadow-sm">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <CheckIcon />
+          <h4 className="text-sm font-semibold text-indigo-900 dark:text-indigo-100">
+            Filter applied successfully
+            {isMulti && (
+              <span className="ml-2 text-xs font-normal text-indigo-700 dark:text-indigo-300">
+                — {pages.length} pages
+              </span>
+            )}
+          </h4>
+        </div>
+        <button
+          onClick={onClearFilter}
+          className="text-xs font-mono text-indigo-600 dark:text-indigo-300 hover:text-indigo-800 dark:hover:text-indigo-100 px-2 py-1 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900/50"
+        >
+          Clear filter
+        </button>
+      </div>
+
+      {/* Stats grid */}
+      <div className="grid grid-cols-3 gap-2 mb-3 text-center">
+        <StatBox
+          label="Blue ink"
+          value={ratio != null ? `${(ratio * 100).toFixed(2)}%` : '—'}
+          sub=""
+        />
+        <StatBox
+          label="Filter time"
+          value={filterTiming ? formatMs(filterTiming.clientMs) : '—'}
+          sub={filterTiming?.serverMs != null ? `server: ${formatMs(filterTiming.serverMs)}` : ''}
+        />
+        <StatBox
+          label={isMulti ? 'Pages' : 'Page'}
+          value={isMulti ? `${active.pageNumber} / ${pages.length}` : '1 / 1'}
+          sub="JPEG"
+        />
+      </div>
+
+      {/* Large preview of the active page */}
+      <div className="relative">
+        <img
+          src={active.imageDataUrl}
+          alt={`Filtered preview — page ${active.pageNumber}`}
+          className="w-full h-auto max-h-[28rem] object-contain border border-indigo-200 dark:border-indigo-700 rounded-xl bg-white shadow-inner"
+        />
+        {isMulti && (
+          <span className="absolute top-2 left-2 px-2 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider bg-indigo-600 text-white rounded-md shadow">
+            Page {active.pageNumber}
+          </span>
+        )}
+      </div>
+
+      {/* Thumbnail strip — only for multi-page PDFs */}
+      {isMulti && (
+        <div className="mt-3">
+          <p className="text-[10px] font-mono uppercase tracking-wider text-indigo-700 dark:text-indigo-300 mb-1.5">
+            All pages — click to preview
+          </p>
+          <div className="flex gap-2 overflow-x-auto pb-2">
+            {pages.map((p, i) => (
+              <button
+                key={p.pageNumber}
+                onClick={() => setActiveIdx(i)}
+                className={
+                  'shrink-0 w-20 h-24 rounded-lg overflow-hidden border-2 transition-all bg-white ' +
+                  (i === activeIdx
+                    ? 'border-indigo-600 ring-2 ring-indigo-400 dark:border-indigo-400 dark:ring-indigo-500'
+                    : 'border-indigo-200 dark:border-indigo-700 hover:border-indigo-400')
+                }
+                title={`Page ${p.pageNumber}`}
+              >
+                <img
+                  src={p.imageDataUrl}
+                  alt={`Page ${p.pageNumber}`}
+                  className="w-full h-full object-contain"
+                />
+                <span className="block text-[9px] font-mono font-bold text-indigo-900 dark:text-indigo-100 bg-indigo-100 dark:bg-indigo-900/60 -mt-4 relative">
+                  p{p.pageNumber}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <p className="text-xs text-indigo-700 dark:text-indigo-300 mt-2 italic text-center">
+        Black marks = blue ink kept. OCR will read only these.
+      </p>
+    </div>
+  );
+};
