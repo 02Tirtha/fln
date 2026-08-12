@@ -140,6 +140,7 @@ export interface Question {
   source_level: number; // Mapping to mathematical level
   conceptId?: string; // Concept ID from 93-node framework (e.g. S1.1, S3.3)
   svgAsset?: string; // Standard pre-built SVG asset category
+  concept?: string;
 }
 
 /**
@@ -253,6 +254,16 @@ export interface EvaluationReport {
   recommendedLevel: number;
   recommendedSubLevel?: number;
   timestamp: string;
+  questions?: Array<{
+    question_id: string;
+    question: string;
+    correctAnswer: string;
+    studentAnswer: string;
+    isCorrect: boolean;
+    topic: string;
+    concept: string;
+    status: string;
+  }>;
 }
 
 export interface Ticket {
@@ -359,6 +370,8 @@ interface DatabaseSchema {
   interventions: Intervention[];
   bestPractices: BestPractice[];
   diagnosticAnswerKeys: DiagnosticAnswerKey[];
+  remediationLedgers: any[];
+  examBlueprints: any[];
 }
 
 const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
@@ -379,6 +392,8 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
   interventions: 'interventions',
   bestPractices: 'best_practices',
   diagnosticAnswerKeys: 'diagnostic_answer_keys',
+  remediationLedgers: 'remediation_ledgers',
+  examBlueprints: 'exam_blueprints',
 };
 
 export class DBStore {
@@ -819,7 +834,10 @@ export class DBStore {
     }
     if (this.data && this.data.students) {
       const st = this.data.students.find(s => s.id === studentId);
-      if (st) st.assignedDiagnosticQuestions = questions;
+      if (st) {
+        st.assignedDiagnosticQuestions = questions;
+        await this.save();
+      }
     }
   }
 
@@ -873,53 +891,130 @@ export class DBStore {
   }
 
   async addStudent(student: Student) {
-    await this.mongoDb!.collection('students').insertOne(student);
-    if (this.data) this.data.students.push(student);
+    if (this.mongoDb) {
+      await this.mongoDb.collection('students').insertOne(student);
+    }
+    if (this.data) {
+      this.data.students.push(student);
+      await this.save();
+    }
     return student;
   }
 
   async updateStudent(studentId: string, updates: Partial<Student>) {
-    await this.mongoDb!.collection('students').updateOne({ id: studentId }, { $set: updates });
-    const s = await this.mongoDb!.collection<Student>('students').findOne({ id: studentId });
-    if (s && this.data) {
-      const idx = this.data.students.findIndex(x => x.id === studentId);
-      if (idx !== -1) this.data.students[idx] = s;
+    if (this.mongoDb) {
+      await this.mongoDb.collection('students').updateOne({ id: studentId }, { $set: updates });
+      const s = await this.mongoDb.collection<Student>('students').findOne({ id: studentId });
+      if (s && this.data) {
+        const idx = this.data.students.findIndex(x => x.id === studentId);
+        if (idx !== -1) this.data.students[idx] = s;
+      }
+      return s || undefined;
     }
-    return s || undefined;
+    if (this.data) {
+      const idx = this.data.students.findIndex(x => x.id === studentId);
+      if (idx !== -1) {
+        this.data.students[idx] = { ...this.data.students[idx], ...updates };
+        await this.save();
+        return this.data.students[idx];
+      }
+    }
+    return undefined;
   }
 
   async addWorksheet(ws: Worksheet) {
-    await this.mongoDb!.collection('worksheets').insertOne(ws);
-    if (this.data) this.data.worksheets.push(ws);
+    if (this.mongoDb) {
+      await this.mongoDb.collection('worksheets').insertOne(ws);
+    }
+    if (this.data) {
+      this.data.worksheets.push(ws);
+      await this.save();
+    }
     return ws;
   }
 
   async updateWorksheet(worksheetId: string, updates: Partial<Worksheet>) {
-    await this.mongoDb!.collection('worksheets').updateOne({ id: worksheetId }, { $set: updates });
-    const ws = await this.mongoDb!.collection<Worksheet>('worksheets').findOne({ id: worksheetId });
-    if (ws && this.data) {
-      const idx = this.data.worksheets.findIndex(x => x.id === worksheetId);
-      if (idx !== -1) this.data.worksheets[idx] = ws;
+    if (this.mongoDb) {
+      await this.mongoDb.collection('worksheets').updateOne({ id: worksheetId }, { $set: updates });
+      const ws = await this.mongoDb.collection<Worksheet>('worksheets').findOne({ id: worksheetId });
+      if (ws && this.data) {
+        const idx = this.data.worksheets.findIndex(x => x.id === worksheetId);
+        if (idx !== -1) this.data.worksheets[idx] = ws;
+      }
+      return ws || undefined;
     }
-    return ws || undefined;
+    if (this.data) {
+      const idx = this.data.worksheets.findIndex(x => x.id === worksheetId);
+      if (idx !== -1) {
+        this.data.worksheets[idx] = { ...this.data.worksheets[idx], ...updates };
+        await this.save();
+        return this.data.worksheets[idx];
+      }
+    }
+    return undefined;
   }
 
   async addLevelWorksheet(ws: LevelWorksheet) {
-    await this.mongoDb!.collection('levelWorksheets').insertOne(ws);
-    if (this.data) this.data.levelWorksheets.push(ws);
+    if (this.mongoDb) {
+      await this.mongoDb.collection('levelWorksheets').insertOne(ws);
+    }
+    if (this.data) {
+      this.data.levelWorksheets.push(ws);
+      await this.save();
+    }
     return ws;
   }
 
   async addAnswerSubmission(sub: AnswerSubmission) {
-    await this.mongoDb!.collection('answerSubmissions').insertOne(sub);
-    if (this.data) this.data.answerSubmissions.push(sub);
+    if (this.mongoDb) {
+      await this.mongoDb.collection('answerSubmissions').insertOne(sub);
+    }
+    if (this.data) {
+      this.data.answerSubmissions.push(sub);
+      await this.save();
+    }
     return sub;
   }
 
   async addEvaluationReport(rep: EvaluationReport) {
-    await this.mongoDb!.collection('evaluationReports').insertOne(rep);
+    if (this.mongoDb) {
+      await this.mongoDb.collection('evaluationReports').insertOne(rep);
+    }
     if (this.data) this.data.evaluationReports.push(rep);
     return rep;
+  }
+
+  async getExamBlueprints() {
+    if (this.mongoDb) return await this.mongoDb.collection('examBlueprints').find({}).toArray();
+    return this.data?.examBlueprints || [];
+  }
+
+  async getRemediationLedgers() {
+    if (this.mongoDb) return await this.mongoDb.collection('remediationLedgers').find({}).toArray();
+    return this.data?.remediationLedgers || [];
+  }
+
+  async addRemediationLedger(ledger: any) {
+    if (this.mongoDb) {
+      await this.mongoDb.collection('remediationLedgers').insertOne(ledger);
+    }
+    if (this.data) {
+      this.data.remediationLedgers.push(ledger);
+      await this.save();
+    }
+  }
+
+  async updateRemediationLedger(id: string, update: any) {
+    if (this.mongoDb) {
+      await this.mongoDb.collection('remediationLedgers').updateOne({ id }, { $set: update });
+    }
+    if (this.data) {
+      const idx = this.data.remediationLedgers.findIndex(l => l.id === id);
+      if (idx !== -1) {
+        this.data.remediationLedgers[idx] = { ...this.data.remediationLedgers[idx], ...update };
+        await this.save();
+      }
+    }
   }
 
   async addTicket(t: Ticket) {
@@ -959,20 +1054,35 @@ export class DBStore {
   }
 
   async addSchool(school: School) {
-    await this.mongoDb!.collection('schools').insertOne(school);
-    if (this.data) this.data.schools.push(school);
+    if (this.mongoDb) {
+      await this.mongoDb.collection('schools').insertOne(school);
+    }
+    if (this.data) {
+      this.data.schools.push(school);
+      await this.save();
+    }
     return school;
   }
 
   async addLog(log: LogEntry) {
-    await this.mongoDb!.collection('logbook').insertOne(log);
-    if (this.data) this.data.logbook.unshift(log);
+    if (this.mongoDb) {
+      await this.mongoDb.collection('logbook').insertOne(log);
+    }
+    if (this.data) {
+      this.data.logbook.unshift(log);
+      await this.save();
+    }
     return log;
   }
 
   async addAnnouncement(ann: Announcement) {
-    await this.mongoDb!.collection('announcements').insertOne(ann);
-    if (this.data) this.data.announcements.unshift(ann);
+    if (this.mongoDb) {
+      await this.mongoDb.collection('announcements').insertOne(ann);
+    }
+    if (this.data) {
+      this.data.announcements.unshift(ann);
+      await this.save();
+    }
     return ann;
   }
 
@@ -1027,6 +1137,7 @@ export class DBStore {
     if (this.data) {
       if (!this.data.diagnosticAnswerKeys) this.data.diagnosticAnswerKeys = [];
       this.data.diagnosticAnswerKeys.push(key);
+      await this.save();
     }
     return key;
   }
@@ -2977,7 +3088,9 @@ export class DBStore {
       announcements,
       interventions,
       bestPractices,
-      diagnosticAnswerKeys: []
+      diagnosticAnswerKeys: [],
+      remediationLedgers: [],
+      examBlueprints: []
     };
   }
 }

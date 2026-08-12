@@ -125,6 +125,17 @@ export interface AnswerSubmission {
   answers: { [questionId: string]: string };
 }
 
+export interface GradedQuestion {
+  questionNumber: number;
+  questionId: string;
+  questionText: string;
+  studentAnswer: string;
+  correctAnswer: string;
+  status: 'Correct' | 'Incorrect';
+  isCorrect: boolean;
+  concept?: string;
+}
+
 export interface EvaluationReport {
   id: string;
   studentId: string;
@@ -136,6 +147,11 @@ export interface EvaluationReport {
   recommendedLevel: number;
   recommendedSubLevel?: number;
   timestamp: string;
+  worksheetType?: 'level' | 'diagnostic';
+  questions?: GradedQuestion[];
+  responses?: any[];
+  levelId?: number | string;
+  sublevelId?: number | string;
 }
 
 export interface Ticket {

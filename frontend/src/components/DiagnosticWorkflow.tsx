@@ -40,7 +40,8 @@ export const DiagnosticWorkflow: React.FC<DiagnosticWorkflowProps> = ({ student,
         setError(data.error || 'Failed to generate diagnostic.');
       }
     } catch (err) {
-      setError('Network error generating diagnostic test.');
+      console.error('Generate diagnostic error:', err);
+      setError('Network error generating diagnostic test: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setLoading(false);
     }
@@ -69,10 +70,11 @@ export const DiagnosticWorkflow: React.FC<DiagnosticWorkflowProps> = ({ student,
       if (res.ok) {
         setReport(data.report);
       } else {
-        setError(data.error || 'Failed to evaluate diagnostic.');
+        setError(data.error || 'Failed to submit diagnostic.');
       }
     } catch (err) {
-      setError('Network error submitting diagnostic.');
+      console.error('Submit diagnostic error:', err);
+      setError('Network error submitting diagnostic: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setLoading(false);
     }

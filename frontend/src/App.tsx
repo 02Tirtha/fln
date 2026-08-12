@@ -22,6 +22,7 @@ import { LogbookView } from './components/LogbookView';
 import { TicketSubmission } from './components/TicketSubmission';
 import { AssessmentCalendar } from './components/AssessmentCalendar';
 import { PanelViews } from './components/PanelViews';
+import { RemediationNotesView } from './components/RemediationNotesView';
 import { Bell, Settings, ShieldCheck } from 'lucide-react';
 
 export default function App() {
@@ -160,6 +161,7 @@ return <SuperadminDashboard user={currentUser} token={token!} />;
   return (
     <Routes>
       <Route path="/register-coordinator" element={<CoordinatorRegistration />} />
+      <Route path="/remediation-note/:studentId/:examId" element={<RemediationNotesView />} />
       <Route
         path="*"
         element={

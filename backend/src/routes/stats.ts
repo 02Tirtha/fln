@@ -15,7 +15,38 @@ export function registerStatsRoutes(app: express.Express) {
   // Public stats (no auth required — used by landing page)
   app.get('/api/stats', async (_req, res) => {
     const db = dbStore.getDb();
-    if (!db) return res.json({ totalStates: 0, totalDistricts: 0, totalSchools: 0, totalStudents: 0, totalAssessments: 0, avgFlnLevel: 0, totalUsers: 0, certifiedCount: 0, certifiedPercent: 0 });
+    if (!db) {
+      const schools = await dbStore.getSchools();
+      const students = await dbStore.getStudents();
+      const users = await dbStore.getUsers();
+      const worksheets = await dbStore.getWorksheets();
+
+      const totalSchools = schools.length;
+      const totalStudents = students.length;
+      const totalUsers = users.length;
+      const totalAssessments = worksheets.length;
+
+      const stateCodes = Array.from(new Set(schools.map(s => s.stateCode).filter(Boolean)));
+      const districtCodes = Array.from(new Set(schools.map(s => s.districtCode).filter(Boolean)));
+
+      const totalLevel = students.reduce((acc, s) => acc + (s.currentLevel || 0), 0);
+      const avgFlnLevel = totalStudents > 0 ? Math.round(totalLevel / totalStudents) : 0;
+
+      const certifiedCount = students.filter(s => (s.currentLevel || 0) >= 5).length;
+      const certifiedPercent = totalStudents > 0 ? Math.round((certifiedCount / totalStudents) * 100) : 0;
+
+      return res.json({
+        totalStates: stateCodes.length,
+        totalDistricts: districtCodes.length,
+        totalSchools,
+        totalStudents,
+        totalAssessments,
+        avgFlnLevel,
+        totalUsers,
+        certifiedCount,
+        certifiedPercent,
+      });
+    }
 
     const [totalSchools, totalStudents, totalUsers, totalAssessments, stateCodes, districtCodes, avgResult, certifiedResult] = await Promise.all([
       db.collection('schools').countDocuments(),

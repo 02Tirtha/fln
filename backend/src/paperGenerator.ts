@@ -8,6 +8,7 @@ import { renderBatch } from './worksheetRenderer';
 import { mergeAndStamp } from './pdfMerge';
 import { drawQrCode } from './qrCode';
 import JSZip from 'jszip';
+import { generateProceduralQuestions } from './levelGenerator';
 
 // Resolve __dirname in ES Modules
 const __filename = fileURLToPath(import.meta.url);
@@ -70,38 +71,82 @@ export async function generateDiagnosticPaper({
   if (classNumber === 2 && students[0] && (students[0].studentId || (students[0] as any).id)) {
     const sId = students[0].studentId || (students[0] as any).id;
     questions = await dbStore.getStudentAssignedQuestions(sId, 2);
-  } else if (results && results[0] && results[0].masterJson && results[0].masterJson.sections) {
-    const sections = results[0].masterJson.sections;
-    sections.forEach((sec: any, secIdx: number) => {
-      if (Array.isArray(sec.items)) {
-        sec.items.forEach((item: any, itemIdx: number) => {
-          questions.push({
-            question_id: `diag_q_${secIdx}_${itemIdx}`,
-            question: item.question || `Question in section ${sec.section}`,
-            answer: item.icr?.expected || String(item.data?.answer || ''),
-            answer_type: 'number',
-            topic: sec.section || `Section ${secIdx + 1}`,
-            subtopic: sec.section || 'operations',
-            difficulty: 'medium',
-            source_level: classNumber * 10
-          });
+  } else if (results && results[0] && results[0].masterJson) {
+    const mj = results[0].masterJson;
+    // 1. Class 1: object of questions
+    if (mj.questions && typeof mj.questions === 'object' && !Array.isArray(mj.questions)) {
+      Object.entries(mj.questions).forEach(([qKey, entry]: [string, any]) => {
+        questions.push({
+          question_id: qKey,
+          question: entry.question || qKey,
+          answer: String(entry.expected_answer ?? ''),
+          answer_type: entry.type || 'number',
+          topic: entry.coord_hint?.section || 'General',
+          subtopic: entry.coord_hint?.section || 'General',
+          difficulty: 'medium',
+          source_level: classNumber * 10
+        });
+      });
+    }
+    // 2. Class 4: sets[0].questions
+    else if (mj.sets && mj.sets[0] && Array.isArray(mj.sets[0].questions)) {
+      mj.sets[0].questions.forEach((q: any, idx: number) => {
+        questions.push({
+          question_id: q.qid || `diag_q_${idx}`,
+          question: q.label || q.section || `Question ${idx + 1}`,
+          answer: q.correct_answer || (q.icr?.evaluation?.expected !== undefined ? String(q.icr.evaluation.expected) : ''),
+          answer_type: q.type || 'number',
+          topic: q.section || 'General',
+          subtopic: q.section || 'General',
+          difficulty: 'medium',
+          source_level: classNumber * 10
+        });
+      });
+    }
+    // 3. Class 2/3: sections array at root or inside sets[0]
+    else {
+      const sections = mj.sections || (mj.sets && mj.sets[0] && mj.sets[0].sections);
+      if (Array.isArray(sections)) {
+        sections.forEach((sec: any, secIdx: number) => {
+          if (Array.isArray(sec.items)) {
+            sec.items.forEach((item: any, itemIdx: number) => {
+              questions.push({
+                question_id: `diag_q_${secIdx}_${itemIdx}`,
+                question: item.question || `Question in section ${sec.section}`,
+                answer: (item.icr?.expected !== undefined && item.icr?.expected !== null && String(item.icr.expected) !== '')
+                  ? String(item.icr.expected)
+                  : (Array.isArray(item.icr?.blanks)
+                      ? item.icr.blanks.map((b: any) => String(b.expected ?? '')).filter(Boolean).join(', ')
+                      : String(item.data?.answer || '')),
+                answer_type: 'number',
+                topic: sec.section || `Section ${secIdx + 1}`,
+                subtopic: sec.section || 'operations',
+                difficulty: 'medium',
+                source_level: classNumber * 10
+              });
+            });
+          }
         });
       }
-    });
-  } else {
-    // Fallback if masterJson parsing failed or is empty
-    questions = [
-      {
-        question_id: `DIAG_Q1`,
-        question: `Identify the place value of the underlined digit: 7_8_4 (Class ${classNumber} Diagnostic)`,
-        answer: `80`,
-        answer_type: `number`,
-        topic: `Number Sense`,
-        subtopic: `place_value`,
-        difficulty: `easy`,
-        source_level: classNumber * 10
-      }
-    ];
+    }
+  }
+
+  // Fallback if no questions were extracted (e.g. masterJson is missing or parsing failed)
+  if (questions.length === 0) {
+    // Generate TEN real diagnostic questions for this student fallback — one from each of
+    // ten consecutive levels, forming a stair-step diagnostic.
+    const startLevel = Math.min(93, (classNumber - 1) * 12 + 1);
+    for (let step = 0; step < 10; step++) {
+      const lvl = Math.min(93, startLevel + step);
+      const generated = generateProceduralQuestions(lvl, 0);
+      const seed = step % Math.max(1, generated.length);
+      const baseQuestion = generated[seed] || generated[0];
+      questions.push({
+        ...baseQuestion,
+        question_id: `DIAG_FALLBACK_C${classNumber}_Q${step + 1}`,
+        source_level: lvl
+      });
+    }
   }
 
   const mergedBuffer = await mergeAndStamp(

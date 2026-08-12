@@ -13,7 +13,17 @@ export function generateQuestionsForLevel(level: number, subLevel: number): Ques
   if (CURRICULUM_MAPPING[level]) {
     return QuestionService.getQuestionsByLevel(level, subLevel);
   }
+  return generateProceduralQuestions(level, subLevel);
+}
 
+/**
+ * Always uses the procedural level builders (real, answerable math questions for
+ * every level 1-93) and never the concept registry. The concept generator emits
+ * "[Concept Sx.y] Level N Practice Question #1" template placeholders for every
+ * concept without a dedicated case, so diagnostics must use this function to
+ * guarantee every paper question is real.
+ */
+export function generateProceduralQuestions(level: number, subLevel: number): Question[] {
   const questions: Question[] = [];
   const levelStr = `L${level}.${subLevel}`;
 

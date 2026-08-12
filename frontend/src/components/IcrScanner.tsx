@@ -1,5 +1,6 @@
 import { apiFetch } from '../services/apiClient';
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Student, ClassGroup, EvaluationReport, User } from '../types';
 import { IcrTwoStageScan } from './IcrTwoStageScan';
 
@@ -35,6 +36,7 @@ interface BulkResultItem {
 }
 
 export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) => {
+  const navigate = useNavigate();
   const [classes, setClasses] = useState<ClassGroup[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [selectedClassId, setSelectedClassId] = useState('');
@@ -57,6 +59,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
   const [originalOcrAnswers, setOriginalOcrAnswers] = useState<{ [questionId: string]: string }>({});
   const [questions, setQuestions] = useState<Array<{ id: string; question: string; correctAnswer: string; topic?: string }>>([]);
   const [report, setReport] = useState<EvaluationReport | null>(null);
+  const [diagnosticId, setDiagnosticId] = useState('');
   const answerInputRefs = React.useRef<Array<HTMLInputElement | null>>([]);
 
   useEffect(() => {
@@ -86,10 +89,12 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
         ];
 
         const existingKeys = new Set(loadedClasses.map(c => `${c.className}-${c.section || ''}`.toLowerCase()));
+        const existingIds = new Set(loadedClasses.map(c => c.id));
         standardClasses.forEach(sc => {
           const key = `${sc.className}-${sc.section}`.toLowerCase();
-          if (!existingKeys.has(key)) {
+          if (!existingKeys.has(key) && !existingIds.has(sc.id)) {
             existingKeys.add(key);
+            existingIds.add(sc.id);
             loadedClasses.push(sc);
           }
         });
@@ -99,10 +104,12 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
             const groupName = s.classGroup || 'Class 1';
             const secName = s.section || 'A';
             const key = `${groupName}-${secName}`.toLowerCase();
-            if (!existingKeys.has(key)) {
+            const derivedId = `derived_${groupName}_${secName}`;
+            if (!existingKeys.has(key) && !existingIds.has(derivedId)) {
               existingKeys.add(key);
+              existingIds.add(derivedId);
               loadedClasses.push({
-                id: `derived_${groupName}_${secName}`,
+                id: derivedId,
                 className: groupName,
                 section: secName,
                 schoolId: s.schoolId || '',
@@ -152,6 +159,60 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
       }
     };
 
+  const getWrongTestAnswer = (correctAnswer: string): string => {
+    const clean = correctAnswer.trim();
+    if (clean === '') {
+      return 'incorrect';
+    }
+    // Numeric check
+    if (!isNaN(Number(clean))) {
+      const val = Number(clean);
+      return String(val === 0 ? 5 : val + 3);
+    }
+    // MCQ Letter options check (A, B, C, D)
+    if (clean.length === 1 && /[A-Da-d]/.test(clean)) {
+      const isUpper = clean === clean.toUpperCase();
+      const char = clean.toUpperCase();
+      let nextChar = 'A';
+      if (char === 'A') nextChar = 'B';
+      else if (char === 'B') nextChar = 'C';
+      else if (char === 'C') nextChar = 'D';
+      else if (char === 'D') nextChar = 'A';
+      return isUpper ? nextChar : nextChar.toLowerCase();
+    }
+    return clean + '_incorrect';
+  };
+
+  const safeNormalizeQuestionText = (qVal: any): string => {
+    if (qVal === null || qVal === undefined) return '';
+    if (typeof qVal === 'string') return qVal;
+    if (typeof qVal === 'number') return String(qVal);
+    if (Array.isArray(qVal)) {
+      return qVal.map(item => safeNormalizeQuestionText(item)).filter(Boolean).join(', ');
+    }
+    if (typeof qVal === 'object') {
+      const priorityKeys = ['question', 'questionText', 'text', 'prompt', 'content'];
+      for (const key of priorityKeys) {
+        if (qVal[key] !== undefined && qVal[key] !== null) {
+          return safeNormalizeQuestionText(qVal[key]);
+        }
+      }
+      return JSON.stringify(qVal);
+    }
+    return String(qVal);
+  };
+
+  const extractQuestionText = (item: any): string => {
+    if (!item) return '';
+    const priorityKeys = ['question', 'questionText', 'text', 'prompt', 'content'];
+    for (const key of priorityKeys) {
+      if (item[key] !== undefined && item[key] !== null) {
+        return safeNormalizeQuestionText(item[key]);
+      }
+    }
+    return safeNormalizeQuestionText(item);
+  };
+
   const passOcrManualEntry = async () => {
     if (!selectedClassId) {
       setError('Please select a class first.');
@@ -173,42 +234,104 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
             return cls && (s.classGroup === cls.className || (s.classGroup || '').includes(cls.className));
           })?.id;
 
-      if (targetStudentId) {
-        try {
-          const res = await apiFetch(
-            `/api/diagnostic/student/${encodeURIComponent(targetStudentId)}/answer-key`,
-            { headers: { 'Authorization': `Bearer ${token}` } }
-          );
-          if (res.ok) {
-            const data = await res.json();
-            const ak = (data && (data.answerKey || data.questions)) || [];
-            if (Array.isArray(ak) && ak.length > 0) {
-              loadedQuestions = ak.map((item: any, i: number) => ({
-                id: item.qid || item.question_id || item.id || `q_${i + 1}`,
-                question: item.question || item.prompt || `Question #${i + 1}`,
-                correctAnswer: String(item.answer ?? item.expected ?? ''),
-                topic: item.topic,
-              }));
-              loadedAnswers = Object.fromEntries(
-                loadedQuestions.map(q => [q.id, ''])
-              );
-              sourceLabel = `loaded ${loadedQuestions.length} answers from latest diagnostic answer key for ${data.studentName || targetStudentId}`;
-            }
+      console.log('[ICR] targetStudentId:', targetStudentId);
+
+      if (!targetStudentId) {
+        throw new Error('Please select a specific student to load their diagnostic paper.');
+      }
+
+      console.log(`[ICR] Triggering diagnostic generation for studentId: ${targetStudentId}...`);
+      const genRes = await apiFetch(`/api/students/${encodeURIComponent(targetStudentId)}/diagnostic`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!genRes.ok) {
+        throw new Error('Failed to generate diagnostic paper for student.');
+      }
+      const genData = await genRes.json();
+      const generatedId = genData.diagnosticPaper?.id;
+      if (!generatedId) {
+        throw new Error('Failed to retrieve generated diagnostic paper ID.');
+      }
+      setDiagnosticId(generatedId);
+
+      const answerKeyUrl = `/api/diagnostic/student/${encodeURIComponent(targetStudentId)}/answer-key?jobId=${encodeURIComponent(generatedId)}`;
+      console.log('[ICR] requested answer-key URL:', answerKeyUrl);
+
+      const res = await apiFetch(answerKeyUrl, { headers: { 'Authorization': `Bearer ${token}` } });
+      console.log('[ICR] answer key status:', res.status);
+
+      if (!res.ok) {
+        throw new Error(`Failed to load answer key. API returned status: ${res.status}`);
+      }
+
+      const data = await res.json();
+      console.log('[ICR] complete response JSON:', JSON.stringify(data, null, 2));
+
+      const rawQuestions = data.questions;
+      const rawAnswerKey = data.answerKey || [];
+      
+      console.log(`[ICR] studentId = ${targetStudentId}`);
+      console.log(`[ICR] generated diagnosticId = ${generatedId}`);
+      console.log(`[ICR] questionCount = ${rawQuestions?.length || 0}`);
+      console.log(`[ICR] answerKeyCount = ${rawAnswerKey.length || rawQuestions?.length || 0}`);
+
+      if (data.studentId && data.studentId !== targetStudentId) {
+        throw new Error(`Security check failed: Generated paper belongs to student ${data.studentId}, but expected ${targetStudentId}.`);
+      }
+
+      if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) {
+        throw new Error('No real diagnostic questions found for this student.');
+      }
+
+      if (rawAnswerKey && rawAnswerKey.length > 0) {
+        for (const q of rawQuestions) {
+          const qId = q.question_id || q.qid || q.id;
+          const match = rawAnswerKey.find((ak: any) => (ak.question_id || ak.qid) === qId);
+          if (!match) {
+            throw new Error(`Validation Error: Question ID ${qId} does not match any entry in the answer key.`);
           }
-        } catch {
-          // non-fatal
         }
       }
 
-      if (loadedQuestions.length === 0) {
-        loadedQuestions = Array.from({ length: 15 }, (_, i) => ({
-          id: `manual_q_${i + 1}`,
-          question: `Question #${i + 1} (manual entry)`,
-          correctAnswer: '',
-        }));
-        loadedAnswers = {};
-        sourceLabel = 'no answer key found for this class — using a 15-row placeholder grid';
-      }
+      loadedQuestions = rawQuestions.map((item: any, index: number) => {
+        const qId = item.question_id || item.qid || item.id;
+        const qText = extractQuestionText(item);
+        const correctAns = item.answer !== undefined && item.answer !== null ? String(item.answer) : '';
+
+        if (!qId) {
+          throw new Error(`Question at index ${index} is missing question_id.`);
+        }
+        if (qText.trim() === '') {
+          throw new Error(`Question ${qId} is missing question text.`);
+        }
+        if (correctAns.trim() === '') {
+          throw new Error(`Question ${qId} is missing correct answer.`);
+        }
+
+        const qObj: any = {
+          id: qId,
+          question: qText,
+          correctAnswer: correctAns,
+        };
+        if (item.topic) qObj.topic = item.topic;
+        if (item.concept) qObj.concept = item.concept;
+        if (item.answer_type || item.type) qObj.type = item.answer_type || item.type;
+        if (item.choices) qObj.choices = item.choices;
+        return qObj;
+      });
+
+      loadedAnswers = Object.fromEntries(
+        loadedQuestions.map(q => [q.id, ''])
+      );
+      sourceLabel = `loaded ${loadedQuestions.length} answers from latest diagnostic answer key for ${data.studentName || targetStudentId}`;
+
+      // PART 5 — QUESTION INSPECTION Debug Logging
+      console.log(`[ICR STUDENT]\nstudentId=${targetStudentId}\nstudentName=${data.studentName || 'Unknown'}`);
+      console.log(`[ICR DIAGNOSTIC]\ndiagnosticId=${data.id || 'Unknown'}\nquestionCount=${loadedQuestions.length}`);
+      loadedQuestions.forEach((q) => {
+        console.log(`[ICR QUESTION]\nquestionId=${q.id}\nquestion=${q.question}\nanswer=${q.correctAnswer}\ntopic=${q.topic || ''}\nconcept=${q.concept || ''}`);
+      });
 
       setQuestions(loadedQuestions);
       setExtractedAnswers(loadedAnswers);
@@ -357,40 +480,117 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
       ? selectedStudentId
       : students.find(s => cls && (s.classGroup === cls.className || (s.classGroup || '').includes(cls.className)))?.id;
 
-    let loadedQuestions: Array<{ id: string; question: string; correctAnswer: string; topic?: string }> = [];
-    let sourceLabel = '';
-    if (targetStudentId) {
-      try {
-        const res = await apiFetch(
-          `/api/diagnostic/student/${encodeURIComponent(targetStudentId)}/answer-key`,
-          { headers: { 'Authorization': `Bearer ${token}` } }
-        );
-        if (res.ok) {
-          const ak = (await res.json())?.answerKey || [];
-          if (Array.isArray(ak) && ak.length > 0) {
-            loadedQuestions = ak.map((item: any, i: number) => ({
-              id: item.qid || item.question_id || item.id || `q_${i + 1}`,
-              question: item.question || item.prompt || `Question #${i + 1}`,
-              correctAnswer: String(item.answer ?? item.expected ?? ''),
-              topic: item.topic,
-            }));
-            sourceLabel = `mapped ${Math.min(ocrValues.length, loadedQuestions.length)} OCR values into ${loadedQuestions.length} answer-key fields`;
-          }
-        }
-      } catch {
-        // non-fatal, fall through to placeholder grid
-      }
+    console.log('[ICR OCR] targetStudentId:', targetStudentId);
+
+    if (!targetStudentId) {
+      setError('Please select a specific student first.');
+      setLoading(false);
+      return;
     }
 
-    // Fallback: if no answer key, build N rows from the OCR'd count.
+    let loadedQuestions: Array<{ id: string; question: string; correctAnswer: string; topic?: string }> = [];
+    let sourceLabel = '';
+
+    try {
+      console.log(`[ICR OCR] Triggering diagnostic generation for studentId: ${targetStudentId}...`);
+      const genRes = await apiFetch(`/api/students/${encodeURIComponent(targetStudentId)}/diagnostic`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!genRes.ok) {
+        throw new Error('Failed to generate diagnostic paper for student.');
+      }
+      const genData = await genRes.json();
+      const generatedId = genData.diagnosticPaper?.id;
+      if (!generatedId) {
+        throw new Error('Failed to retrieve generated diagnostic paper ID.');
+      }
+      setDiagnosticId(generatedId);
+
+      const answerKeyUrl = `/api/diagnostic/student/${encodeURIComponent(targetStudentId)}/answer-key?jobId=${encodeURIComponent(generatedId)}`;
+      console.log('[ICR OCR] requested answer-key URL:', answerKeyUrl);
+
+      const res = await apiFetch(answerKeyUrl, { headers: { 'Authorization': `Bearer ${token}` } });
+      console.log('[ICR OCR] answer key status:', res.status);
+
+      if (!res.ok) {
+        throw new Error(`Failed to load answer key. API returned status: ${res.status}`);
+      }
+
+      const data = await res.json();
+      console.log('[ICR OCR] complete response JSON:', JSON.stringify(data, null, 2));
+
+      const rawQuestions = data.questions;
+      const rawAnswerKey = data.answerKey || [];
+      
+      console.log(`[ICR] studentId = ${targetStudentId}`);
+      console.log(`[ICR] generated diagnosticId = ${generatedId}`);
+      console.log(`[ICR] questionCount = ${rawQuestions?.length || 0}`);
+      console.log(`[ICR] answerKeyCount = ${rawAnswerKey.length || rawQuestions?.length || 0}`);
+
+      if (data.studentId && data.studentId !== targetStudentId) {
+        throw new Error(`Security check failed: Generated paper belongs to student ${data.studentId}, but expected ${targetStudentId}.`);
+      }
+
+      if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) {
+        throw new Error('No real diagnostic questions found for this student.');
+      }
+
+      if (rawAnswerKey && rawAnswerKey.length > 0) {
+        for (const q of rawQuestions) {
+          const qId = q.question_id || q.qid || q.id;
+          const match = rawAnswerKey.find((ak: any) => (ak.question_id || ak.qid) === qId);
+          if (!match) {
+            throw new Error(`Validation Error: Question ID ${qId} does not match any entry in the answer key.`);
+          }
+        }
+      }
+
+      loadedQuestions = rawQuestions.map((item: any, index: number) => {
+        const qId = item.question_id || item.qid || item.id;
+        const qText = extractQuestionText(item);
+        const correctAns = item.answer !== undefined && item.answer !== null ? String(item.answer) : '';
+
+        if (!qId) {
+          throw new Error(`Question at index ${index} is missing question_id.`);
+        }
+        if (qText.trim() === '') {
+          throw new Error(`Question ${qId} is missing question text.`);
+        }
+        if (correctAns.trim() === '') {
+          throw new Error(`Question ${qId} is missing correct answer.`);
+        }
+
+        const qObj: any = {
+          id: qId,
+          question: qText,
+          correctAnswer: correctAns,
+        };
+        if (item.topic) qObj.topic = item.topic;
+        if (item.concept) qObj.concept = item.concept;
+        if (item.answer_type || item.type) qObj.type = item.answer_type || item.type;
+        if (item.choices) qObj.choices = item.choices;
+        return qObj;
+      });
+
+      sourceLabel = `mapped ${Math.min(ocrValues.length, loadedQuestions.length)} OCR values into ${loadedQuestions.length} answer-key fields`;
+
+      // PART 5 — QUESTION INSPECTION Debug Logging
+      console.log(`[ICR STUDENT]\nstudentId=${targetStudentId}\nstudentName=${data.studentName || 'Unknown'}`);
+      console.log(`[ICR DIAGNOSTIC]\ndiagnosticId=${data.id || 'Unknown'}\nquestionCount=${loadedQuestions.length}`);
+      loadedQuestions.forEach((q) => {
+        console.log(`[ICR QUESTION]\nquestionId=${q.id}\nquestion=${q.question}\nanswer=${q.correctAnswer}\ntopic=${q.topic || ''}\nconcept=${q.concept || ''}`);
+      });
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load diagnostic questions.');
+      setLoading(false);
+      return;
+    }
+
     if (loadedQuestions.length === 0) {
-      const n = Math.max(ocrValues.length, 1);
-      loadedQuestions = Array.from({ length: n }, (_, i) => ({
-        id: `q_${i + 1}`,
-        question: `Question #${i + 1}`,
-        correctAnswer: '',
-      }));
-      sourceLabel = `no answer key found — using ${loadedQuestions.length} placeholder fields from OCR (${ocrValues.length} values)`;
+      setError("No generated diagnostic found for this student. Generate a diagnostic first.");
+      setLoading(false);
+      return;
     }
 
     // Map OCR values into the answer-key fields by position. If OCR
@@ -455,43 +655,113 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
     setExtractedAnswers(prev => ({ ...prev, [qId]: value }));
   };
 
-  const confirmEvaluation = async () => {
-    let score = 0;
-    let graded = 0;
-    const mastery: { [topic: string]: 'Strong' | 'Needs Practice' | 'Satisfactory' } = {};
-    for (const q of questions) {
-      if (!q) continue;
-      const userVal = (extractedAnswers[q.id] || '').trim();
-      const expected = (q.correctAnswer || '').trim();
-      if (expected.length === 0) continue;
-      graded++;
-      if (userVal === expected) score++;
-      const topic = q.topic || 'Number Sense';
-      if (!mastery[topic]) {
-        mastery[topic] = userVal === expected ? 'Strong' : 'Needs Practice';
+  const autoFillTestAnswers = () => {
+    const filled: { [key: string]: string } = {};
+    questions.forEach((q, idx) => {
+      // 2/3 correct, 1/3 incorrect (idx % 3 === 2 is incorrect, others are correct)
+      const isCorrect = idx % 3 !== 2;
+      if (isCorrect) {
+        filled[q.id] = q.correctAnswer;
+      } else {
+        filled[q.id] = getWrongTestAnswer(q.correctAnswer);
       }
-    }
-
-    const percentage = graded > 0 ? Math.round((score / graded) * 100) : 0;
-    const baseLevel = 2;
-    let sub = 1;
-    if (percentage >= 80) sub = Math.min(5, sub + 1);
-    else if (percentage < 60) sub = Math.max(0, sub - 1);
-
-    setReport({
-      id: 'rep_' + Date.now(),
-      studentId: selectedStudentId && selectedStudentId !== 'ALL_STUDENTS' ? selectedStudentId : 'manual_entry',
-      worksheetId: 'icr_manual_pass',
-      score,
-      totalQuestions: graded > 0 ? graded : questions.length,
-      conceptMastery: mastery,
-      narrative: `Manual-entry ICR verification: ${score}/${graded} correct (${percentage}%). Recommended level L${baseLevel}.${sub}.`,
-      recommendedLevel: baseLevel,
-      recommendedSubLevel: sub,
-      timestamp: new Date().toISOString(),
     });
-    setStep('result');
-    setSuccess(`Verification confirmed — ${score}/${graded} correct (${percentage}%). Diagnostic placement: L${baseLevel}.${sub}.`);
+    setExtractedAnswers(filled);
+
+    // Logging for autoFill counts
+    const correctCount = Object.keys(filled).filter(qid => {
+      const q = questions.find(item => item.id === qid);
+      return q && filled[qid] === q.correctAnswer;
+    }).length;
+    console.log(`[FLN TRACE] autoFillCorrect=${correctCount}`);
+    console.log(`[FLN TRACE] autoFillWrong=${questions.length - correctCount}`);
+  };
+
+  const [generatingRemediation, setGeneratingRemediation] = useState(false);
+
+  const handleGenerateRemediation = async () => {
+    if (!selectedStudentId || !report) return;
+    setGeneratingRemediation(true);
+    setError('');
+    try {
+      const incorrect = report.questions?.filter((q: any) => !q.isCorrect) || [];
+      if (incorrect.length === 0) return;
+
+      const failedQuestionNums = incorrect.map((q: any) => {
+        const idx = report.questions?.findIndex((x: any) => x.question_id === q.question_id);
+        return idx !== -1 ? idx + 1 : 1;
+      });
+
+      const res = await apiFetch('/api/remediation/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          studentId: selectedStudentId,
+          examId: report.id,
+          failedQuestionNums,
+          originalQuestions: incorrect.map((q: any, i: number) => ({
+            questionNumber: failedQuestionNums[i],
+            question: q.question,
+            correctAnswer: q.correctAnswer,
+            studentAnswer: q.studentAnswer,
+            concept: q.concept,
+            topic: q.topic,
+            type: q.type || 'standard'
+          }))
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        navigate(`/remediation-note/${selectedStudentId}/${report.id}?studentName=${encodeURIComponent(selectedStudent?.name || '')}`);
+      } else {
+        setError(data.error || 'Failed to trigger remediation.');
+      }
+    } catch (err) {
+      console.error('Trigger remediation error:', err);
+      setError('Failed to trigger remediation generation: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setGeneratingRemediation(false);
+    }
+  };
+
+  const confirmEvaluation = async () => {
+    if (!selectedStudentId || selectedStudentId === 'ALL_STUDENTS') {
+      setError('Please select a student first.');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    setSuccess('');
+    try {
+      const res = await apiFetch(`/api/students/${selectedStudentId}/diagnostic/submit`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          diagnosticId,
+          questions,
+          answers: extractedAnswers
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setReport(data.report);
+        setStep('result');
+        setSuccess(`Verification confirmed on the backend — Score: ${data.report.score}/${data.report.totalQuestions}. Placement: L${data.report.recommendedLevel}.${data.report.recommendedSubLevel || 0}.`);
+      } else {
+        setError(data.error || 'Failed to submit evaluation.');
+      }
+    } catch (err) {
+      console.error('Submit evaluation error:', err);
+      setError('Network error submitting evaluation: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setLoading(false);
+    }
   };
 
   const resetScanner = () => {
@@ -827,7 +1097,14 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                     Verify the handwritten digits recognized by EasyOCR. If the OCR engine misread a student digit, rectify it below before confirming evaluation.
                   </p>
                 </div>
-                <div>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={autoFillTestAnswers}
+                    className="bg-amber-500 hover:bg-amber-600 text-white font-medium text-xs py-1.5 px-3 rounded-lg transition-all shadow-sm cursor-pointer"
+                  >
+                    🪄 Auto-Fill Answers
+                  </button>
                   <span className="text-xs font-mono font-bold bg-blue-50 text-blue-800 dark:bg-blue-950 dark:text-blue-300 px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800">
                     {ocrPreviewData?.ocrEngine === 'Manual Entry (skipped)'
                       ? '🔒 Blind Evaluation Active (Answers Hidden)'
@@ -891,8 +1168,23 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                       const isTeacherEdited = userVal !== origVal;
                       return (
                         <tr key={q.id || idx} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/40">
-                          <td className="p-3 font-medium text-zinc-900 dark:text-white">
-                            <span className="font-mono text-[10px] font-bold text-zinc-400 mr-1.5">Item #{idx + 1}</span>
+                          <td className="p-3 font-medium text-zinc-900 dark:text-white space-y-1">
+                            <div>
+                              <span className="font-mono text-[10px] font-bold text-zinc-400 mr-1.5">Question {idx + 1}</span>
+                            </div>
+                            <div className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+                              {q.question}
+                            </div>
+                            {q.topic && (
+                              <div className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                                <span className="font-semibold font-mono text-zinc-400 uppercase">Topic:</span> {q.topic}
+                              </div>
+                            )}
+                            {q.concept && (
+                              <div className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                                <span className="font-semibold font-mono text-zinc-400 uppercase">Concept:</span> {q.concept}
+                              </div>
+                            )}
                           </td>
                           <td className="p-3">
                             <div className="relative">
