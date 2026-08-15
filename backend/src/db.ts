@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import bcrypt from 'bcrypt';
 import { MongoClient, Db } from 'mongodb';
+import { CURRICULUM_MAPPING } from './config/curriculumMap';
 
 const DB_DIR = path.resolve(process.cwd(), 'data');
 const DB_FILE = path.resolve(DB_DIR, 'db.json');
@@ -139,13 +140,6 @@ export interface Question {
   difficulty: 'easy' | 'medium' | 'hard';
   source_level: number; // Mapping to mathematical level
   conceptId?: string; // Concept ID from 93-node framework (e.g. S1.1, S3.3)
-  // Optional granular competency id (must be a key in COMPETENCY_DEPENDENCIES
-  // when present). Used by the prerequisite-learning-path resolver to
-  // aggregate failures at the competency level rather than the broad
-  // Question.topic strand. NOT required — when absent, the submission
-  // handler derives a competency from source_level via a deterministic
-  // level-title lookup in competencyLookup.ts.
-  competency?: string;
   svgAsset?: string; // Standard pre-built SVG asset category
 }
 
@@ -876,7 +870,10 @@ export class DBStore {
           topic: qDoc.levelTitle || `Level ${lvl}`,
           subtopic: qDoc.section || `Section ${lvl}.0`,
           difficulty: 'medium',
-          source_level: lvl
+          source_level: lvl,
+          // Authoritative concept identity for this curriculum level. Metadata
+          // only — it does not affect the question, its answer or its level.
+          conceptId: CURRICULUM_MAPPING[lvl]?.conceptId
         });
       } else {
         const a = lvl * 2;
@@ -889,7 +886,9 @@ export class DBStore {
           topic: `Level ${lvl} Number Operations`,
           subtopic: `Addition`,
           difficulty: 'medium',
-          source_level: lvl
+          source_level: lvl,
+          // Same authoritative concept identity on the offline fallback item.
+          conceptId: CURRICULUM_MAPPING[lvl]?.conceptId
         });
       }
     }

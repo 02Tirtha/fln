@@ -18,8 +18,8 @@ import { generateDiagnosticPaper } from './paperGenerator';
 import { generateQuestionsForLevel } from './levelGenerator';
 import * as levelsBackendClient from './levelsBackendClient';
 import { STATES_UTS } from './geoData';
-import { resolvePrerequisites } from './competencyDependencies';
-import { competencyFromLevel } from './competencyLookup';
+import { resolvePrerequisites, describeConcept } from './competencyPrerequisites';
+import { CURRICULUM_MAPPING } from './config/curriculumMap';
 import { getAuthUser, canAccessStudent, sanitizeUser, JWT_SECRET, JWT_EXPIRES_IN, SEED_DEMO_PASSWORD_HASH } from './auth';
 import { registerAnnouncementRoutes } from './routes/announcements';
 import { registerStatsRoutes } from './routes/stats';
@@ -1001,97 +1001,137 @@ const students = await dbStore.getStudents();
       console.warn('Failed to parse dynamic concept mastery:', e);
     }
 
-    // Phase 5: Prerequisite Learning Path.
-    // Build questionResults from the submitted answers (same source of
-    // truth used for jsTotalCorrect elsewhere) and walk the competency
-    // dependency graph to find prerequisites for failed competencies.
-    // Only the `prerequisiteLearningPath` field is populated here; other
-    // EvaluationReasoning fields are intentionally left undefined and
-    // remain out of scope.
+    // Prerequisite Learning Path.
     //
-    // Aggregation key resolution:
-    //   q.competency  (explicit, per-question, set by the generator)
-    //     ↓ if absent
-    //   competencyFromLevel(q.source_level)
-    //     (deterministic levelTitle → COMPETENCY_DEPENDENCIES key
-    //      lookup; returns undefined unless the levelTitle is itself a
-    //      dependency-graph key)
-    //     ↓ if absent
-    //   skip the question (no fabricated competency)
+    // Identity comes from ONE authoritative field: Question.conceptId — the
+    // immutable S1.1-S7.18 tag of the 93-level framework that the concept
+    // question generator already stamps on every question it produces, and the
+    // key CURRICULUM_MAPPING is built around.
     //
-    // The previous implementation aggregated by q.topic (broad strand
-    // such as "Number Operations"). The dependency graph keys are
-    // granular competency ids ("Carry Addition", "Place Value", etc.);
-    // strand lookups therefore always returned [] and the prerequisite
-    // feature was never exercised. This block deliberately does NOT
-    // fall back to q.topic — that would reintroduce the original bug.
+    //   question result (correct / incorrect, from the submitted answers)
+    //     -> q.conceptId          (skip the question when absent)
+    //     -> CONCEPT_PREREQUISITES (Research/fln_level_networks.md, prereq edges only)
+    //     -> prerequisiteLearningPath
+    //
+    // There is no level-number arithmetic, no topic/subtopic string matching and
+    // no translation table. A question whose conceptId is missing, or a concept
+    // with no prerequisite edge, contributes nothing — the path is omitted
+    // rather than guessed at.
     const questionResults = questions.map((q) => {
       const submitted = String(answers[q.question_id] ?? '').trim().toLowerCase();
       const correct = q.answer.trim().toLowerCase();
       return { q, isCorrect: submitted === correct };
     });
-    const competencyOutcomes = new Map<string, { correct: number; total: number }>();
+
+    // Aggregate outcomes per concept, in first-seen order so the result is
+    // deterministic for a given paper.
+    const conceptOutcomes = new Map<string, { correct: number; total: number }>();
     for (const r of questionResults) {
-      const competency = r.q.competency ?? competencyFromLevel(r.q.source_level);
-      if (!competency) continue;
-      const o = competencyOutcomes.get(competency) ?? { correct: 0, total: 0 };
+      const conceptId = r.q.conceptId;
+      if (!conceptId) continue;
+      const o = conceptOutcomes.get(conceptId) ?? { correct: 0, total: 0 };
       o.total += 1;
       if (r.isCorrect) o.correct += 1;
-      competencyOutcomes.set(competency, o);
+      conceptOutcomes.set(conceptId, o);
     }
-    const weakestConcepts: string[] = [];
-    for (const [competency, { correct, total }] of competencyOutcomes) {
-      if (correct === 0) weakestConcepts.push(competency);
+
+    // A concept counts as failed only when the student got none of its
+    // questions right. Per-question correctness is the only source of truth
+    // here — deliberately NOT the heuristic conceptMastery above, which is
+    // derived from recommendedLevel thresholds and can flag a concept as weak
+    // even when every question was answered correctly.
+    const failedConceptIds: string[] = [];
+    for (const [conceptId, { correct }] of conceptOutcomes) {
+      if (correct === 0) failedConceptIds.push(conceptId);
     }
-    // Source of truth for prerequisite computation is the per-question correctness
-    // (questionResults). If questionResults identify one or more genuinely
-    // failed granular competencies, use those. Otherwise, omit the
-    // prerequisite-learning-path entirely — do NOT fall back to the heuristic
-    // conceptMastery (which is built from recommendedLevel thresholds and can
-    // mark a competency as weak even when the student answered every question
-    // correctly).
-    const failedConcepts = weakestConcepts;
 
     let prerequisiteLearningPath: EvaluationReasoning['prerequisiteLearningPath'];
-    if (failedConcepts.length > 0) {
+    if (failedConceptIds.length > 0) {
+      // Walk each failed concept's transitive prerequisites. `mergedPrereqs`
+      // keeps first-seen order (deepest foundation first); `prereqCount` records
+      // how many distinct failed concepts each prerequisite blocks.
       const mergedPrereqs: string[] = [];
       const prereqCount = new Map<string, number>();
-      for (const concept of failedConcepts) {
-        const visited = new Set<string>();
-        const walkChain = (topic: string) => {
-          const directPrereqs = resolvePrerequisites(topic);
-          if (directPrereqs.length === 0) return;
-          for (const p of directPrereqs) {
-            if (!visited.has(p)) {
-              visited.add(p);
-              walkChain(p);
-              if (!mergedPrereqs.includes(p)) mergedPrereqs.push(p);
-            }
-          }
-        };
-        walkChain(concept);
-        for (const p of visited) {
+      for (const conceptId of failedConceptIds) {
+        const chain = resolvePrerequisites(conceptId);
+        for (const p of chain) {
+          if (!mergedPrereqs.includes(p)) mergedPrereqs.push(p);
           prereqCount.set(p, (prereqCount.get(p) ?? 0) + 1);
         }
       }
+
       if (mergedPrereqs.length > 0) {
-        const highPriorityFoundations = mergedPrereqs.filter(
-          (p) => (prereqCount.get(p) ?? 0) >= 2
+        // Render ids as curriculum titles via CURRICULUM_MAPPING; an id the
+        // curriculum does not know is dropped rather than shown raw.
+        const titleOf = (conceptId: string): string | undefined =>
+          describeConcept(conceptId)?.levelTitle;
+        const titles = (ids: string[]): string[] =>
+          ids.map(titleOf).filter((t): t is string => Boolean(t));
+
+        // A prerequisite blocking two or more failed concepts is a shared
+        // foundation; the rest are supporting skills.
+        const highPriorityFoundations = titles(
+          mergedPrereqs.filter((p) => (prereqCount.get(p) ?? 0) >= 2)
         );
-        const supportingSkills = mergedPrereqs.filter(
-          (p) => (prereqCount.get(p) ?? 0) < 2
+        const supportingSkills = titles(
+          mergedPrereqs.filter((p) => (prereqCount.get(p) ?? 0) < 2)
         );
+        const affectedCompetencies = titles(failedConceptIds);
+
         prerequisiteLearningPath = {
           highPriorityFoundations,
           supportingSkills,
-          affectedCompetencies: Array.from(failedConcepts),
+          affectedCompetencies,
           remediationSequence: [
             ...highPriorityFoundations,
             ...supportingSkills,
-            ...Array.from(failedConcepts),
+            ...affectedCompetencies,
           ],
         };
       }
+    }
+
+    // Assemble the full EvaluationReasoning payload. The gate is unchanged:
+    // reasoning is emitted ONLY when a prerequisite learning path was
+    // actually resolved above, so an all-correct paper (or a failed concept
+    // with no prerequisite edge) still produces no reasoning at all.
+    //
+    // Every required field below is filled from a value this handler has
+    // already computed — the narrative string, the conceptMastery object,
+    // the recommendedLevel/subLevel placement, and the existing 93-level
+    // CURRICULUM_MAPPING. Nothing is inferred or invented: where this
+    // handler holds no real data (blockers, recommendations) the arrays are
+    // left empty and the UI hides those sections. Building a genuinely
+    // complete object is what lets the `as EvaluationReasoning` assertion be
+    // removed — the payload now satisfies the interface at runtime, not just
+    // to the type-checker.
+    let reasoning: EvaluationReasoning | undefined;
+    if (prerequisiteLearningPath) {
+      const currentCfg = CURRICULUM_MAPPING[recommendedLevel];
+      const nextCfg = CURRICULUM_MAPPING[recommendedLevel + 1];
+      reasoning = {
+        explanation: {
+          // Restatement of the already-computed score and placement; it
+          // asserts nothing the report does not already say.
+          headline: `Scored ${score}/${questions.length}. Placed at Level ${recommendedLevel}.${subLevel}.`,
+          // The pipeline (or Gemini fallback) narrative, reused verbatim.
+          narrative,
+        },
+        conceptMastery,
+        learningProgression: {
+          currentLevel: recommendedLevel,
+          currentLevelName: currentCfg?.levelTitle ?? '',
+          currentStrand: currentCfg?.strand ?? '',
+          nextMilestone: nextCfg
+            ? { level: nextCfg.levelNumber, name: nextCfg.levelTitle, strand: nextCfg.strand }
+            : null,
+          // No blocker or recommendation data is produced anywhere in this
+          // handler. Empty is the honest value; the UI renders neither.
+          blockers: [],
+          recommendations: [],
+        },
+        prerequisiteLearningPath,
+      };
     }
 
     const report: EvaluationReport = {
@@ -1105,9 +1145,7 @@ const students = await dbStore.getStudents();
       recommendedLevel,
       recommendedSubLevel: subLevel,
       timestamp: new Date().toISOString(),
-      ...(prerequisiteLearningPath
-        ? { reasoning: { prerequisiteLearningPath } as EvaluationReasoning }
-        : {}),
+      ...(reasoning ? { reasoning } : {}),
     };
 
     await dbStore.addEvaluationReport(report);
