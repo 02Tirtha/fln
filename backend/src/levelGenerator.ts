@@ -39,6 +39,14 @@ export function generateQuestionsForLevel(level: number, subLevel: number): Ques
     let topic = 'Number Sense';
     let subtopic = getSubTopic();
     let svgAsset: string | undefined = undefined;
+    // Per-question granular competency id (must be an exact key in
+    // COMPETENCY_DEPENDENCIES when set). Only cases where the question
+    // text unambiguously identifies a single competency receive a
+    // value. Everything else stays undefined and falls back to the
+    // submission handler's deterministic level-title lookup (which
+    // itself only resolves when levelTitle is itself a dependency-graph
+    // key). No speculative assignments.
+    let competency: string | undefined = undefined;
 
     // Determine strand/topic based on level
     if ([3, 9, 52, 58].includes(level)) {
@@ -208,12 +216,14 @@ export function generateQuestionsForLevel(level: number, subLevel: number): Ques
 
       case 18:
         topic = 'Number Sense';
+        competency = 'Ascending Order';
         questionText = `Arrange in ascending (increasing) order: [25, 12, 19]. (Write lowest number first, e.g. 12)`;
         answerText = '12';
         break;
 
       case 19:
         topic = 'Number Sense';
+        competency = 'Tens';
         const val19 = adjust(45, 38, 32);
         questionText = `How many tens are in the number ${val19}?`;
         answerText = String(Math.floor(val19 / 10));
@@ -221,6 +231,7 @@ export function generateQuestionsForLevel(level: number, subLevel: number): Ques
 
       case 20:
         topic = 'Number Sense';
+        competency = 'Number Patterns';
         const step20 = adjust(5, 3, 2);
         questionText = `Skip count by ${step20}s: ${step20}, ${step20 * 2}, ${step20 * 3}, ___. What is next?`;
         answerText = String(step20 * 4);
@@ -258,6 +269,7 @@ export function generateQuestionsForLevel(level: number, subLevel: number): Ques
         break;
 
       case 26:
+        competency = 'Carry Addition';
         const add26A = adjust(randomVal(45, 65), randomVal(30, 44), randomVal(15, 29));
         const add26B = adjust(randomVal(28, 35), randomVal(15, 27), randomVal(5, 14));
         questionText = `Carry Addition: Solve ${add26A} + ${add26B} = ?`;
@@ -265,6 +277,7 @@ export function generateQuestionsForLevel(level: number, subLevel: number): Ques
         break;
 
       case 27:
+        competency = 'Borrow Subtraction';
         const sub27A = adjust(randomVal(72, 95), randomVal(50, 71), randomVal(30, 49));
         const sub27B = adjust(randomVal(38, 49), randomVal(20, 37), randomVal(11, 19));
         questionText = `Borrow Subtraction: Solve ${sub27A} - ${sub27B} = ?`;
@@ -288,11 +301,13 @@ export function generateQuestionsForLevel(level: number, subLevel: number): Ques
         break;
 
       case 30:
+        competency = 'Tally Marks';
         questionText = `Write the number represented by tally marks |||| | (5 and 1):`;
         answerText = '6';
         break;
 
       case 31:
+        competency = 'Full Hours';
         questionText = `If the short hour hand is at 4 and the long minute hand is at 12, what time is it? (Write 4:00)`;
         answerText = '4:00';
         break;
@@ -366,12 +381,14 @@ export function generateQuestionsForLevel(level: number, subLevel: number): Ques
         break;
 
       case 43:
+        competency = 'Length (cm, m)';
         const m = adjust(5, 3, 2);
         questionText = `Convert standard measurement: How many centimeters are in ${m} meters? (Hint: 1m = 100cm)`;
         answerText = String(m * 100);
         break;
 
       case 44:
+        competency = 'Time & Calendar';
         questionText = `How many months are in a standard calendar year?`;
         answerText = '12';
         break;
@@ -485,6 +502,10 @@ export function generateQuestionsForLevel(level: number, subLevel: number): Ques
       subtopic,
       difficulty: qIdx <= 2 ? 'easy' : qIdx === 3 ? 'medium' : 'hard',
       source_level: level,
+      // Only present when the case explicitly identified a single
+      // competency. Undefined is the correct default — the submission
+      // handler's level-title fallback covers the rest.
+      ...(competency ? { competency } : {}),
       svgAsset
     });
   }

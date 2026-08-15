@@ -12,12 +12,14 @@ dotenv.config({ path: path.resolve(__dotenv_dir, '..', '.env') });
 
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
-import { dbStore, connectDB, UserRole, User, Student, School, Question, Worksheet, LevelWorksheet, AnswerSubmission, EvaluationReport, Ticket, LogEntry, Intervention, BestPractice } from './db';
+import { dbStore, connectDB, UserRole, User, Student, School, Question, Worksheet, LevelWorksheet, AnswerSubmission, EvaluationReport, EvaluationReasoning, Ticket, LogEntry, Intervention, BestPractice } from './db';
 import { generateAIDiagnostic, evaluateAIDiagnostic, generateAIPersonalizedWorksheet, evaluateAIWorksheet } from './gemini';
 import { generateDiagnosticPaper } from './paperGenerator';
 import { generateQuestionsForLevel } from './levelGenerator';
 import * as levelsBackendClient from './levelsBackendClient';
 import { STATES_UTS } from './geoData';
+import { resolvePrerequisites } from './competencyDependencies';
+import { competencyFromLevel } from './competencyLookup';
 import { getAuthUser, canAccessStudent, sanitizeUser, JWT_SECRET, JWT_EXPIRES_IN, SEED_DEMO_PASSWORD_HASH } from './auth';
 import { registerAnnouncementRoutes } from './routes/announcements';
 import { registerStatsRoutes } from './routes/stats';
@@ -999,6 +1001,99 @@ const students = await dbStore.getStudents();
       console.warn('Failed to parse dynamic concept mastery:', e);
     }
 
+    // Phase 5: Prerequisite Learning Path.
+    // Build questionResults from the submitted answers (same source of
+    // truth used for jsTotalCorrect elsewhere) and walk the competency
+    // dependency graph to find prerequisites for failed competencies.
+    // Only the `prerequisiteLearningPath` field is populated here; other
+    // EvaluationReasoning fields are intentionally left undefined and
+    // remain out of scope.
+    //
+    // Aggregation key resolution:
+    //   q.competency  (explicit, per-question, set by the generator)
+    //     ↓ if absent
+    //   competencyFromLevel(q.source_level)
+    //     (deterministic levelTitle → COMPETENCY_DEPENDENCIES key
+    //      lookup; returns undefined unless the levelTitle is itself a
+    //      dependency-graph key)
+    //     ↓ if absent
+    //   skip the question (no fabricated competency)
+    //
+    // The previous implementation aggregated by q.topic (broad strand
+    // such as "Number Operations"). The dependency graph keys are
+    // granular competency ids ("Carry Addition", "Place Value", etc.);
+    // strand lookups therefore always returned [] and the prerequisite
+    // feature was never exercised. This block deliberately does NOT
+    // fall back to q.topic — that would reintroduce the original bug.
+    const questionResults = questions.map((q) => {
+      const submitted = String(answers[q.question_id] ?? '').trim().toLowerCase();
+      const correct = q.answer.trim().toLowerCase();
+      return { q, isCorrect: submitted === correct };
+    });
+    const competencyOutcomes = new Map<string, { correct: number; total: number }>();
+    for (const r of questionResults) {
+      const competency = r.q.competency ?? competencyFromLevel(r.q.source_level);
+      if (!competency) continue;
+      const o = competencyOutcomes.get(competency) ?? { correct: 0, total: 0 };
+      o.total += 1;
+      if (r.isCorrect) o.correct += 1;
+      competencyOutcomes.set(competency, o);
+    }
+    const weakestConcepts: string[] = [];
+    for (const [competency, { correct, total }] of competencyOutcomes) {
+      if (correct === 0) weakestConcepts.push(competency);
+    }
+    // Source of truth for prerequisite computation is the per-question correctness
+    // (questionResults). If questionResults identify one or more genuinely
+    // failed granular competencies, use those. Otherwise, omit the
+    // prerequisite-learning-path entirely — do NOT fall back to the heuristic
+    // conceptMastery (which is built from recommendedLevel thresholds and can
+    // mark a competency as weak even when the student answered every question
+    // correctly).
+    const failedConcepts = weakestConcepts;
+
+    let prerequisiteLearningPath: EvaluationReasoning['prerequisiteLearningPath'];
+    if (failedConcepts.length > 0) {
+      const mergedPrereqs: string[] = [];
+      const prereqCount = new Map<string, number>();
+      for (const concept of failedConcepts) {
+        const visited = new Set<string>();
+        const walkChain = (topic: string) => {
+          const directPrereqs = resolvePrerequisites(topic);
+          if (directPrereqs.length === 0) return;
+          for (const p of directPrereqs) {
+            if (!visited.has(p)) {
+              visited.add(p);
+              walkChain(p);
+              if (!mergedPrereqs.includes(p)) mergedPrereqs.push(p);
+            }
+          }
+        };
+        walkChain(concept);
+        for (const p of visited) {
+          prereqCount.set(p, (prereqCount.get(p) ?? 0) + 1);
+        }
+      }
+      if (mergedPrereqs.length > 0) {
+        const highPriorityFoundations = mergedPrereqs.filter(
+          (p) => (prereqCount.get(p) ?? 0) >= 2
+        );
+        const supportingSkills = mergedPrereqs.filter(
+          (p) => (prereqCount.get(p) ?? 0) < 2
+        );
+        prerequisiteLearningPath = {
+          highPriorityFoundations,
+          supportingSkills,
+          affectedCompetencies: Array.from(failedConcepts),
+          remediationSequence: [
+            ...highPriorityFoundations,
+            ...supportingSkills,
+            ...Array.from(failedConcepts),
+          ],
+        };
+      }
+    }
+
     const report: EvaluationReport = {
       id: 'rep_diag_' + Date.now(),
       studentId: student.id,
@@ -1009,7 +1104,10 @@ const students = await dbStore.getStudents();
       narrative,
       recommendedLevel,
       recommendedSubLevel: subLevel,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      ...(prerequisiteLearningPath
+        ? { reasoning: { prerequisiteLearningPath } as EvaluationReasoning }
+        : {}),
     };
 
     await dbStore.addEvaluationReport(report);

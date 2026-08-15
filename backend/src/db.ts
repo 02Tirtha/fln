@@ -139,6 +139,13 @@ export interface Question {
   difficulty: 'easy' | 'medium' | 'hard';
   source_level: number; // Mapping to mathematical level
   conceptId?: string; // Concept ID from 93-node framework (e.g. S1.1, S3.3)
+  // Optional granular competency id (must be a key in COMPETENCY_DEPENDENCIES
+  // when present). Used by the prerequisite-learning-path resolver to
+  // aggregate failures at the competency level rather than the broad
+  // Question.topic strand. NOT required — when absent, the submission
+  // handler derives a competency from source_level via a deterministic
+  // level-title lookup in competencyLookup.ts.
+  competency?: string;
   svgAsset?: string; // Standard pre-built SVG asset category
 }
 
@@ -242,17 +249,105 @@ export interface AnswerSubmission {
   answers: { [questionId: string]: string }; // Q1 -> A, Q2 -> 5, etc.
 }
 
+export type ConfidenceLevel = 'Very High' | 'High' | 'Moderate' | 'Low';
+
+export interface TeacherActionPlanStep {
+  week: number;
+  title: string;
+  topics: string[];
+}
+
+export interface PrerequisitePath {
+  weakConcepts: string[];
+  highPriorityFoundations: string[];
+  supportingSkills: string[];
+  actionPlan: TeacherActionPlanStep[];
+}
+
+export interface EvaluationReasoning {
+  explanation: {
+    headline: string;
+    narrative: string;
+  };
+  conceptMastery: { [topic: string]: 'Strong' | 'Needs Practice' | 'Satisfactory' };
+  confidence?: {
+    score: number;
+    level: ConfidenceLevel;
+    explanation: string;
+  };
+  learningProgression: {
+    currentLevel: number;
+    currentLevelName: string;
+    currentStrand: string;
+    nextMilestone: { level: number; name: string; strand: string } | null;
+    blockers: { topic: string; questionId?: string; errorType?: string }[];
+    recommendations: string[];
+  };
+  // Phase 5: Prerequisite Learning Path. Built from the same questionResults
+  // array that powers the rest of the reasoning payload, so the only source
+  // of truth is the submitted paper's correctness.
+  prerequisitePath?: PrerequisitePath;
+  prerequisiteLearningPath?: {
+    highPriorityFoundations: string[];
+    supportingSkills: string[];
+    affectedCompetencies: string[];
+    remediationSequence: string[];
+  };
+  evidence?: {
+    assessedTopics: string[];
+    strongestConcepts: string[];
+    weakestConcepts: string[];
+    failedQuestionSummary: {
+      total: number;
+      byLevel: { level: number; name: string | null; count: number; pipelineReported?: boolean }[];
+      byTopic: { topic: string; count: number }[];
+    };
+    difficultyBreakdown?: {
+      easy: { correct: number; attempted: number };
+      medium: { correct: number; attempted: number };
+      hard: { correct: number; attempted: number };
+    };
+    conceptMastery: { [topic: string]: 'Strong' | 'Needs Practice' | 'Satisfactory' };
+  };
+  remediation?: {
+    reusedFailedQuestions: number;
+    newlyIntroducedCurriculum: number;
+    remediationReason: string;
+    targetClass: number | null;
+    targetPhrase: string | null;
+  };
+  curriculumSummary?: {
+    currentLevelName: string;
+    currentObjective: string;
+    currentLearningOutcome: string[];
+    currentTopics: string[];
+    nextLevelName: string | null;
+    nextObjective: string | null;
+    transitionReason: string;
+  };
+  personalized?: {
+    failedQuestionsReused: number;
+    newLevelQuestionsAdded: number;
+    targetPhrase: string | null;
+    targetClass: number | null;
+    rationale: string;
+  };
+}
+
 export interface EvaluationReport {
   id: string;
   studentId: string;
   worksheetId: string;
   score: number;
   totalQuestions: number;
+  totalCorrect?: number;
+  wrongCount?: number;
   conceptMastery: { [topic: string]: 'Strong' | 'Needs Practice' | 'Satisfactory' };
   narrative: string; // Narrative summary for parent/teacher
   recommendedLevel: number;
   recommendedSubLevel?: number;
   timestamp: string;
+  reasoning?: EvaluationReasoning;
 }
 
 export interface Ticket {
