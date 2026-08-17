@@ -4,7 +4,7 @@ import { apiFetch } from '../services/apiClient';
 import {
   Menu, X, Search, Bell, Sun, Moon, LogOut, ChevronRight, ChevronLeft, ChevronDown,
   LayoutDashboard, BookOpen, UserCheck, Calendar, ShieldCheck, HelpCircle, Settings, Users,
-  School, GraduationCap, MapPin, BarChart3, FileText, ClipboardList, ShieldAlert, KeyRound, Clock, Database
+  School, GraduationCap, MapPin, BarChart3, FileText, ClipboardList, ShieldAlert, KeyRound, Clock, Database, Home
 } from 'lucide-react';
 
 interface NavigationItem {
@@ -24,6 +24,7 @@ interface LayoutProps {
   onMarkNotificationRead: (id: string) => void;
   onClearNotifications: () => void;
   onLogout: () => void;
+  onNavigateHome: () => void;
   isDark: boolean;
   onThemeToggle: () => void;
   children: React.ReactNode;
@@ -38,6 +39,7 @@ export const Layout: React.FC<LayoutProps> = ({
   onMarkNotificationRead,
   onClearNotifications,
   onLogout,
+  onNavigateHome,
   isDark,
   onThemeToggle,
   children
@@ -418,6 +420,13 @@ export const Layout: React.FC<LayoutProps> = ({
                 {currentUser.role.replace('_', ' ')}
               </span>
             </div>
+            <button
+              onClick={onNavigateHome}
+              className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-indigo-500 transition dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-indigo-400"
+              title="Home"
+            >
+              <Home className="h-4.5 w-4.5" />
+            </button>
             <button
               onClick={onLogout}
               className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-red-500 transition dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-red-400"
