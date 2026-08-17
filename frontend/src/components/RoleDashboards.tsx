@@ -2398,10 +2398,6 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
                     accessor: (s) => <span className="font-mono text-slate-500 dark:text-slate-400 text-xs">Level {s.targetLevel}</span>
                   },
                   {
-                    header: 'Streak',
-                    accessor: (s) => <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{s.streak} 🔥</span>
-                  },
-                  {
                     header: 'Diagnostic Status',
                     accessor: (s) => s.levelHistory.length === 0 ? (
                       <div className="flex items-center gap-1.5">
@@ -3059,10 +3055,6 @@ export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) =>
                   {
                     header: 'Target Level',
                     accessor: (s) => <span className="font-mono text-slate-500 dark:text-slate-400 text-xs">Level {s.targetLevel}</span>
-                  },
-                  {
-                    header: 'Streak',
-                    accessor: (s) => <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{s.streak} 🔥</span>
                   },
                   {
                     header: 'Diagnostic Status',
