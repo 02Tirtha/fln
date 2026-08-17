@@ -77,7 +77,7 @@ export const LandingView: React.FC<LandingViewProps> = ({ onNavigateToLogin }) =
         <div className="flex items-center gap-3">
           <span className="font-bold">FLN Portal</span>
           <span className="text-gray-500">|</span>
-          <span className="text-gray-300 hidden sm:inline">Foundational Literacy & Numeracy</span>
+          <span className="text-gray-300 hidden sm:inline">National Numeracy Initiative</span>
         </div>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1 text-[10px] md:text-xs font-bold">
@@ -120,7 +120,7 @@ export const LandingView: React.FC<LandingViewProps> = ({ onNavigateToLogin }) =
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wide">
-                Foundational Literacy & Numeracy initiative
+                National Assessment & Diagnostics Platform
               </p>
             </div>
           </div>
@@ -144,7 +144,7 @@ export const LandingView: React.FC<LandingViewProps> = ({ onNavigateToLogin }) =
           
           <div className="inline-flex items-center gap-2 rounded-full bg-amber-100 dark:bg-amber-950/40 px-4 py-1.5 text-xs font-bold text-slate-900 dark:text-white mb-6 border border-amber-200 dark:border-amber-800">
             <span className="h-2 w-2 rounded-full bg-amber-600 dark:bg-amber-500" />
-            <span>Foundational Literacy and Numeracy (FLN) National Assessment Scheme</span>
+            <span>FLN National Assessment Scheme</span>
           </div>
 
           <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white sm:text-5xl max-w-4xl mx-auto leading-tight">
