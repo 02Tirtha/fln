@@ -2384,7 +2384,6 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
                 const studentColumns: Column<Student>[] = [
                   { header: 'ID', accessor: 'id', sortKey: 'id', className: 'font-mono text-xs text-slate-400 dark:text-slate-500' },
                   { header: 'Student Name', accessor: 'name', sortKey: 'name', className: 'font-medium text-slate-900 dark:text-slate-100' },
-                  { header: 'Aadhar / ID No.', accessor: 'aadharMasked', className: 'font-mono text-xs text-slate-500 dark:text-slate-400' },
                   {
                     header: 'Current Level',
                     accessor: (s) => (
@@ -3047,7 +3046,6 @@ export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) =>
                 const studentColumns: Column<Student>[] = [
                   { header: 'ID', accessor: 'id', sortKey: 'id', className: 'font-mono text-xs text-slate-400 dark:text-slate-500' },
                   { header: 'Student Name', accessor: 'name', sortKey: 'name', className: 'font-medium text-slate-900 dark:text-slate-100' },
-                  { header: 'Aadhar / ID No.', accessor: 'aadharMasked', className: 'font-mono text-xs text-slate-500 dark:text-slate-400' },
                   {
                     header: 'Current Level',
                     accessor: (s) => (
