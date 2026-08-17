@@ -97,6 +97,7 @@ export default function App() {
     const handleUnauthorized = () => {
       setToken(null);
       setCurrentUser(null);
+      setActivePanel('workspace');
       localStorage.removeItem('fln_token');
       setCurrentView('home');
       navigate('/');
@@ -110,6 +111,7 @@ export default function App() {
     setToken(newToken);
     localStorage.setItem('fln_token', newToken);
     setCurrentUser(user);
+    setActivePanel('workspace');
     setCurrentView('dashboard');
     navigate('/');
   };
@@ -129,6 +131,7 @@ export default function App() {
   const handleLogout = () => {
     setToken(null);
     setCurrentUser(null);
+    setActivePanel('workspace');
     localStorage.removeItem('fln_token');
     setCurrentView('home');
     navigate('/');
