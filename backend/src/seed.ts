@@ -452,7 +452,7 @@ async function main() {
                   {
                     level: currentLevel,
                     date: '2026-04-10',
-                    reason: 'Onboarding Diagnostic Placement',
+                    reason: 'Baseline',
                   },
                 ],
               });

@@ -12,7 +12,7 @@ dotenv.config({ path: path.resolve(__dotenv_dir, '..', '.env') });
 
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
-import { dbStore, connectDB, UserRole, User, Student, School, Question, Worksheet, LevelWorksheet, AnswerSubmission, EvaluationReport, Ticket, LogEntry, Intervention, BestPractice } from './db';
+import { dbStore, connectDB, UserRole, User, Student, School, Question, Worksheet, LevelWorksheet, AnswerSubmission, EvaluationReport, Ticket, LogEntry, Intervention, BestPractice, CYCLE_NAMES } from './db';
 import { generateAIDiagnostic, evaluateAIDiagnostic, generateAIPersonalizedWorksheet, evaluateAIWorksheet } from './gemini';
 import { generateDiagnosticPaper } from './paperGenerator';
 import { generateQuestionsForLevel } from './levelGenerator';
@@ -965,7 +965,7 @@ const students = await dbStore.getStudents();
       level: recommendedLevel,
       subLevel,
       date: new Date().toISOString().split('T')[0],
-      reason: 'Onboarding Diagnostic Evaluation Placement'
+      reason: CYCLE_NAMES[0] // 'Baseline'
     }];
 
     await dbStore.updateStudent(student.id, {
@@ -1398,7 +1398,7 @@ const students = await dbStore.getStudents();
           level: recommendedLevel,
           subLevel,
           date: new Date().toISOString().split('T')[0],
-          reason: 'ICR EasyOCR Answer Sheet File Scan Evaluation'
+          reason: CYCLE_NAMES[0] // 'Baseline' - this ICR path is the scanned diagnostic-placement flow
         }];
 
         await dbStore.updateStudent(student.id, {
@@ -2331,7 +2331,7 @@ const students = await dbStore.getStudents();
         level: evaluation.recommendedLevel,
         subLevel: newSubLevel,
         date: now.toISOString().split('T')[0],
-        reason: `Performance on ${ws.cycle} exam worksheet`
+        reason: ws.cycle // already one of CYCLE_NAMES
       });
     }
 
