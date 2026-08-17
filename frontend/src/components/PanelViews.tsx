@@ -6,6 +6,7 @@ import { Table, Column } from './Table';
 import { MetricCard } from './Card';
 import { STATE_NAMES, DISTRICT_NAMES, BLOCK_NAMES } from '../constants';
 import { FLN_LEVELS_LIST } from './RoleDashboards';
+import { ReasoningSection } from './EducationalReasoning';
 
 interface PanelViewsProps {
   activePanel: string;
@@ -253,7 +254,7 @@ const students = apiStudents.length > 0 ? apiStudents : STUDENTS_FALLBACK;
 
   const panel = activePanel;
 
-  const handleDownloadPDF = (student: Student, r: EvaluationReport, examResponses: any[]) => {
+  const handleDownloadPDF = (student: Student, r: EvaluationReport) => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
       alert('Please allow popups to download/print the PDF report card.');
@@ -264,18 +265,22 @@ const students = apiStudents.length > 0 ? apiStudents : STUDENTS_FALLBACK;
       .map(([t, m]) => `<span class="badge ${m === 'Strong' ? 'badge-pass' : 'badge-fail'}">${t}: ${m}</span>`)
       .join(' ');
 
-    const tableRows = examResponses.map(item => `
-      <tr>
-        <td style="font-weight: 500;">${item.question}</td>
-        <td style="color: ${item.status === 'Correct' ? '#065f46' : '#991b1b'}; font-weight: 600;">${item.studentAnswer}</td>
-        <td>${item.correctAnswer}</td>
-        <td>
-          <span class="badge ${item.status === 'Correct' ? 'badge-pass' : 'badge-fail'}">
-            ${item.status === 'Correct' ? 'PASS' : 'FAIL'}
-          </span>
-        </td>
-      </tr>
-    `).join('');
+    const hasReasoning = !!r.reasoning;
+    const reasoningHtml = hasReasoning
+      ? `
+        <div class="section-title">Educational Reasoning</div>
+        <div class="reasoning-box">
+          ${r.reasoning?.explanation?.headline ? `<div class="reasoning-headline">${r.reasoning.explanation.headline}</div>` : ''}
+          ${r.reasoning?.explanation?.narrative ? `<div class="narrative-box-inner">${r.reasoning.explanation.narrative}</div>` : ''}
+          ${r.reasoning?.prerequisiteLearningPath ? `
+            <div class="reasoning-sub">Prerequisite Learning Path</div>
+            ${r.reasoning.prerequisiteLearningPath.affectedCompetencies?.length ? `<div><strong>Affected Competencies:</strong> ${r.reasoning.prerequisiteLearningPath.affectedCompetencies.join(', ')}</div>` : ''}
+            ${r.reasoning.prerequisiteLearningPath.supportingSkills?.length ? `<div><strong>Supporting Skills:</strong> ${r.reasoning.prerequisiteLearningPath.supportingSkills.join(', ')}</div>` : ''}
+            ${r.reasoning.prerequisiteLearningPath.highPriorityFoundations?.length ? `<div><strong>High-Priority Foundations:</strong> ${r.reasoning.prerequisiteLearningPath.highPriorityFoundations.join(', ')}</div>` : ''}
+          ` : ''}
+        </div>
+      `
+      : '';
 
     const htmlContent = `
       <!DOCTYPE html>
@@ -297,10 +302,11 @@ const students = apiStudents.length > 0 ? apiStudents : STUDENTS_FALLBACK;
           .metric-value { font-size: 22px; font-weight: 700; color: #4f46e5; }
           .metric-label { font-size: 10px; color: #64748b; text-transform: uppercase; font-weight: 700; margin-top: 5px; letter-spacing: 0.5px; }
           .narrative-box { background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; font-size: 13px; white-space: pre-line; margin-bottom: 25px; color: #334155; line-height: 1.6; }
-          table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 12px; }
-          th { background-color: #f1f5f9; text-align: left; padding: 10px; font-weight: 700; border-bottom: 2px solid #e2e8f0; color: #475569; text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px; }
-          td { padding: 12px 10px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
-          .badge { display: inline-block; padding: 3px 8px; font-size: 9px; font-weight: 700; border-radius: 4px; text-transform: uppercase; font-family: monospace; }
+          .reasoning-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 25px; }
+          .reasoning-headline { font-weight: 700; color: #1e3a8a; margin-bottom: 8px; }
+          .narrative-box-inner { font-size: 12px; white-space: pre-line; color: #334155; line-height: 1.6; margin-bottom: 12px; }
+          .reasoning-sub { font-size: 11px; font-weight: 700; color: #4f46e5; text-transform: uppercase; letter-spacing: 0.5px; margin: 12px 0 6px; }
+          .badge { display: inline-block; padding: 3px 8px; font-size: 9px; font-weight: 700; border-radius: 4px; text-transform: uppercase; font-family: monospace; margin: 2px; }
           .badge-pass { background-color: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; }
           .badge-fail { background-color: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
           .footer { text-align: center; margin-top: 50px; font-size: 11px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; }
@@ -333,7 +339,7 @@ const students = apiStudents.length > 0 ? apiStudents : STUDENTS_FALLBACK;
             <div class="metric-label">Placed Level</div>
           </div>
           <div class="metric-card">
-            <div class="metric-value">${Math.round((r.score / r.totalQuestions) * 100)}%</div>
+            <div class="metric-value">${r.totalQuestions > 0 ? Math.round((r.score / r.totalQuestions) * 100) : 0}%</div>
             <div class="metric-label">Accuracy Rate</div>
           </div>
         </div>
@@ -348,20 +354,7 @@ const students = apiStudents.length > 0 ? apiStudents : STUDENTS_FALLBACK;
           ${r.narrative}
         </div>
 
-        <div class="section-title">Question Grader Matrix</div>
-        <table>
-          <thead>
-            <tr>
-              <th style="width: 45%;">Question Detail</th>
-              <th style="width: 20%;">Student Response</th>
-              <th style="width: 20%;">Correct Answer Key</th>
-              <th style="width: 15%;">Result</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${tableRows}
-          </tbody>
-        </table>
+        ${reasoningHtml}
 
         <div class="footer">
           Generated automatically by the FLN Portal. Confidential Student Academic Record.
@@ -771,70 +764,37 @@ const students = apiStudents.length > 0 ? apiStudents : STUDENTS_FALLBACK;
                       
                       <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
                         <button onClick={() => setExpandedReportId(expandedReportId === r.id ? null : r.id)} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
-                          {expandedReportId === r.id ? 'Hide Exam Sheet' : '📋 View Student Exam Responses'}
+                          {expandedReportId === r.id ? 'Hide Details' : '📋 View Persisted Report Details'}
                         </button>
-                        <button onClick={() => {
-                          const examResponses = s.id === 's1' ? [
-                            { question: 'Q1: Match objects one-to-one (One-to-One Correspondence)', studentAnswer: '3 (incorrect match count)', correctAnswer: 'Matched all 5 items', status: 'Incorrect' },
-                            { question: 'Q2: Odd One Out - Select non-conforming object from [ball, book, table, pen]', studentAnswer: 'B (Book)', correctAnswer: 'table (furniture classification)', status: 'Incorrect' },
-                            { question: 'Q3: Single Digit Addition - Solve: 5 + 4 = ?', studentAnswer: '9', correctAnswer: '9', status: 'Correct' },
-                            { question: 'Q4: Single Digit Subtraction - Solve: 8 - 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' },
-                            { question: 'Q5: Identify shape with 3 corners and 3 straight sides', studentAnswer: 'Triangle', correctAnswer: 'Triangle', status: 'Correct' }
-                          ] : s.id === 's2' ? [
-                            { question: 'Q1: Counting up to 10 - Count the apples: 🍎🍎🍎🍎', studentAnswer: '4', correctAnswer: '4', status: 'Correct' },
-                            { question: 'Q2: Odd One Out - Select non-matching item: [square, circle, red-block, triangle]', studentAnswer: 'red-block', correctAnswer: 'red-block', status: 'Correct' },
-                            { question: 'Q3: Pattern recognition - What comes next in sequence: 🔴🔵🔴🔵 ?', studentAnswer: '🔵', correctAnswer: '🔴', status: 'Incorrect' },
-                            { question: 'Q4: Simple Addition - Solve: 3 + 2 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
-                          ] : [
-                            { question: 'Q1: Place Value Designation - What is the value of 7 in 372?', studentAnswer: '70 (7 tens)', correctAnswer: '70', status: 'Correct' },
-                            { question: 'Q2: Single-Digit Multiplication - Solve: 6 × 3 = ?', studentAnswer: '18', correctAnswer: '18', status: 'Correct' },
-                            { question: 'Q3: Double-Digit Subtraction with Borrowing - Solve: 42 - 17 = ?', studentAnswer: '25', correctAnswer: '25', status: 'Correct' },
-                            { question: 'Q4: Simple Division - Solve: 15 ÷ 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
-                          ];
-                          handleDownloadPDF(s, r, examResponses);
-                        }} className="text-xs font-semibold text-emerald-650 hover:text-emerald-800 flex items-center gap-1">
+                        <button onClick={() => handleDownloadPDF(s, r)} className="text-xs font-semibold text-emerald-650 hover:text-emerald-800 flex items-center gap-1">
                           📥 Download PDF Report
                         </button>
                       </div>
 
                       {expandedReportId === r.id && (
                         <div className="mt-3 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden bg-slate-50 dark:bg-slate-800 text-xs">
-                          <div className="bg-slate-100 dark:bg-slate-800 px-3 py-2 font-bold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700">Side-by-Side Exam Grader Report</div>
-                          <div className="divide-y divide-slate-200 dark:divide-slate-700">
-                            {(s.id === 's1' ? [
-                              { question: 'Q1: Match objects one-to-one (One-to-One Correspondence)', studentAnswer: '3 (incorrect match count)', correctAnswer: 'Matched all 5 items', status: 'Incorrect' },
-                              { question: 'Q2: Odd One Out - Select non-conforming object from [ball, book, table, pen]', studentAnswer: 'B (Book)', correctAnswer: 'table (furniture classification)', status: 'Incorrect' },
-                              { question: 'Q3: Single Digit Addition - Solve: 5 + 4 = ?', studentAnswer: '9', correctAnswer: '9', status: 'Correct' },
-                              { question: 'Q4: Single Digit Subtraction - Solve: 8 - 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' },
-                              { question: 'Q5: Identify shape with 3 corners and 3 straight sides', studentAnswer: 'Triangle', correctAnswer: 'Triangle', status: 'Correct' }
-                            ] : s.id === 's2' ? [
-                              { question: 'Q1: Counting up to 10 - Count the apples: 🍎🍎🍎🍎', studentAnswer: '4', correctAnswer: '4', status: 'Correct' },
-                              { question: 'Q2: Odd One Out - Select non-matching item: [square, circle, red-block, triangle]', studentAnswer: 'red-block', correctAnswer: 'red-block', status: 'Correct' },
-                              { question: 'Q3: Pattern recognition - What comes next in sequence: 🔴🔵🔴🔵 ?', studentAnswer: '🔵', correctAnswer: '🔴', status: 'Incorrect' },
-                              { question: 'Q4: Simple Addition - Solve: 3 + 2 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
-                            ] : [
-                              { question: 'Q1: Place Value Designation - What is the value of 7 in 372?', studentAnswer: '70 (7 tens)', correctAnswer: '70', status: 'Correct' },
-                              { question: 'Q2: Single-Digit Multiplication - Solve: 6 × 3 = ?', studentAnswer: '18', correctAnswer: '18', status: 'Correct' },
-                              { question: 'Q3: Double-Digit Subtraction with Borrowing - Solve: 42 - 17 = ?', studentAnswer: '25', correctAnswer: '25', status: 'Correct' },
-                              { question: 'Q4: Simple Division - Solve: 15 ÷ 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
-                            ]).map((item: any, idx: number) => (
-                              <div key={idx} className="p-3 space-y-1">
-                                <div className="font-semibold text-slate-800 dark:text-slate-100">{item.question}</div>
-                                <div className="grid grid-cols-2 gap-2 mt-1 pt-1 border-t border-dotted border-slate-200 dark:border-slate-700">
-                                  <div>
-                                    <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-mono block">Student Response</span>
-                                    <span className={`font-medium ${item.status === 'Correct' ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>{item.studentAnswer}</span>
-                                  </div>
-                                  <div>
-                                    <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-mono block">Correct Keys</span>
-                                    <span className="font-medium text-slate-800 dark:text-slate-100">{item.correctAnswer}</span>
-                                  </div>
-                                </div>
-                                <div className="pt-1">
-                                  <span className={`inline-block px-1.5 py-0.5 text-[9px] font-bold font-mono rounded ${item.status === 'Correct' ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200' : 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200'}`}>{item.status === 'Correct' ? 'PASS' : 'FAIL'}</span>
-                                </div>
+                          <div className="bg-slate-100 dark:bg-slate-800 px-3 py-2 font-bold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700">Persisted Report Details (from backend EvaluationReport)</div>
+                          <div className="p-4 space-y-3">
+                            <div className="grid grid-cols-3 gap-3">
+                              <div>
+                                <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-mono block">Score</span>
+                                <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{r.score} / {r.totalQuestions}</span>
                               </div>
-                            ))}
+                              <div>
+                                <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-mono block">Placed Level</span>
+                                <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">L{r.recommendedLevel}.{r.recommendedSubLevel ?? 0}</span>
+                              </div>
+                              <div>
+                                <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-mono block">Accuracy</span>
+                                <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{r.totalQuestions > 0 ? Math.round((r.score / r.totalQuestions) * 100) : 0}%</span>
+                              </div>
+                            </div>
+                            {r.totalQuestions === 0 && (
+                              <div className="text-[11px] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-900 rounded-lg p-3 border border-slate-200 dark:border-slate-700">
+                                Per-question responses are not persisted by the backend — only aggregate score, placement, and concept mastery are stored on this EvaluationReport.
+                              </div>
+                            )}
+                            <ReasoningSection report={r} title="Educational Reasoning" />
                           </div>
                         </div>
                       )}
@@ -1188,33 +1148,12 @@ const students = apiStudents.length > 0 ? apiStudents : STUDENTS_FALLBACK;
           {reportsList.map(r => {
             const student = students.find(s => s.id === r.studentId);
             const isExpanded = expandedReportId === r.id;
-            
-            // Mock exam questions and student responses for side-by-side preview
-            const examResponses = student ? (
-              student.id === 's1' ? [
-                { question: 'Q1: Match objects one-to-one (One-to-One Correspondence)', studentAnswer: '3 (incorrect match count)', correctAnswer: 'Matched all 5 items', status: 'Incorrect' },
-                { question: 'Q2: Odd One Out - Select non-conforming object from [ball, book, table, pen]', studentAnswer: 'B (Book)', correctAnswer: 'table (furniture classification)', status: 'Incorrect' },
-                { question: 'Q3: Single Digit Addition - Solve: 5 + 4 = ?', studentAnswer: '9', correctAnswer: '9', status: 'Correct' },
-                { question: 'Q4: Single Digit Subtraction - Solve: 8 - 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' },
-                { question: 'Q5: Identify shape with 3 corners and 3 straight sides', studentAnswer: 'Triangle', correctAnswer: 'Triangle', status: 'Correct' }
-              ] : student.id === 's2' ? [
-                { question: 'Q1: Counting up to 10 - Count the apples: 🍎🍎🍎🍎', studentAnswer: '4', correctAnswer: '4', status: 'Correct' },
-                { question: 'Q2: Odd One Out - Select non-matching item: [square, circle, red-block, triangle]', studentAnswer: 'red-block', correctAnswer: 'red-block', status: 'Correct' },
-                { question: 'Q3: Pattern recognition - What comes next in sequence: 🔴🔵🔴🔵 ?', studentAnswer: '🔵', correctAnswer: '🔴', status: 'Incorrect' },
-                { question: 'Q4: Simple Addition - Solve: 3 + 2 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
-              ] : [
-                { question: 'Q1: Place Value Designation - What is the value of 7 in 372?', studentAnswer: '70 (7 tens)', correctAnswer: '70', status: 'Correct' },
-                { question: 'Q2: Single-Digit Multiplication - Solve: 6 × 3 = ?', studentAnswer: '18', correctAnswer: '18', status: 'Correct' },
-                { question: 'Q3: Double-Digit Subtraction with Borrowing - Solve: 42 - 17 = ?', studentAnswer: '25', correctAnswer: '25', status: 'Correct' },
-                { question: 'Q4: Simple Division - Solve: 15 ÷ 3 = ?', studentAnswer: '5', correctAnswer: '5', status: 'Correct' }
-              ]
-            ) : [];
 
             return (
               <div key={r.id} className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-3 hover:border-slate-300 dark:hover:border-slate-600 transition-all">
                 <div className="flex justify-between items-center"><span className="font-semibold text-sm">{student?.name || 'Unknown'}</span><span className="text-xs text-slate-400 dark:text-slate-500">{new Date(r.timestamp).toLocaleDateString()}</span></div>
                 <div className="flex gap-4 text-sm"><span>Score: <strong>{r.score}/{r.totalQuestions}</strong></span><span>Level: <strong>L{r.recommendedLevel}.{r.recommendedSubLevel ?? 0}</strong></span></div>
-                
+
                 <div className="bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-lg p-3">
                   <span className="text-[9px] font-mono font-bold uppercase text-slate-400 dark:text-slate-500 tracking-wider">Evaluation Report Narrative</span>
                   <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 leading-relaxed whitespace-pre-line">{r.narrative}</p>
@@ -1227,10 +1166,10 @@ const students = apiStudents.length > 0 ? apiStudents : STUDENTS_FALLBACK;
                 <div className="pt-2 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center">
                   <div className="flex gap-3">
                     <button onClick={() => setExpandedReportId(isExpanded ? null : r.id)} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
-                      {isExpanded ? 'Hide Exam Sheet' : '📋 View Student Exam Responses'}
+                      {isExpanded ? 'Hide Details' : '📋 View Persisted Report Details'}
                     </button>
                     {student && (
-                      <button onClick={() => handleDownloadPDF(student, r, examResponses)} className="text-xs font-semibold text-emerald-650 hover:text-emerald-800 flex items-center gap-1">
+                      <button onClick={() => handleDownloadPDF(student, r)} className="text-xs font-semibold text-emerald-650 hover:text-emerald-800 flex items-center gap-1">
                         📥 Download PDF Report
                       </button>
                     )}
@@ -1240,26 +1179,28 @@ const students = apiStudents.length > 0 ? apiStudents : STUDENTS_FALLBACK;
 
                 {isExpanded && (
                   <div className="mt-3 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden bg-slate-50 dark:bg-slate-800 text-xs">
-                    <div className="bg-slate-100 dark:bg-slate-800 px-3 py-2 font-bold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700">Side-by-Side Exam Grader Report</div>
-                    <div className="divide-y divide-slate-200 dark:divide-slate-700">
-                      {examResponses.map((item, idx) => (
-                        <div key={idx} className="p-3 space-y-1">
-                          <div className="font-semibold text-slate-800 dark:text-slate-100">{item.question}</div>
-                          <div className="grid grid-cols-2 gap-2 mt-1 pt-1 border-t border-dotted border-slate-200 dark:border-slate-700">
-                            <div>
-                              <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-mono block">Student Response</span>
-                              <span className={`font-medium ${item.status === 'Correct' ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>{item.studentAnswer}</span>
-                            </div>
-                            <div>
-                              <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-mono block">Correct Keys</span>
-                              <span className="font-medium text-slate-800 dark:text-slate-100">{item.correctAnswer}</span>
-                            </div>
-                          </div>
-                          <div className="pt-1">
-                            <span className={`inline-block px-1.5 py-0.5 text-[9px] font-bold font-mono rounded ${item.status === 'Correct' ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200' : 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200'}`}>{item.status === 'Correct' ? 'PASS' : 'FAIL'}</span>
-                          </div>
+                    <div className="bg-slate-100 dark:bg-slate-800 px-3 py-2 font-bold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700">Persisted Report Details (from backend EvaluationReport)</div>
+                    <div className="p-4 space-y-3">
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-mono block">Score</span>
+                          <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{r.score} / {r.totalQuestions}</span>
                         </div>
-                      ))}
+                        <div>
+                          <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-mono block">Placed Level</span>
+                          <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">L{r.recommendedLevel}.{r.recommendedSubLevel ?? 0}</span>
+                        </div>
+                        <div>
+                          <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase font-mono block">Accuracy</span>
+                          <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{r.totalQuestions > 0 ? Math.round((r.score / r.totalQuestions) * 100) : 0}%</span>
+                        </div>
+                      </div>
+                      {r.totalQuestions === 0 && (
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-900 rounded-lg p-3 border border-slate-200 dark:border-slate-700">
+                          Per-question responses are not persisted by the backend — only aggregate score, placement, and concept mastery are stored on this EvaluationReport.
+                        </div>
+                      )}
+                      <ReasoningSection report={r} title="Educational Reasoning" />
                     </div>
                   </div>
                 )}
