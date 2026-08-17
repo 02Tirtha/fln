@@ -631,7 +631,6 @@ const students = await dbStore.getStudents();
       targetLevel: 2,
       aadharMasked: rawAadhar, // Store raw unmasked Aadhar in DB so Superadmin sees it, others get masked dynamically
       levelHistory: [],
-      streak: 0,
       gender: gender || undefined,
       dob: dob || undefined,
       guardianName: guardianName || undefined,
@@ -747,8 +746,7 @@ const students = await dbStore.getStudents();
           qrData: {
             age: student.age, classGroup: student.classGroup, section: student.section,
             schoolId: student.schoolId, currentLevel: student.currentLevel,
-            currentSubLevel: student.currentSubLevel, targetLevel: student.targetLevel,
-            streak: student.streak
+            currentSubLevel: student.currentSubLevel, targetLevel: student.targetLevel
           }
         }]
       });
@@ -1275,8 +1273,7 @@ const students = await dbStore.getStudents();
             currentLevel: classNum * 10,
             targetLevel: 93,
             aadharMasked: 'XXXX-XXXX-1234',
-            levelHistory: [],
-            streak: 0
+            levelHistory: []
           }
         ];
       }
@@ -1318,8 +1315,7 @@ const students = await dbStore.getStudents();
             currentLevel: classNumber * 10,
             targetLevel: 93,
             aadharMasked: 'XXXX-XXXX-1234',
-            levelHistory: [],
-            streak: 0
+            levelHistory: []
           }
         ];
       }
@@ -2027,7 +2023,7 @@ const students = await dbStore.getStudents();
       studentData: {
         age: s.age, classGroup: s.classGroup, section: s.section, schoolId: s.schoolId,
         currentLevel: s.currentLevel, currentSubLevel: s.currentSubLevel,
-        targetLevel: s.targetLevel, streak: s.streak
+        targetLevel: s.targetLevel
       }
     }));
 
@@ -2248,7 +2244,7 @@ const students = await dbStore.getStudents();
     // Idempotency: a student can only submit a given worksheet once. If this
     // exact (worksheetId, studentId) pair was already submitted (e.g. the
     // client retried after a timeout), return the existing result instead of
-    // re-running the AI evaluation, re-mutating the student's level/streak,
+    // re-running the AI evaluation, re-mutating the student's level,
     // and re-appending to level history / delay logs.
     const existingSubmissions = await dbStore.getAnswerSubmissions();
     const existingSubmission = existingSubmissions.find(s => s.worksheetId === worksheetId && s.studentId === studentId);
@@ -2343,8 +2339,7 @@ const students = await dbStore.getStudents();
       currentLevel: evaluation.recommendedLevel,
       currentSubLevel: newSubLevel,
       targetLevel: Math.min(93, evaluation.recommendedLevel + 1),
-      levelHistory,
-      streak: student.streak + 1
+      levelHistory
     });
 
     // Logging & escalation updates if delayed
@@ -3267,8 +3262,7 @@ const students = await dbStore.getStudents();
             qrData: {
               age: student.age, classGroup: student.classGroup, section: student.section,
               schoolId: student.schoolId, currentLevel: student.currentLevel,
-              currentSubLevel: student.currentSubLevel, targetLevel: student.targetLevel,
-              streak: student.streak
+              currentSubLevel: student.currentSubLevel, targetLevel: student.targetLevel
             }
           }]
         });
