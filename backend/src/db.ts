@@ -109,7 +109,6 @@ export interface Student {
   targetLevel: number;
   aadharMasked: string; // Mandatory, unique identifier masked (§13.2 R-6)
   levelHistory: { level: number; subLevel?: number; date: string; reason: string }[];
-  streak: number;
   assignedDiagnosticQuestions?: Question[];
   // Extended profile — optional, filled in by the student's own school/teacher.
   // guardianContact and address are PII and are redacted for roles beyond
@@ -199,6 +198,12 @@ export interface QuestionBankEntry {
   svgHtml: string;
 }
 
+// Canonical set of assessment cycle names, used everywhere a cycle name is
+// displayed or written (levelHistory.reason, Worksheet.cycle) so there is
+// exactly one naming scheme across the whole app.
+export const CYCLE_NAMES = ['Baseline', 'Mid-year', 'End-of-year'] as const;
+export type CycleName = typeof CYCLE_NAMES[number];
+
 export interface Worksheet {
   id: string; // Exam ID
   classId: string;
@@ -207,7 +212,7 @@ export interface Worksheet {
   schoolId: string;
   generatedByRole: UserRole;
   generatedByEmail: string;
-  cycle: 'Baseline' | 'Mid-year' | 'End-of-year';
+  cycle: CycleName;
   date: string;
   questions: Question[];
   locks: {
@@ -1322,8 +1327,7 @@ export class DBStore {
         currentLevel: 2,
         targetLevel: 3,
         aadharMasked: 'XXXX-XXXX-4521',
-        levelHistory: [{ level: 1, date: '2026-04-10', reason: 'Onboarding Diagnostic Placement' }],
-        streak: 5
+        levelHistory: [{ level: 1, date: '2026-04-10', reason: 'Baseline' }],
       },
       {
         id: 's2',
@@ -1336,8 +1340,7 @@ export class DBStore {
         currentLevel: 3,
         targetLevel: 4,
         aadharMasked: 'XXXX-XXXX-9874',
-        levelHistory: [{ level: 2, date: '2026-04-10', reason: 'Onboarding Diagnostic Placement' }],
-        streak: 3
+        levelHistory: [{ level: 2, date: '2026-04-10', reason: 'Baseline' }],
       },
       {
         id: 's3',
@@ -1350,8 +1353,7 @@ export class DBStore {
         currentLevel: 4,
         targetLevel: 5,
         aadharMasked: 'XXXX-XXXX-1122',
-        levelHistory: [{ level: 3, date: '2026-04-10', reason: 'Onboarding Diagnostic Placement' }],
-        streak: 7
+        levelHistory: [{ level: 3, date: '2026-04-10', reason: 'Baseline' }],
       },
       {
         id: 's4',
@@ -1363,8 +1365,7 @@ export class DBStore {
         currentLevel: 1,
         targetLevel: 2,
         aadharMasked: 'XXXX-XXXX-5566',
-        levelHistory: [{ level: 1, date: '2026-05-15', reason: 'Volunteer Diagnostic Placement' }],
-        streak: 1
+        levelHistory: [{ level: 1, date: '2026-05-15', reason: 'Baseline' }],
       },
       {
         id: 's5',
@@ -1376,8 +1377,7 @@ export class DBStore {
         currentLevel: 2,
         targetLevel: 3,
         aadharMasked: 'XXXX-XXXX-8811',
-        levelHistory: [{ level: 1, date: '2026-05-20', reason: 'Volunteer Diagnostic Placement' }],
-        streak: 2
+        levelHistory: [{ level: 1, date: '2026-05-20', reason: 'Baseline' }],
       },
       {
         id: 's6',
@@ -1390,8 +1390,7 @@ export class DBStore {
         currentLevel: 3,
         targetLevel: 4,
         aadharMasked: 'XXXX-XXXX-7231',
-        levelHistory: [{ level: 2, date: '2026-06-01', reason: 'Onboarding Diagnostic Placement' }],
-        streak: 4
+        levelHistory: [{ level: 2, date: '2026-06-01', reason: 'Baseline' }],
       },
       {
         id: 's7',
@@ -1404,8 +1403,7 @@ export class DBStore {
         currentLevel: 5,
         targetLevel: 6,
         aadharMasked: 'XXXX-XXXX-1002',
-        levelHistory: [{ level: 3, date: '2026-06-01', reason: 'Onboarding Diagnostic Placement' }],
-        streak: 9
+        levelHistory: [{ level: 3, date: '2026-06-01', reason: 'Baseline' }],
       },
       {
         id: 's8',
@@ -1418,8 +1416,7 @@ export class DBStore {
         currentLevel: 2,
         targetLevel: 3,
         aadharMasked: 'XXXX-XXXX-3490',
-        levelHistory: [{ level: 2, date: '2026-06-01', reason: 'Onboarding Diagnostic Placement' }],
-        streak: 3
+        levelHistory: [{ level: 2, date: '2026-06-01', reason: 'Baseline' }],
       },
       {
         id: 's9',
@@ -1432,8 +1429,7 @@ export class DBStore {
         currentLevel: 4,
         targetLevel: 5,
         aadharMasked: 'XXXX-XXXX-1992',
-        levelHistory: [{ level: 3, date: '2026-06-15', reason: 'Onboarding Diagnostic Placement' }],
-        streak: 6
+        levelHistory: [{ level: 3, date: '2026-06-15', reason: 'Baseline' }],
       },
       {
         id: 's10',
@@ -1446,8 +1442,7 @@ export class DBStore {
         currentLevel: 5,
         targetLevel: 6,
         aadharMasked: 'XXXX-XXXX-8822',
-        levelHistory: [{ level: 4, date: '2026-06-15', reason: 'Onboarding Diagnostic Placement' }],
-        streak: 11
+        levelHistory: [{ level: 4, date: '2026-06-15', reason: 'Baseline' }],
       },
       {
         id: 's11',
@@ -1460,8 +1455,7 @@ export class DBStore {
         currentLevel: 3,
         targetLevel: 4,
         aadharMasked: 'XXXX-XXXX-3344',
-        levelHistory: [{ level: 2, date: '2026-06-15', reason: 'Onboarding Diagnostic Placement' }],
-        streak: 5
+        levelHistory: [{ level: 2, date: '2026-06-15', reason: 'Baseline' }],
       },
       {
         id: 's12',
@@ -1473,8 +1467,7 @@ export class DBStore {
         currentLevel: 1,
         targetLevel: 2,
         aadharMasked: 'XXXX-XXXX-4545',
-        levelHistory: [{ level: 1, date: '2026-06-05', reason: 'Volunteer Diagnostic Placement' }],
-        streak: 2
+        levelHistory: [{ level: 1, date: '2026-06-05', reason: 'Baseline' }],
       },
       {
         id: 's13',
@@ -1486,8 +1479,7 @@ export class DBStore {
         currentLevel: 2,
         targetLevel: 3,
         aadharMasked: 'XXXX-XXXX-2121',
-        levelHistory: [{ level: 1, date: '2026-06-05', reason: 'Volunteer Diagnostic Placement' }],
-        streak: 3
+        levelHistory: [{ level: 1, date: '2026-06-05', reason: 'Baseline' }],
       },
       {
         id: 's14',
@@ -1500,8 +1492,7 @@ export class DBStore {
         currentLevel: 3,
         targetLevel: 4,
         aadharMasked: 'XXXX-XXXX-1155',
-        levelHistory: [{ level: 2, date: '2026-06-20', reason: 'Onboarding Diagnostic Placement' }],
-        streak: 6
+        levelHistory: [{ level: 2, date: '2026-06-20', reason: 'Baseline' }],
       },
       {
         id: 's15',
@@ -1514,8 +1505,7 @@ export class DBStore {
         currentLevel: 4,
         targetLevel: 5,
         aadharMasked: 'XXXX-XXXX-2266',
-        levelHistory: [{ level: 3, date: '2026-06-20', reason: 'Onboarding Diagnostic Placement' }],
-        streak: 8
+        levelHistory: [{ level: 3, date: '2026-06-20', reason: 'Baseline' }],
       },
       {
         id: 's16',
@@ -1528,8 +1518,7 @@ export class DBStore {
         currentLevel: 5,
         targetLevel: 6,
         aadharMasked: 'XXXX-XXXX-3377',
-        levelHistory: [{ level: 4, date: '2026-06-20', reason: 'Onboarding Diagnostic Placement' }],
-        streak: 12
+        levelHistory: [{ level: 4, date: '2026-06-20', reason: 'Baseline' }],
       },
       // ── Unplaced students (empty levelHistory) for Pending Diagnostics ──
       {
@@ -1543,7 +1532,6 @@ export class DBStore {
         targetLevel: 2,
         aadharMasked: 'XXXX-XXXX-6677',
         levelHistory: [],
-        streak: 0
       },
       {
         id: 's_new_2',
@@ -1556,7 +1544,6 @@ export class DBStore {
         targetLevel: 2,
         aadharMasked: 'XXXX-XXXX-7788',
         levelHistory: [],
-        streak: 0
       },
       {
         id: 's_new_3',
@@ -1570,7 +1557,6 @@ export class DBStore {
         targetLevel: 2,
         aadharMasked: 'XXXX-XXXX-8899',
         levelHistory: [],
-        streak: 0
       },
       {
         id: 's_new_4',
@@ -1584,7 +1570,6 @@ export class DBStore {
         targetLevel: 2,
         aadharMasked: 'XXXX-XXXX-9900',
         levelHistory: [],
-        streak: 0
       },
       {
         id: 's_new_5',
@@ -1598,7 +1583,6 @@ export class DBStore {
         targetLevel: 2,
         aadharMasked: 'XXXX-XXXX-1100',
         levelHistory: [],
-        streak: 0
       },
       // ── Additional placed students at Level 8 ──
       {
@@ -1613,8 +1597,7 @@ export class DBStore {
         currentSubLevel: 0,
         targetLevel: 9,
         aadharMasked: 'XXXX-XXXX-1201',
-        levelHistory: [{ level: 4, date: '2026-04-15', reason: 'Onboarding Diagnostic Placement' }, { level: 6, date: '2026-05-20', reason: 'Mid-year worksheet performance' }, { level: 8, date: '2026-07-01', reason: 'End-of-year worksheet performance' }],
-        streak: 15
+        levelHistory: [{ level: 4, date: '2026-04-15', reason: 'Baseline' }, { level: 6, date: '2026-05-20', reason: 'Mid-year' }, { level: 8, date: '2026-07-01', reason: 'End-of-year' }],
       },
       {
         id: 's18',
@@ -1628,8 +1611,7 @@ export class DBStore {
         currentSubLevel: 1,
         targetLevel: 9,
         aadharMasked: 'XXXX-XXXX-1202',
-        levelHistory: [{ level: 3, date: '2026-05-01', reason: 'Onboarding Diagnostic Placement' }, { level: 5, date: '2026-06-10', reason: 'Baseline worksheet' }, { level: 8, date: '2026-07-03', reason: 'Mid-year worksheet' }],
-        streak: 10
+        levelHistory: [{ level: 3, date: '2026-05-01', reason: 'Baseline' }, { level: 5, date: '2026-06-10', reason: 'Baseline' }, { level: 8, date: '2026-07-03', reason: 'Mid-year' }],
       },
       {
         id: 's19',
@@ -1643,8 +1625,7 @@ export class DBStore {
         currentSubLevel: 2,
         targetLevel: 9,
         aadharMasked: 'XXXX-XXXX-1203',
-        levelHistory: [{ level: 2, date: '2026-04-20', reason: 'Onboarding Diagnostic Placement' }, { level: 8, date: '2026-06-25', reason: 'Remedial intervention' }],
-        streak: 6
+        levelHistory: [{ level: 2, date: '2026-04-20', reason: 'Baseline' }, { level: 8, date: '2026-06-25', reason: 'Remedial intervention' }],
       },
       // ── Students at Level 10 ──
       {
@@ -1659,8 +1640,7 @@ export class DBStore {
         currentSubLevel: 0,
         targetLevel: 11,
         aadharMasked: 'XXXX-XXXX-1204',
-        levelHistory: [{ level: 5, date: '2026-04-10', reason: 'Onboarding Diagnostic Placement' }, { level: 7, date: '2026-05-15', reason: 'Baseline worksheet' }, { level: 10, date: '2026-06-30', reason: 'Mid-year worksheet' }],
-        streak: 18
+        levelHistory: [{ level: 5, date: '2026-04-10', reason: 'Baseline' }, { level: 7, date: '2026-05-15', reason: 'Baseline' }, { level: 10, date: '2026-06-30', reason: 'Mid-year' }],
       },
       {
         id: 's21',
@@ -1674,8 +1654,7 @@ export class DBStore {
         currentSubLevel: 0,
         targetLevel: 11,
         aadharMasked: 'XXXX-XXXX-1205',
-        levelHistory: [{ level: 6, date: '2026-05-05', reason: 'Onboarding Diagnostic Placement' }, { level: 8, date: '2026-06-01', reason: 'Baseline worksheet' }, { level: 10, date: '2026-07-02', reason: 'Mid-year worksheet' }],
-        streak: 14
+        levelHistory: [{ level: 6, date: '2026-05-05', reason: 'Baseline' }, { level: 8, date: '2026-06-01', reason: 'Baseline' }, { level: 10, date: '2026-07-02', reason: 'Mid-year' }],
       },
       // ── Students at Level 12 ──
       {
@@ -1690,8 +1669,7 @@ export class DBStore {
         currentSubLevel: 0,
         targetLevel: 13,
         aadharMasked: 'XXXX-XXXX-1206',
-        levelHistory: [{ level: 7, date: '2026-04-25', reason: 'Onboarding Diagnostic Placement' }, { level: 10, date: '2026-06-05', reason: 'Baseline worksheet' }, { level: 12, date: '2026-07-04', reason: 'Mid-year worksheet' }],
-        streak: 20
+        levelHistory: [{ level: 7, date: '2026-04-25', reason: 'Baseline' }, { level: 10, date: '2026-06-05', reason: 'Baseline' }, { level: 12, date: '2026-07-04', reason: 'Mid-year' }],
       },
       {
         id: 's23',
@@ -1705,8 +1683,7 @@ export class DBStore {
         currentSubLevel: 0,
         targetLevel: 13,
         aadharMasked: 'XXXX-XXXX-1207',
-        levelHistory: [{ level: 8, date: '2026-05-10', reason: 'Onboarding Diagnostic Placement' }, { level: 12, date: '2026-06-28', reason: 'Baseline worksheet' }],
-        streak: 11
+        levelHistory: [{ level: 8, date: '2026-05-10', reason: 'Baseline' }, { level: 12, date: '2026-06-28', reason: 'Baseline' }],
       },
       // ── Students at Level 15 ──
       {
@@ -1721,8 +1698,7 @@ export class DBStore {
         currentSubLevel: 0,
         targetLevel: 16,
         aadharMasked: 'XXXX-XXXX-1208',
-        levelHistory: [{ level: 8, date: '2026-04-10', reason: 'Onboarding Diagnostic Placement' }, { level: 11, date: '2026-05-20', reason: 'Baseline worksheet' }, { level: 15, date: '2026-07-01', reason: 'Mid-year worksheet' }],
-        streak: 25
+        levelHistory: [{ level: 8, date: '2026-04-10', reason: 'Baseline' }, { level: 11, date: '2026-05-20', reason: 'Baseline' }, { level: 15, date: '2026-07-01', reason: 'Mid-year' }],
       },
       {
         id: 's25',
@@ -1736,8 +1712,7 @@ export class DBStore {
         currentSubLevel: 1,
         targetLevel: 16,
         aadharMasked: 'XXXX-XXXX-1209',
-        levelHistory: [{ level: 10, date: '2026-05-15', reason: 'Onboarding Diagnostic Placement' }, { level: 15, date: '2026-07-02', reason: 'Baseline worksheet' }],
-        streak: 8
+        levelHistory: [{ level: 10, date: '2026-05-15', reason: 'Baseline' }, { level: 15, date: '2026-07-02', reason: 'Baseline' }],
       },
       // ── Students at various other levels ──
       {
@@ -1752,8 +1727,7 @@ export class DBStore {
         currentSubLevel: 0,
         targetLevel: 6,
         aadharMasked: 'XXXX-XXXX-1210',
-        levelHistory: [{ level: 2, date: '2026-04-10', reason: 'Onboarding Diagnostic Placement' }, { level: 5, date: '2026-06-20', reason: 'Baseline worksheet' }],
-        streak: 7
+        levelHistory: [{ level: 2, date: '2026-04-10', reason: 'Baseline' }, { level: 5, date: '2026-06-20', reason: 'Baseline' }],
       },
       {
         id: 's27',
@@ -1766,8 +1740,7 @@ export class DBStore {
         currentSubLevel: 0,
         targetLevel: 4,
         aadharMasked: 'XXXX-XXXX-1211',
-        levelHistory: [{ level: 1, date: '2026-05-15', reason: 'Volunteer Diagnostic Placement' }, { level: 3, date: '2026-06-25', reason: 'Baseline worksheet' }],
-        streak: 4
+        levelHistory: [{ level: 1, date: '2026-05-15', reason: 'Baseline' }, { level: 3, date: '2026-06-25', reason: 'Baseline' }],
       },
       {
         id: 's28',
@@ -1781,8 +1754,7 @@ export class DBStore {
         currentSubLevel: 0,
         targetLevel: 7,
         aadharMasked: 'XXXX-XXXX-1212',
-        levelHistory: [{ level: 2, date: '2026-05-01', reason: 'Onboarding Diagnostic Placement' }, { level: 4, date: '2026-06-05', reason: 'Baseline worksheet' }, { level: 6, date: '2026-07-01', reason: 'Mid-year worksheet' }],
-        streak: 9
+        levelHistory: [{ level: 2, date: '2026-05-01', reason: 'Baseline' }, { level: 4, date: '2026-06-05', reason: 'Baseline' }, { level: 6, date: '2026-07-01', reason: 'Mid-year' }],
       },
       {
         id: 's29',
@@ -1796,8 +1768,7 @@ export class DBStore {
         currentSubLevel: 1,
         targetLevel: 5,
         aadharMasked: 'XXXX-XXXX-1213',
-        levelHistory: [{ level: 1, date: '2026-05-20', reason: 'Volunteer Diagnostic Placement' }, { level: 4, date: '2026-07-02', reason: 'Baseline worksheet' }],
-        streak: 3
+        levelHistory: [{ level: 1, date: '2026-05-20', reason: 'Baseline' }, { level: 4, date: '2026-07-02', reason: 'Baseline' }],
       },
       {
         id: 's30',
@@ -1811,8 +1782,7 @@ export class DBStore {
         currentSubLevel: 0,
         targetLevel: 8,
         aadharMasked: 'XXXX-XXXX-1214',
-        levelHistory: [{ level: 3, date: '2026-04-25', reason: 'Onboarding Diagnostic Placement' }, { level: 5, date: '2026-06-01', reason: 'Baseline worksheet' }, { level: 7, date: '2026-07-03', reason: 'Mid-year worksheet' }],
-        streak: 12
+        levelHistory: [{ level: 3, date: '2026-04-25', reason: 'Baseline' }, { level: 5, date: '2026-06-01', reason: 'Baseline' }, { level: 7, date: '2026-07-03', reason: 'Mid-year' }],
       },
       {
         id: 's31',
@@ -1826,8 +1796,7 @@ export class DBStore {
         currentSubLevel: 2,
         targetLevel: 7,
         aadharMasked: 'XXXX-XXXX-1215',
-        levelHistory: [{ level: 2, date: '2026-04-20', reason: 'Onboarding Diagnostic Placement' }, { level: 6, date: '2026-06-18', reason: 'Baseline worksheet' }],
-        streak: 5
+        levelHistory: [{ level: 2, date: '2026-04-20', reason: 'Baseline' }, { level: 6, date: '2026-06-18', reason: 'Baseline' }],
       },
       {
         id: 's32',
@@ -1841,8 +1810,7 @@ export class DBStore {
         currentSubLevel: 0,
         targetLevel: 10,
         aadharMasked: 'XXXX-XXXX-1216',
-        levelHistory: [{ level: 5, date: '2026-05-05', reason: 'Onboarding Diagnostic Placement' }, { level: 7, date: '2026-06-10', reason: 'Baseline worksheet' }, { level: 9, date: '2026-07-02', reason: 'Mid-year worksheet' }],
-        streak: 13
+        levelHistory: [{ level: 5, date: '2026-05-05', reason: 'Baseline' }, { level: 7, date: '2026-06-10', reason: 'Baseline' }, { level: 9, date: '2026-07-02', reason: 'Mid-year' }],
       },
       {
         id: 's33',
@@ -1856,8 +1824,7 @@ export class DBStore {
         currentSubLevel: 0,
         targetLevel: 12,
         aadharMasked: 'XXXX-XXXX-1217',
-        levelHistory: [{ level: 6, date: '2026-05-10', reason: 'Onboarding Diagnostic Placement' }, { level: 8, date: '2026-06-15', reason: 'Baseline worksheet' }, { level: 11, date: '2026-07-04', reason: 'Mid-year worksheet' }],
-        streak: 16
+        levelHistory: [{ level: 6, date: '2026-05-10', reason: 'Baseline' }, { level: 8, date: '2026-06-15', reason: 'Baseline' }, { level: 11, date: '2026-07-04', reason: 'Mid-year' }],
       },
       {
         id: 's34',
@@ -1871,8 +1838,7 @@ export class DBStore {
         currentSubLevel: 0,
         targetLevel: 8,
         aadharMasked: 'XXXX-XXXX-1218',
-        levelHistory: [{ level: 3, date: '2026-05-20', reason: 'Onboarding Diagnostic Placement' }, { level: 7, date: '2026-07-01', reason: 'Baseline worksheet' }],
-        streak: 8
+        levelHistory: [{ level: 3, date: '2026-05-20', reason: 'Baseline' }, { level: 7, date: '2026-07-01', reason: 'Baseline' }],
       },
       {
         id: 's35',
@@ -1886,8 +1852,7 @@ export class DBStore {
         currentSubLevel: 1,
         targetLevel: 12,
         aadharMasked: 'XXXX-XXXX-1219',
-        levelHistory: [{ level: 6, date: '2026-05-15', reason: 'Onboarding Diagnostic Placement' }, { level: 9, date: '2026-06-20', reason: 'Baseline worksheet' }, { level: 11, date: '2026-07-03', reason: 'Mid-year worksheet' }],
-        streak: 9
+        levelHistory: [{ level: 6, date: '2026-05-15', reason: 'Baseline' }, { level: 9, date: '2026-06-20', reason: 'Baseline' }, { level: 11, date: '2026-07-03', reason: 'Mid-year' }],
       },
       {
         id: 's36',
@@ -1901,8 +1866,7 @@ export class DBStore {
         currentSubLevel: 0,
         targetLevel: 14,
         aadharMasked: 'XXXX-XXXX-1220',
-        levelHistory: [{ level: 8, date: '2026-05-01', reason: 'Onboarding Diagnostic Placement' }, { level: 11, date: '2026-06-10', reason: 'Baseline worksheet' }, { level: 13, date: '2026-07-02', reason: 'Mid-year worksheet' }],
-        streak: 17
+        levelHistory: [{ level: 8, date: '2026-05-01', reason: 'Baseline' }, { level: 11, date: '2026-06-10', reason: 'Baseline' }, { level: 13, date: '2026-07-02', reason: 'Mid-year' }],
       },
       {
         id: 's37',
@@ -1916,8 +1880,7 @@ export class DBStore {
         currentSubLevel: 0,
         targetLevel: 15,
         aadharMasked: 'XXXX-XXXX-1221',
-        levelHistory: [{ level: 9, date: '2026-05-10', reason: 'Onboarding Diagnostic Placement' }, { level: 12, date: '2026-06-20', reason: 'Baseline worksheet' }, { level: 14, date: '2026-07-04', reason: 'Mid-year worksheet' }],
-        streak: 19
+        levelHistory: [{ level: 9, date: '2026-05-10', reason: 'Baseline' }, { level: 12, date: '2026-06-20', reason: 'Baseline' }, { level: 14, date: '2026-07-04', reason: 'Mid-year' }],
       },
       {
         id: 's38',
@@ -1931,8 +1894,7 @@ export class DBStore {
         currentSubLevel: 2,
         targetLevel: 10,
         aadharMasked: 'XXXX-XXXX-1222',
-        levelHistory: [{ level: 4, date: '2026-04-25', reason: 'Onboarding Diagnostic Placement' }, { level: 9, date: '2026-06-28', reason: 'Baseline worksheet' }],
-        streak: 7
+        levelHistory: [{ level: 4, date: '2026-04-25', reason: 'Baseline' }, { level: 9, date: '2026-06-28', reason: 'Baseline' }],
       },
       {
         id: 's39',
@@ -1946,8 +1908,7 @@ export class DBStore {
         currentSubLevel: 0,
         targetLevel: 7,
         aadharMasked: 'XXXX-XXXX-1223',
-        levelHistory: [{ level: 2, date: '2026-04-10', reason: 'Onboarding Diagnostic Placement' }, { level: 4, date: '2026-05-25', reason: 'Baseline worksheet' }, { level: 6, date: '2026-07-01', reason: 'Mid-year worksheet' }],
-        streak: 11
+        levelHistory: [{ level: 2, date: '2026-04-10', reason: 'Baseline' }, { level: 4, date: '2026-05-25', reason: 'Baseline' }, { level: 6, date: '2026-07-01', reason: 'Mid-year' }],
       },
       // ── Students in Bathinda (lagging district) ──
       {
@@ -1962,8 +1923,7 @@ export class DBStore {
         currentSubLevel: 2,
         targetLevel: 3,
         aadharMasked: 'XXXX-XXXX-1224',
-        levelHistory: [{ level: 1, date: '2026-05-01', reason: 'Onboarding Diagnostic Placement' }, { level: 2, date: '2026-06-20', reason: 'Baseline worksheet' }],
-        streak: 2
+        levelHistory: [{ level: 1, date: '2026-05-01', reason: 'Baseline' }, { level: 2, date: '2026-06-20', reason: 'Baseline' }],
       },
       {
         id: 's41',
@@ -1977,8 +1937,7 @@ export class DBStore {
         currentSubLevel: 1,
         targetLevel: 2,
         aadharMasked: 'XXXX-XXXX-1225',
-        levelHistory: [{ level: 1, date: '2026-06-01', reason: 'Volunteer Diagnostic Placement' }],
-        streak: 1
+        levelHistory: [{ level: 1, date: '2026-06-01', reason: 'Baseline' }],
       },
       {
         id: 's42',
@@ -1992,8 +1951,7 @@ export class DBStore {
         currentSubLevel: 0,
         targetLevel: 4,
         aadharMasked: 'XXXX-XXXX-1226',
-        levelHistory: [{ level: 1, date: '2026-05-10', reason: 'Onboarding Diagnostic Placement' }, { level: 3, date: '2026-06-25', reason: 'Baseline worksheet' }],
-        streak: 4
+        levelHistory: [{ level: 1, date: '2026-05-10', reason: 'Baseline' }, { level: 3, date: '2026-06-25', reason: 'Baseline' }],
       },
       // ── Students in Amritsar (low-strength school) ──
       {
@@ -2008,8 +1966,7 @@ export class DBStore {
         currentSubLevel: 0,
         targetLevel: 2,
         aadharMasked: 'XXXX-XXXX-1227',
-        levelHistory: [{ level: 1, date: '2026-06-10', reason: 'Volunteer Diagnostic Placement' }],
-        streak: 1
+        levelHistory: [{ level: 1, date: '2026-06-10', reason: 'Baseline' }],
       },
       {
         id: 's44',
@@ -2023,8 +1980,7 @@ export class DBStore {
         currentSubLevel: 0,
         targetLevel: 3,
         aadharMasked: 'XXXX-XXXX-1228',
-        levelHistory: [{ level: 1, date: '2026-06-10', reason: 'Volunteer Diagnostic Placement' }, { level: 2, date: '2026-07-01', reason: 'Baseline worksheet' }],
-        streak: 2
+        levelHistory: [{ level: 1, date: '2026-06-10', reason: 'Baseline' }, { level: 2, date: '2026-07-01', reason: 'Baseline' }],
       },
       // ── Students in Jaipur Rural North ──
       {
@@ -2039,8 +1995,7 @@ export class DBStore {
         currentSubLevel: 0,
         targetLevel: 6,
         aadharMasked: 'XXXX-XXXX-1229',
-        levelHistory: [{ level: 2, date: '2026-05-15', reason: 'Onboarding Diagnostic Placement' }, { level: 5, date: '2026-06-28', reason: 'Baseline worksheet' }],
-        streak: 6
+        levelHistory: [{ level: 2, date: '2026-05-15', reason: 'Baseline' }, { level: 5, date: '2026-06-28', reason: 'Baseline' }],
       },
       {
         id: 's46',
@@ -2054,8 +2009,7 @@ export class DBStore {
         currentSubLevel: 1,
         targetLevel: 4,
         aadharMasked: 'XXXX-XXXX-1230',
-        levelHistory: [{ level: 1, date: '2026-05-20', reason: 'Volunteer Diagnostic Placement' }, { level: 3, date: '2026-07-01', reason: 'Baseline worksheet' }],
-        streak: 3
+        levelHistory: [{ level: 1, date: '2026-05-20', reason: 'Baseline' }, { level: 3, date: '2026-07-01', reason: 'Baseline' }],
       },
       // ── Unplaced students needing diagnostics ──
       {
@@ -2070,7 +2024,6 @@ export class DBStore {
         targetLevel: 2,
         aadharMasked: 'XXXX-XXXX-1231',
         levelHistory: [],
-        streak: 0
       },
       {
         id: 's_new_7',
@@ -2084,7 +2037,6 @@ export class DBStore {
         targetLevel: 2,
         aadharMasked: 'XXXX-XXXX-1232',
         levelHistory: [],
-        streak: 0
       },
       {
         id: 's_new_8',
@@ -2098,7 +2050,6 @@ export class DBStore {
         targetLevel: 2,
         aadharMasked: 'XXXX-XXXX-1233',
         levelHistory: [],
-        streak: 0
       },
       {
         id: 's_new_9',
@@ -2112,7 +2063,6 @@ export class DBStore {
         targetLevel: 2,
         aadharMasked: 'XXXX-XXXX-1234',
         levelHistory: [],
-        streak: 0
       },
       {
         id: 's_new_10',
@@ -2126,7 +2076,6 @@ export class DBStore {
         targetLevel: 2,
         aadharMasked: 'XXXX-XXXX-1235',
         levelHistory: [],
-        streak: 0
       },
       {
         id: 's_new_11',
@@ -2140,7 +2089,6 @@ export class DBStore {
         targetLevel: 2,
         aadharMasked: 'XXXX-XXXX-1236',
         levelHistory: [],
-        streak: 0
       },
       {
         id: 's_new_12',
@@ -2154,7 +2102,6 @@ export class DBStore {
         targetLevel: 2,
         aadharMasked: 'XXXX-XXXX-1237',
         levelHistory: [],
-        streak: 0
       },
       {
         id: 's_new_13',
@@ -2168,7 +2115,6 @@ export class DBStore {
         targetLevel: 2,
         aadharMasked: 'XXXX-XXXX-1238',
         levelHistory: [],
-        streak: 0
       },
       {
         id: 's_new_14',
@@ -2182,7 +2128,6 @@ export class DBStore {
         targetLevel: 2,
         aadharMasked: 'XXXX-XXXX-1239',
         levelHistory: [],
-        streak: 0
       },
       {
         id: 's_new_15',
@@ -2196,7 +2141,6 @@ export class DBStore {
         targetLevel: 2,
         aadharMasked: 'XXXX-XXXX-1240',
         levelHistory: [],
-        streak: 0
       }
     ];
 
