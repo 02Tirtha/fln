@@ -380,6 +380,20 @@ export interface MisconceptionCluster {
    * carry no class; those are treated as belonging to no class and skipped.
    */
   classGroup?: string;
+  /**
+   * Who last renamed this archetype by hand, if anyone.
+   *
+   * Presence marks the name as human-authored, which is what stops automation
+   * from taking it back: the deterministic re-naming pass skips these outright
+   * rather than relying on the name merely not *looking* like a placeholder.
+   *
+   * Worth knowing when reading these: an archetype is scoped by `classGroup`
+   * alone and carries no `schoolId`, so a rename is visible to every school
+   * teaching that class — hence recording who did it.
+   */
+  nameSetBy?: string;
+  nameSetByRole?: UserRole;
+  nameSetAt?: string;
   createdAt: string;
   updatedAt: string;
 }

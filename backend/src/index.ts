@@ -12,10 +12,10 @@ dotenv.config({ path: path.resolve(__dotenv_dir, '..', '.env') });
 
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
-import { dbStore, connectDB, UserRole, User, Student, School, Question, Worksheet, LevelWorksheet, AnswerSubmission, EvaluationReport, Ticket, LogEntry, Intervention, BestPractice } from './db';
+import { dbStore, connectDB, UserRole, User, Student, School, Question, Worksheet, LevelWorksheet, AnswerSubmission, EvaluationReport, Ticket, LogEntry, Intervention, BestPractice, MisconceptionCluster } from './db';
 import { generateAIDiagnostic, evaluateAIDiagnostic, generateAIPersonalizedWorksheet, evaluateAIWorksheet } from './gemini';
 import { analyseCohort, proposeErrorCategories, reconcileRootCauses, CohortAnalysis } from './misconceptionFingerprint';
-import { assignStudentToArchetype } from './studentArchetypeService';
+import { assignStudentToArchetype, isPlaceholderArchetypeName } from './studentArchetypeService';
 import { generateDiagnosticPaper } from './paperGenerator';
 import { generateQuestionsForLevel } from './levelGenerator';
 import * as levelsBackendClient from './levelsBackendClient';
@@ -33,6 +33,26 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+
+/**
+ * Who may rename a misconception archetype.
+ *
+ * Volunteers are deliberately absent: they conduct assessments but do not own a
+ * teaching group, and an archetype name is shared across every school teaching
+ * that class, so the blast radius of the edit exceeds their remit.
+ */
+const ARCHETYPE_RENAME_ROLES: ReadonlySet<UserRole> = new Set([
+  UserRole.TEACHER,
+  UserRole.SCHOOL,
+  UserRole.BLOCK_ADMIN,
+  UserRole.DISTRICT_ADMIN,
+  UserRole.ADMIN,
+  UserRole.SUPERADMIN
+]);
+
+/** Long enough for "The Non-Regroupers · when regrouping" and a teacher's own phrasing. */
+const ARCHETYPE_NAME_MAX_LENGTH = 80;
+const ARCHETYPE_TEXT_MAX_LENGTH = 1000;
 
 // Python evaluation pipeline: interpreter + location (the pipeline lives in ai-services/,
 // a sibling of backend/). Both overridable by env for non-standard deployments.
@@ -2868,6 +2888,94 @@ const students = await dbStore.getStudents();
     } catch (error: any) {
       console.error('[MisconceptionFingerprint] compare failed:', error?.message || error);
       res.status(500).json({ error: 'Misconception analysis failed.' });
+    }
+  });
+
+  /**
+   * Rename an archetype by hand.
+   *
+   * The generated name is derived from the centroid and is accurate but blunt;
+   * a teacher who recognises the pattern in their own room can put a better
+   * word to it. Only the label changes — `centroid` and `studentIds` are not
+   * writable here, so renaming cannot move a child between groups or alter who
+   * the archetype describes.
+   *
+   * NOTE ON SCOPE: an archetype is keyed by `classGroup` and carries no
+   * `schoolId`, so one rename is visible to every school teaching that class.
+   * That is a property of the existing data model, not of this endpoint; until
+   * archetypes are school-scoped, the rename is recorded against its author
+   * rather than restricted.
+   */
+  app.patch('/api/misconceptions/clusters/:clusterId', async (req, res) => {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+    if (user.isBanned) return res.status(403).json({ error: 'Account suspended.' });
+
+    // Volunteers conduct assessments but do not own a teaching group, and the
+    // name they would be editing is shared across every school in the class.
+    if (!ARCHETYPE_RENAME_ROLES.has(user.role)) {
+      return res.status(403).json({ error: 'Your role cannot rename archetypes.' });
+    }
+
+    const { name, description, teacherAction, forwardRisk } = req.body ?? {};
+
+    if (typeof name !== 'string') {
+      return res.status(400).json({ error: 'A name is required.' });
+    }
+    const trimmed = name.trim().replace(/\s+/g, ' ');
+    if (trimmed.length === 0) {
+      return res.status(400).json({ error: 'A name cannot be blank.' });
+    }
+    if (trimmed.length > ARCHETYPE_NAME_MAX_LENGTH) {
+      return res
+        .status(400)
+        .json({ error: `A name cannot exceed ${ARCHETYPE_NAME_MAX_LENGTH} characters.` });
+    }
+    // Setting a name that reads as a placeholder would hand it straight back to
+    // the automated re-naming pass, which exists to replace exactly these.
+    if (isPlaceholderArchetypeName(trimmed)) {
+      return res.status(400).json({ error: 'That name is reserved for unnamed archetypes.' });
+    }
+
+    // Optional prose. A rename usually invalidates the generated description
+    // that sits beside it, so the teacher can correct both in one call; each is
+    // left untouched when omitted.
+    const optionalText: Record<string, string> = {};
+    for (const [field, value] of Object.entries({ description, teacherAction, forwardRisk })) {
+      if (value === undefined) continue;
+      if (typeof value !== 'string') {
+        return res.status(400).json({ error: `${field} must be a string.` });
+      }
+      if (value.length > ARCHETYPE_TEXT_MAX_LENGTH) {
+        return res
+          .status(400)
+          .json({ error: `${field} cannot exceed ${ARCHETYPE_TEXT_MAX_LENGTH} characters.` });
+      }
+      optionalText[field] = value.trim();
+    }
+
+    try {
+      const clusters = (await dbStore.getMisconceptionClusters()) as MisconceptionCluster[];
+      const cluster = clusters.find(c => c.id === req.params.clusterId);
+      if (!cluster) return res.status(404).json({ error: 'Archetype not found.' });
+
+      const now = new Date().toISOString();
+      const updated: MisconceptionCluster = {
+        ...cluster,
+        ...optionalText,
+        name: trimmed,
+        nameSetBy: user.email,
+        nameSetByRole: user.role,
+        nameSetAt: now,
+        updatedAt: now
+      };
+
+      await dbStore.updateMisconceptionCluster(updated);
+      invalidateFingerprintCache();
+      res.json({ archetype: updated });
+    } catch (error: any) {
+      console.error('[MisconceptionFingerprint] rename failed:', error?.message || error);
+      res.status(500).json({ error: 'Could not rename this archetype.' });
     }
   });
 

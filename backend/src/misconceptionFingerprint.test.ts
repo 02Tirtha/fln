@@ -15,6 +15,7 @@ import {
   buildGlyph,
   analyseCohort,
   reconcileRootCauses,
+  deterministicArchetypeProfile,
   FEATURE_KEYS,
   MORPHOLOGY_KEYS,
 } from './misconceptionFingerprint';
@@ -940,6 +941,72 @@ async function run() {
       false,
       `two cleanly planted styles should separate well (silhouette ${analysis.silhouette})`,
     );
+  });
+
+  /* deterministic naming — the no-AI path -------------------------- */
+
+  function vectorOf(partial: Partial<Record<string, number>>) {
+    const v: any = {};
+    for (const k of FEATURE_KEYS) v[k] = partial[k] ?? 0;
+    return v;
+  }
+
+  await test('names an archetype from its centroid with no model call', () => {
+    const profile = deterministicArchetypeProfile(
+      vectorOf({ digitReversal: 0.8, topicConcentration: 0.3 }),
+    );
+    assert.ok(profile.name.startsWith('The Digit Reversers'), `got "${profile.name}"`);
+    assert.ok(profile.teacherAction.length > 0, 'teacher action should be filled');
+    assert.ok(profile.forwardRisk.length > 0, 'forward risk should be filled');
+    assert.ok(profile.description.includes('reverse order'), profile.description);
+  });
+
+  await test('morphology names the archetype even when a weaker dimension is larger', () => {
+    // topicConcentration sits at 1.0 for nearly every child on a single-topic
+    // sheet; ranking on raw value alone would name every archetype after it.
+    const profile = deterministicArchetypeProfile(
+      vectorOf({ offByOne: 0.2, topicConcentration: 1 }),
+    );
+    assert.ok(profile.name.startsWith('The Off-By-One Counters'), `got "${profile.name}"`);
+  });
+
+  await test('two archetypes failing the same way are told apart by the qualifier', () => {
+    const everywhere = deterministicArchetypeProfile(vectorOf({ digitConcatenation: 0.9 }));
+    const regroupingOnly = deterministicArchetypeProfile(
+      vectorOf({ digitConcatenation: 0.9, carryBorrowSpecific: 0.9 }),
+    );
+    assert.strictEqual(everywhere.name, 'The Non-Regroupers');
+    assert.strictEqual(regroupingOnly.name, 'The Non-Regroupers · when regrouping');
+    assert.notStrictEqual(everywhere.name, regroupingOnly.name);
+  });
+
+  await test('a qualifier never restates the dimension that supplied the name', () => {
+    const profile = deterministicArchetypeProfile(vectorOf({ topicConcentration: 1 }));
+    assert.strictEqual(profile.name, 'The Single-Topic Blockers');
+  });
+
+  await test('a weak supporting dimension does not earn a qualifier', () => {
+    const profile = deterministicArchetypeProfile(
+      vectorOf({ digitReversal: 0.9, carryBorrowSpecific: 0.2 }),
+    );
+    assert.strictEqual(profile.name, 'The Digit Reversers');
+  });
+
+  await test('every vector gets a real name — no placeholder is ever written', () => {
+    // The regression: `signature` is filtered to values above 0.05 and so can be
+    // empty, which previously produced the bare "Unnamed error pattern".
+    const faint = deterministicArchetypeProfile(vectorOf({ nearMiss: 0.01 }));
+    assert.ok(!/unnamed/i.test(faint.name), `got "${faint.name}"`);
+    assert.strictEqual(faint.name, 'The Near Missers');
+
+    const empty = deterministicArchetypeProfile(vectorOf({}));
+    assert.ok(!/unnamed/i.test(empty.name), `got "${empty.name}"`);
+    assert.strictEqual(empty.name, 'Mixed profile');
+  });
+
+  await test('naming is deterministic and network-free', () => {
+    const v = vectorOf({ grossMagnitude: 0.7, skillInconsistency: 0.6 });
+    assert.deepStrictEqual(deterministicArchetypeProfile(v), deterministicArchetypeProfile(v));
   });
 
   console.log(`\n${passed} passed, ${failed} failed\n`);

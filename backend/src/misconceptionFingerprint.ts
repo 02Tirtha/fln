@@ -1141,49 +1141,210 @@ function assignStableIdentity(archetypes: Archetype[]): void {
 }
 
 /** Descriptive, deterministic name used when Gemini is unavailable. */
+/**
+ * The name each dominant dimension earns. One home for the vocabulary: both the
+ * cohort-level naming fallback and the per-archetype namer read this map, so a
+ * pattern cannot end up called two different things depending on which path
+ * happened to name it.
+ */
+const ARCHETYPE_NAMES: Partial<Record<FeatureKey, string>> = {
+  offByOne: "The Off-By-One Counters",
+  placeValueTenfold: "The Place-Value Slippers",
+  digitConcatenation: "The Non-Regroupers",
+  digitReversal: "The Digit Reversers",
+  digitPermutation: "The Digit Scramblers",
+  operationSubstitution: "The Operation Confusers",
+  nearMiss: "The Near Missers",
+  grossMagnitude: "The Magnitude-Blind",
+  omission: "The Non-Attempters",
+  topicConcentration: "The Single-Topic Blockers",
+  carryBorrowSpecific: "The Regrouping Breakers",
+  multiDigitSpecific: "The Multi-Digit Breakers",
+  belowLevelFailure: "The Shaky Foundations",
+  hardOnlyFailure: "The Ceiling Hitters"
+};
+
+/**
+ * *When* the pattern shows, appended to the name.
+ *
+ * The morphology map alone yields fourteen possible names, so two archetypes
+ * that fail the same way for different reasons — reversal everywhere versus
+ * reversal only when regrouping — collide on one label and a teacher cannot
+ * tell the resulting groups apart. The qualifier is drawn from the strongest
+ * distribution/consistency dimension, which is exactly the axis the morphology
+ * name does not carry.
+ */
+const ARCHETYPE_QUALIFIERS: Partial<Record<FeatureKey, string>> = {
+  topicConcentration: "in one topic",
+  carryBorrowSpecific: "when regrouping",
+  multiDigitSpecific: "on multi-digit numbers",
+  belowLevelFailure: "below their level",
+  hardOnlyFailure: "at the ceiling",
+  errorDispersion: "with no fixed shape",
+  skillInconsistency: "intermittently",
+  contextSpecificity: "in one kind of question"
+};
+
+/** What a teacher should do about it — the field Gemini would otherwise write. */
+const ARCHETYPE_ACTIONS: Partial<Record<FeatureKey, string>> = {
+  offByOne:
+    "Move the child off counting-on: build number bonds to ten so sums are recalled, not stepped out.",
+  placeValueTenfold:
+    "Rebuild place value with bundled tens before any further column work.",
+  digitConcatenation:
+    "Teach regrouping explicitly with base-ten material; the child is writing columns side by side.",
+  digitReversal:
+    "Check for reversal when reading as well as writing before treating this as an arithmetic fault.",
+  digitPermutation:
+    "Practise reading and writing multi-digit numbers in order; the arithmetic itself may be sound.",
+  operationSubstitution:
+    "Drill symbol recognition — the method is intact but the wrong operation is being selected.",
+  nearMiss:
+    "Target the final step; the approach is right and the error is arriving late in the working.",
+  grossMagnitude:
+    "Build estimation and answer-size checking before accuracy work — answers are not being sanity-checked.",
+  omission:
+    "Find out whether these are unattempted from difficulty or from time; the score understates the child either way.",
+  topicConcentration: "Reteach the single blocking topic rather than reviewing broadly.",
+  carryBorrowSpecific: "Target carrying and borrowing directly; everything else is holding.",
+  multiDigitSpecific: "Extend from single- to multi-digit gradually; the base skill is present.",
+  belowLevelFailure: "Re-check the level assignment — it is running ahead of real mastery.",
+  hardOnlyFailure: "The child is at their ceiling, not misconceiving; extend rather than remediate.",
+  errorDispersion: "No single wrong rule to fix — check attention, pace and question comprehension.",
+  skillInconsistency: "The rule is known but not secure; practise for reliability, not for concept.",
+  contextSpecificity: "Vary the presentation — the skill may be tied to one question format."
+};
+
+/**
+ * The strongest supporting dimension, used to qualify a morphology name.
+ *
+ * Deliberately ignores whichever key already supplied the primary name, so a
+ * cluster led by `topicConcentration` is not called "The Single-Topic Blockers
+ * · in one topic".
+ */
+function qualifierFor(vector: FeatureVector, primaryKey: FeatureKey | null): string | null {
+  let best: { key: FeatureKey; value: number } | null = null;
+  for (const key of [...DISTRIBUTION_KEYS, ...CONSISTENCY_KEYS] as readonly FeatureKey[]) {
+    if (key === primaryKey) continue;
+    if (!ARCHETYPE_QUALIFIERS[key]) continue;
+    const value = vector[key];
+    // Half the range: a qualifier that fires on a weak dimension reads as a
+    // claim about the group that its own evidence does not support.
+    if (value < 0.5) continue;
+    if (!best || value > best.value) best = { key, value };
+  }
+  return best ? ARCHETYPE_QUALIFIERS[best.key]! : null;
+}
+
+/**
+ * The order feature keys are flattened into a stored `centroid` array.
+ *
+ * A centroid is a bare `number[]` in the database with no key names attached, so
+ * the writer's order and every later reader's order have to be the same list or
+ * the dimensions silently transpose. Exported so they cannot drift apart.
+ */
+export const CENTROID_KEY_ORDER: readonly FeatureKey[] = [...FEATURE_KEYS].sort((a, b) =>
+  a.localeCompare(b)
+);
+
+/** Flatten a vector for storage as a centroid. */
+export function toCentroid(vector: FeatureVector): number[] {
+  return CENTROID_KEY_ORDER.map(key => vector[key]);
+}
+
+/** Rebuild a vector from a stored centroid; missing components read as zero. */
+export function vectorFromCentroid(centroid: readonly number[]): FeatureVector {
+  const vector = emptyVector();
+  CENTROID_KEY_ORDER.forEach((key, index) => {
+    const value = centroid[index];
+    vector[key] = Number.isFinite(value) ? value : 0;
+  });
+  return vector;
+}
+
+export interface DeterministicArchetypeProfile {
+  name: string;
+  description: string;
+  teacherAction: string;
+  forwardRisk: string;
+}
+
+/**
+ * Name and describe an archetype from its vector alone — no model, no network.
+ *
+ * This is the whole naming pass when AI naming is off, and the fallback when it
+ * is on but unreachable. It reads the centroid rather than any one child's
+ * `signature`, which is what makes it total: a founding child whose signature
+ * array came back empty previously produced the bare "Unnamed error pattern",
+ * because `signature` is filtered to values above 0.05 and can legitimately be
+ * empty. A vector always has a largest component.
+ */
+export function deterministicArchetypeProfile(
+  vector: FeatureVector
+): DeterministicArchetypeProfile {
+  const ranked = FEATURE_KEYS
+    .map(key => ({ key, value: vector[key] }))
+    .filter(f => f.value > 0)
+    .sort(
+      (a, b) =>
+        ((MORPHOLOGY_KEYS as readonly string[]).includes(a.key) ? 0 : 1) -
+          ((MORPHOLOGY_KEYS as readonly string[]).includes(b.key) ? 0 : 1) ||
+        b.value - a.value
+    );
+
+  const primary = ranked.find(f => ARCHETYPE_NAMES[f.key]) ?? null;
+  const primaryKey = primary?.key ?? null;
+  const base = primaryKey ? ARCHETYPE_NAMES[primaryKey]! : "Mixed profile";
+  const qualifier = primaryKey ? qualifierFor(vector, primaryKey) : null;
+
+  const described = ranked
+    .slice(0, 3)
+    .map(f => FEATURE_LABELS[f.key])
+    .join(", ");
+
+  return {
+    name: qualifier ? `${base} · ${qualifier}` : base,
+    description: described ? `Defined by ${described}.` : "No dominant failure mode detected.",
+    teacherAction: primaryKey
+      ? ARCHETYPE_ACTIONS[primaryKey]!
+      : "Review the evidence below and target the dominant error pattern.",
+    forwardRisk: primaryKey
+      ? riskForKey(primaryKey, FEATURE_LABELS[primaryKey])
+      : "No single dominant failure mode detected."
+  };
+}
+
 function fallbackName(features: Archetype["distinctiveFeatures"]): string {
   if (features.length === 0) return "Mixed profile";
-  const top = features[0];
-  const map: Partial<Record<FeatureKey, string>> = {
-    offByOne: "The Off-By-One Counters",
-    placeValueTenfold: "The Place-Value Slippers",
-    digitConcatenation: "The Non-Regroupers",
-    digitReversal: "The Digit Reversers",
-    digitPermutation: "The Digit Scramblers",
-    operationSubstitution: "The Operation Confusers",
-    nearMiss: "The Near Missers",
-    grossMagnitude: "The Magnitude-Blind",
-    omission: "The Non-Attempters",
-    topicConcentration: "The Single-Topic Blockers",
-    carryBorrowSpecific: "The Regrouping Breakers",
-    multiDigitSpecific: "The Multi-Digit Breakers",
-    belowLevelFailure: "The Shaky Foundations",
-    hardOnlyFailure: "The Ceiling Hitters"
-  };
-  return map[top.key] ?? "Mixed profile";
+  return ARCHETYPE_NAMES[features[0].key] ?? "Mixed profile";
+}
+
+/** Shared by the cohort fallback and the deterministic namer — one vocabulary. */
+const ARCHETYPE_RISKS: Partial<Record<FeatureKey, string>> = {
+  placeValueTenfold:
+    "Place-value faults stay invisible while numbers are small and break everything from multi-digit multiplication onward.",
+  digitConcatenation:
+    "Without regrouping, every future column algorithm — addition, subtraction, long multiplication — inherits the same fault.",
+  carryBorrowSpecific:
+    "Carrying and borrowing underpin all later column arithmetic; this blocks progress well before the ceiling shows in scores.",
+  offByOne:
+    "Counting-based arithmetic stays accurate but does not scale; it becomes the speed ceiling once numbers grow.",
+  omission:
+    "Non-attempts hide the actual skill level, so the assigned level may be wrong in either direction.",
+  belowLevelFailure:
+    "Failures below the child's own level mean the level assignment is running ahead of real mastery."
+};
+
+function riskForKey(key: FeatureKey, label: string): string {
+  return (
+    ARCHETYPE_RISKS[key] ??
+    `Errors concentrate in ${label}, which will compound as question complexity rises.`
+  );
 }
 
 function fallbackRisk(features: Archetype["distinctiveFeatures"]): string {
   if (features.length === 0) return "No single dominant failure mode detected.";
-  const top = features[0];
-  const map: Partial<Record<FeatureKey, string>> = {
-    placeValueTenfold:
-      "Place-value faults stay invisible while numbers are small and break everything from multi-digit multiplication onward.",
-    digitConcatenation:
-      "Without regrouping, every future column algorithm — addition, subtraction, long multiplication — inherits the same fault.",
-    carryBorrowSpecific:
-      "Carrying and borrowing underpin all later column arithmetic; this blocks progress well before the ceiling shows in scores.",
-    offByOne:
-      "Counting-based arithmetic stays accurate but does not scale; it becomes the speed ceiling once numbers grow.",
-    omission:
-      "Non-attempts hide the actual skill level, so the assigned level may be wrong in either direction.",
-    belowLevelFailure:
-      "Failures below the child's own level mean the level assignment is running ahead of real mastery."
-  };
-  return (
-    map[top.key] ??
-    `Errors concentrate in ${top.label}, which will compound as question complexity rises.`
-  );
+  return riskForKey(features[0].key, features[0].label);
 }
 
 /**

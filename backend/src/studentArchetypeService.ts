@@ -10,6 +10,8 @@ import {
 import {
 	buildFingerprint,
 	buildFingerprintFromEvaluationReport,
+	deterministicArchetypeProfile,
+	toCentroid,
 	MIN_ERRORS_FOR_CLUSTERING,
 	type StudentFingerprint,
 } from './misconceptionFingerprint';
@@ -28,9 +30,7 @@ function reportTime(report: EvaluationReport): number {
 }
 
 function toOrderedVector(vector: StudentFingerprint['vector']): number[] {
-	return Object.entries(vector)
-		.sort(([a], [b]) => a.localeCompare(b))
-		.map(([, value]) => value);
+	return toCentroid(vector);
 }
 
 /**
@@ -87,12 +87,27 @@ function findSamePatternCluster(
 }
 
 /**
- * A name for a new archetype when Gemini cannot be reached.
+ * Is AI naming allowed to run at all?
  *
- * Without this a quota error drops the child from clustering altogether — one
- * child was lost to a 429 in a twenty-child run. A plain descriptive name from
- * the child's own top signature keys is worse prose than the model's and still
- * far better than no archetype.
+ * Naming is the only step that ever calls a model — membership is decided by
+ * distance — so turning this off makes the whole feature network-free without
+ * changing which children group together. Set `MISCONCEPTION_AI_NAMING=off` to
+ * name deterministically from the centroid instead.
+ *
+ * A missing key counts as off rather than on-and-broken: it produced an
+ * identical result via a thrown `NO_API_KEY` caught one frame below, but paid a
+ * failed call and a stack trace for every new archetype to get there.
+ */
+function aiNamingEnabled(): boolean {
+	if ((process.env.MISCONCEPTION_AI_NAMING ?? '').trim().toLowerCase() === 'off') return false;
+	return Boolean(process.env.GEMINI_API_KEY);
+}
+
+/**
+ * Legacy placeholder names, written by an earlier fallback that could produce no
+ * name at all when a child's `signature` was empty. Retained only so
+ * `scripts/renameUnnamedArchetypes.ts` can still recognise and replace what is
+ * already in the database — nothing writes these any more.
  */
 const UNNAMED_PREFIX = 'Unnamed pattern:';
 const UNNAMED_BARE = 'Unnamed error pattern';
@@ -109,12 +124,15 @@ export function isPlaceholderArchetypeName(name: string | undefined): boolean {
 	return trimmed === '' || trimmed === UNNAMED_BARE || trimmed.startsWith(UNNAMED_PREFIX);
 }
 
-function describeSignature(fingerprint: StudentFingerprint): string {
-	const top = (fingerprint.signature ?? [])
-		.slice(0, 2)
-		.map(entry => entry.label)
-		.filter(Boolean);
-	return top.length ? `${UNNAMED_PREFIX} ${top.join(' + ')}` : UNNAMED_BARE;
+/**
+ * The archetype's own name and prose, derived from the founding child's vector.
+ *
+ * Reads the vector rather than `fingerprint.signature`: `signature` is filtered
+ * to components above 0.05 and so can be empty, which is how the bare
+ * "Unnamed error pattern" got written. Every vector has a largest component.
+ */
+function describeFingerprint(fingerprint: StudentFingerprint) {
+	return deterministicArchetypeProfile(fingerprint.vector);
 }
 
 function averageCentroid(
@@ -274,41 +292,47 @@ export class StudentArchetypeService {
 					`within the ${SAME_PATTERN_DISTANCE} same-pattern radius.`,
 			};
 		} else {
-			// Nothing on file fails this way: a genuinely new pattern. Gemini is
-			// asked only to name and describe it — the decision is already made.
-			try {
-				const named = await classifyFingerprintWithGemini(
-					fingerprint,
-					misconceptionClusters as MisconceptionCluster[]
-				);
-				decision =
-					named.action === 'create'
-						? named
-						: // The model wanted to file this under an existing archetype the
-							// distance check already ruled out. Keep its prose, drop its choice.
-							{
-								action: 'create',
-								confidence: named.confidence,
-								reasoning: named.reasoning,
-								cluster: {
-									name: describeSignature(fingerprint),
-									description: named.reasoning,
-									teacherAction: '',
-									forwardRisk: '',
-								},
-							};
-			} catch (error) {
+			// Nothing on file fails this way: a genuinely new pattern. The decision
+			// is already made; all that remains is what to call it.
+			const deterministic = describeFingerprint(fingerprint);
+
+			if (!aiNamingEnabled()) {
 				decision = {
 					action: 'create',
-					confidence: 0,
-					reasoning: `Naming unavailable (${(error as Error).message.slice(0, 120)}); archetype created from the signature.`,
-					cluster: {
-						name: describeSignature(fingerprint),
-						description: '',
-						teacherAction: '',
-						forwardRisk: '',
-					},
+					confidence: 1,
+					reasoning: `Named from the centroid; AI naming is off. Signature sits beyond the ${SAME_PATTERN_DISTANCE} same-pattern radius of every existing archetype.`,
+					cluster: deterministic,
 				};
+			} else {
+				try {
+					const named = await classifyFingerprintWithGemini(
+						fingerprint,
+						misconceptionClusters as MisconceptionCluster[]
+					);
+					decision =
+						named.action === 'create'
+							? named
+							: // The model wanted to file this under an existing archetype the
+								// distance check already ruled out. Keep its prose, drop its choice.
+								{
+									action: 'create',
+									confidence: named.confidence,
+									reasoning: named.reasoning,
+									cluster: {
+										...deterministic,
+										description: named.reasoning || deterministic.description,
+									},
+								};
+				} catch (error) {
+					// Naming failed, membership did not. The archetype is still fully
+					// described — the model was never the source of the criteria.
+					decision = {
+						action: 'create',
+						confidence: 0,
+						reasoning: `AI naming unavailable (${(error as Error).message.slice(0, 120)}); named from the centroid instead.`,
+						cluster: deterministic,
+					};
+				}
 			}
 		}
 

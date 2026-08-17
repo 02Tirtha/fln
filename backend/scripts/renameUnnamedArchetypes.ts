@@ -9,12 +9,16 @@
  *
  * This is that something. Run it once the API key is healthy again.
  *
- *   npx tsx backend/scripts/renameUnnamedArchetypes.ts            # dry run
- *   npx tsx backend/scripts/renameUnnamedArchetypes.ts --apply    # write
+ *   npx tsx backend/scripts/renameUnnamedArchetypes.ts                  # dry run
+ *   npx tsx backend/scripts/renameUnnamedArchetypes.ts --apply          # write
+ *   npx tsx backend/scripts/renameUnnamedArchetypes.ts --deterministic  # no model
  *
  * Safe to re-run: only archetypes still carrying a placeholder are considered,
  * and nothing is written when the model is still unavailable — a second
  * deterministic name in place of the first would be churn, not a fix.
+ *
+ * `--deterministic` names from each archetype's stored centroid instead, which
+ * needs no key and no quota. Combine with `--apply` to write.
  */
 import 'dotenv/config';
 import dotenv from 'dotenv';
@@ -25,11 +29,51 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(here, '..', '.env') });
 
 import { connectDB, dbStore, type MisconceptionCluster, type Worksheet } from '../src/db';
-import { analyseCohort, nameArchetypes } from '../src/misconceptionFingerprint';
+import {
+  analyseCohort,
+  nameArchetypes,
+  deterministicArchetypeProfile,
+  vectorFromCentroid
+} from '../src/misconceptionFingerprint';
 import { isPlaceholderArchetypeName as isPlaceholder } from '../src/studentArchetypeService';
 
 const APPLY = process.argv.includes('--apply');
+const DETERMINISTIC = process.argv.includes('--deterministic');
 const CLASS_GROUPS = ['Class 2', 'Class 3', 'Class 4'];
+
+/**
+ * Re-name from each archetype's own stored centroid — no cohort analysis and no
+ * model.
+ *
+ * Reaches two cases the Gemini pass cannot. It needs no API key, so a
+ * placeholder does not have to wait on a quota reset; and it reads the centroid
+ * that is already on the record rather than re-deriving features from the
+ * cohort, so it still names an archetype whose members have since dropped below
+ * the evidence threshold and therefore no longer appear in the analysis at all.
+ */
+async function renameDeterministically(stale: MisconceptionCluster[]): Promise<number> {
+  let renamed = 0;
+  for (const cluster of stale) {
+    if (!Array.isArray(cluster.centroid) || cluster.centroid.length === 0) {
+      console.log(`  SKIP  ${cluster.id} — no centroid stored, nothing to name it from.`);
+      continue;
+    }
+
+    const profile = deterministicArchetypeProfile(vectorFromCentroid(cluster.centroid));
+    console.log(`  NAME  ${cluster.id}  (${cluster.classGroup}, ${cluster.studentIds.length} student(s))`);
+    console.log(`          was: ${cluster.name}`);
+    console.log(`          now: ${profile.name}`);
+    if (APPLY) {
+      await dbStore.updateMisconceptionCluster({
+        ...cluster,
+        ...profile,
+        updatedAt: new Date().toISOString()
+      });
+    }
+    renamed++;
+  }
+  return renamed;
+}
 
 async function main() {
   // Both, and in this order: `init()` only picks up Mongo if `connectDB()` has
@@ -42,10 +86,26 @@ async function main() {
   }
 
   const clusters = (await dbStore.getMisconceptionClusters()) as MisconceptionCluster[];
-  const stale = clusters.filter(c => isPlaceholder(c.name));
+  // A hand-written name outranks anything generated, even if a teacher happened
+  // to choose wording that resembles a placeholder. `nameSetBy` records the
+  // author, so this holds regardless of what the name itself looks like.
+  const stale = clusters.filter(c => !c.nameSetBy && isPlaceholder(c.name));
+  const humanNamed = clusters.filter(c => c.nameSetBy).length;
+  if (humanNamed > 0) {
+    console.log(`${humanNamed} archetype(s) renamed by hand and left untouched.`);
+  }
   console.log(`${clusters.length} archetype(s) stored, ${stale.length} still carrying a placeholder name.`);
   if (stale.length === 0) {
     console.log('Nothing to re-name.');
+    return;
+  }
+
+  if (DETERMINISTIC) {
+    const count = await renameDeterministically(stale);
+    console.log(
+      `\n${APPLY ? 'APPLIED' : 'DRY RUN'} — ${count} archetype(s) ${APPLY ? 'renamed' : 'would be renamed'} from their centroids, no model used.`
+    );
+    if (!APPLY && count > 0) console.log('Re-run with --apply to write.');
     return;
   }
 

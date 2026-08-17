@@ -817,11 +817,16 @@ function icrForSection(sIdx,item){
 function buildMasterJSON(setNum,liveCoords){
   const ak=worksheetAnswers[setNum-1];
   const sections=ak.sections.map((sec,sIdx)=>{
-    const items=sec.items.map(item=>({
-      question:item.question!==undefined?item.question:null,
-      data:item,
-      icr:icrForSection(sIdx,item)
-    }));
+    console.log("sec =", JSON.stringify(sec, null, 2));
+    const items = sec.items.map(item => {
+      console.log("ITEM:", JSON.stringify(item, null, 2));
+
+      return {
+        question: item.question !== undefined ? item.question : null,
+        data: item,
+        icr: icrForSection(sIdx, item)
+      };
+    });
     return {section:sec.section,note:sec.note||null,items};
   });
   const regCoords=liveCoords?{tl:liveCoords['reg_sq_tl']||null,tr:liveCoords['reg_sq_tr']||null,bl:liveCoords['reg_sq_bl']||null,br:liveCoords['reg_sq_br']||null}:null;
