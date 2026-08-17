@@ -926,8 +926,16 @@ export class DBStore {
       student = this.data.students.find(s => s.id === studentId) || null;
     }
 
-    if (student && student.assignedDiagnosticQuestions && student.assignedDiagnosticQuestions.length > 0) {
-      return student.assignedDiagnosticQuestions;
+    // Only reuse a cached paper that still carries the curriculum identity
+    // (conceptId on every question). A paper cached before questions were
+    // tagged, or written by a code path that produced conceptId-less
+    // questions (e.g. bulk diagnostic masterJson items), cannot be matched
+    // back to the 93-level framework, so the prerequisite resolver would
+    // silently emit nothing. Treating such a paper as absent makes
+    // generateClass2PaperFromAtlas regenerate it on demand.
+    const cached = student?.assignedDiagnosticQuestions;
+    if (cached && cached.length > 0 && cached.every(q => q.conceptId)) {
+      return cached;
     }
 
     // Generate paper from MongoDB Atlas (Levels 22 to 31 for Class 2)
