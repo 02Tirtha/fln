@@ -258,8 +258,7 @@ async function main() {
         currentSubLevel: 0,
         targetLevel: LEVEL + 3,
         aadharMasked: `XXXX-XXXX-${String(1000 + students.length).slice(-4)}`,
-        levelHistory: [{ level: LEVEL, date: '2026-07-01', reason: 'Baseline placement' }],
-        streak: 0
+        levelHistory: [{ level: LEVEL, date: '2026-07-01', reason: 'Baseline placement' }]
       });
 
       submissions.push({

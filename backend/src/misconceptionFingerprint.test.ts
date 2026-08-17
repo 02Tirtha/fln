@@ -65,7 +65,6 @@ function student(id: string, level = 5): Student {
     targetLevel: level + 2,
     aadharMasked: 'XXXX-XXXX-0000',
     levelHistory: [],
-    streak: 0,
   };
 }
 
