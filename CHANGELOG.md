@@ -4,6 +4,19 @@ All notable changes to this repository, grouped by date (newest first).
 Auto-curated from git history: pull-request merges and direct commits are listed;
 routine branch-sync merges are omitted. Regenerate with `gen_changelog.py`.
 
+## 2026-08-17 — Backend route split (Phase 4) + landing/dashboard honesty pass
+
+- **`backend/src/index.ts` split from 3566 → 126 lines** across 4 sequential PR batches (#211–#215), extracting all route groups into `backend/src/routes/*.ts` (`auth`, `tickets`, `logbook`, `geo`, `classes`, `admin`, `teachers`, `schools`, `interventions`, `bestPractices`, `students`, `worksheets`, `evaluation`, `analytics`, `diagnosticBulk`) plus a shared `backend/src/config.ts`. Zero intended behavior change — each batch verified via `tsc --noEmit` and live curl testing against a scratch MongoDB seed.
+  - Caught and fixed mid-split: a single overly-broad `sed` delete during batch D accidentally dropped the worksheets routes along with the evaluation/ICR block. Caught before commit via a systematic route-inventory check (grep every original route path against the split files, confirm exactly one match each); recovered the file from the already-verified batch-C branch.
+  - PR #214 was based on `chore/split-backend-routes-batch-c` and merged there before #213 reached `main`, so its changes never landed on `main` until a follow-up fast-forward PR (#215).
+- **fix: authorization gaps on `/api/logbook` and `/api/admin/coordinators`** (#210, carried forward through the route split) — `/api/logbook` is now role-scoped via a schools lookup for Admin/District/Block roles instead of returning all logs; `/api/admin/coordinators` now scopes results to `stateCode` for State Admins instead of returning every coordinator nationally.
+- **fix: reset `activePanel` on every session start/end** (#203) — stale panel state no longer survives login/logout.
+- **fix: add Home button to dashboard** (#204) — previously the only way back to the landing page was logging out; `Layout.tsx` now has a Home icon that navigates without clearing the session.
+- **fix: remove hardcoded fake trend badges, fake school leaderboard, mislabeled AI-interviews KPI** (#205) — `SuperAdminExecutiveDashboard.tsx` no longer shows invented `+X%` badges or a `SCH-MOCK-1..5` fallback ranking; added an honest empty state, renamed the KPI to "Total Evaluations Completed" with accurate subtext.
+- **fix: reduce repetitive FLN Portal branding text on landing page** (#206) — varied copy across the top strip, header subtitle, and hero badge instead of repeating the same full expansion four times.
+- **feat: add hover context to landing page stat cards** (#207) — each of the 5 landing stat cards now shows a real derived detail on hover, sourced from `/api/stats` (`certifiedCount`, `certifiedPercent`).
+- **fix: comment out (not delete) non-English language options** (#201, follow-up to a stopgap) — Hindi/Punjabi `<option>`s are commented out pending real i18n, replacing a broken `alert()` onChange handler.
+
 ## 2026-08-06 — ICR scanner quality + cloud OCR providers
 
 - **Blue-pen filter iterated to handle very faint handwriting** ([ai-services/scripts/bluepen_filter.py](ai-services/scripts/bluepen_filter.py))
