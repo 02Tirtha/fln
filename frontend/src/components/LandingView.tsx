@@ -86,16 +86,16 @@ export const LandingView: React.FC<LandingViewProps> = ({ onNavigateToLogin }) =
             <button onClick={() => adjustFontSize(10)} className="hover:text-white transition px-1.5 py-0.5 rounded border border-gray-700 hover:border-gray-500" title="Increase font size">A+</button>
           </div>
           <span className="text-gray-700 dark:text-gray-400">|</span>
-          {/* Hindi disabled as a stopgap - selecting it used to just show an
-              alert() and never actually translated anything. Real i18n is
-              being built in PR #146 (frontend/src/i18n/); re-enable this
-              option once that lands instead of restoring the old no-op. */}
+          {/* Hindi commented out as a stopgap - selecting it used to just show
+              an alert() and never actually translated anything. Real i18n is
+              being built in PR #146 (frontend/src/i18n/); restore this
+              option once that lands instead of the old no-op. */}
           <select
             defaultValue="en"
             className="bg-gray-800 text-gray-300 text-[10px] md:text-xs font-bold border border-gray-700 rounded px-2 py-1 outline-none hover:border-gray-500 cursor-pointer"
           >
             <option value="en">English</option>
-            <option value="hi" disabled>हिन्दी (Coming soon)</option>
+            {/* <option value="hi">हिन्दी</option> */}
           </select>
         </div>
       </div>
