@@ -21,31 +21,20 @@ import { STATES_UTS } from './geoData';
 import { getAuthUser, canAccessStudent, sanitizeUser, JWT_SECRET, JWT_EXPIRES_IN, SEED_DEMO_PASSWORD_HASH } from './auth';
 import { registerAnnouncementRoutes } from './routes/announcements';
 import { registerStatsRoutes } from './routes/stats';
+import { registerAuthRoutes } from './routes/auth';
+import { registerTicketRoutes } from './routes/tickets';
+import { registerLogbookRoutes } from './routes/logbook';
+import { registerGeoRoutes } from './routes/geo';
+import { registerClassRoutes } from './routes/classes';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import rateLimit from 'express-rate-limit';
+import { ROOT_DIR, PYTHON_BIN, AI_SERVICES_DIR } from './config';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const ROOT_DIR = path.resolve(__dirname, '..');
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
-
-// Python evaluation pipeline: interpreter + location (the pipeline lives in ai-services/,
-// a sibling of backend/). Both overridable by env for non-standard deployments.
-const VENV_PYTHON = path.resolve(ROOT_DIR, '..', 'ai-services', '.venv', 'Scripts', 'python.exe');
-const PYTHON_BIN = process.env.PYTHON_BIN || (fs.existsSync(VENV_PYTHON) ? VENV_PYTHON : (process.platform === 'win32' ? 'python' : 'python3'));
-const AI_SERVICES_DIR = process.env.AI_SERVICES_DIR || path.resolve(ROOT_DIR, '..', 'ai-services');
-
-// Throttle auth endpoints to slow down brute-force / credential-stuffing attempts.
-const authRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 50,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many login attempts. Please try again later.' },
-});
 
 async function startServer() {
   // Connect to MongoDB
@@ -66,165 +55,11 @@ async function startServer() {
 
 registerStatsRoutes(app);
 
-  // Auth: Login
-  app.post('/api/auth/login', authRateLimiter, async (req, res) => {
-    const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required.' });
-    }
-
-// Verify Password Rules (§3.2 A-3)
-    const hasUppercase = /[A-Z]/.test(password);
-    const hasNumber = /[0-9]/.test(password);
-    const hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(password);
-    if (password.length < 8 || !hasUppercase || !hasNumber || !hasSpecial) {
-      return res.status(400).json({ error: 'Password does not meet complexity requirements.' });
-    }
-
-    // Check if the user exists in database or seed store.
-    // Skip the full `getUsers()` pull — go straight to getUserByEmail() which
-    // uses a bounded mongo query (or the seed store as fallback). Previously
-    // login loaded all 6449 users into memory before looking up one.
-    const user = await dbStore.getUserByEmail(email);
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid email or password' });
-    }
-
-    // Verify the submitted password against the stored bcrypt hash, or default demo password hash if missing
-    const targetHash = user.passwordHash || SEED_DEMO_PASSWORD_HASH;
-    let passwordOk = await bcrypt.compare(password, targetHash);
-    if (!passwordOk && user.passwordHash) {
-      passwordOk = await bcrypt.compare(password, SEED_DEMO_PASSWORD_HASH);
-    }
-    if (!passwordOk) {
-      return res.status(401).json({ error: 'Invalid email or password' });
-    }
-
-    // Persist hash if it was missing on this user document
-    if (!user.passwordHash) {
-      await dbStore.updateUserPasswordHash(user.id, targetHash);
-    }
-
-    // Issue a signed JWT; it is verified on every subsequent request (see getAuthUser).
-    const token = jwt.sign(
-      { sub: user.id, email: user.email, role: user.role },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN } as jwt.SignOptions
-    );
-    return res.json({
-      token,
-      user: sanitizeUser(user)
-    });
-  });
-
-  // Auth: Me
-  app.get('/api/auth/me', (req, res) => {
-    const user = getAuthUser(req);
-    if (!user) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-    return res.json({ user: sanitizeUser(user) });
-  });
-
+  registerAuthRoutes(app);
   registerAnnouncementRoutes(app);
+  registerTicketRoutes(app);
+  registerLogbookRoutes(app);
 
-  // Tickets (In-App Feedback)
-  app.get('/api/tickets', async (req, res) => {
-    const user = getAuthUser(req);
-    if (!user) return res.status(401).json({ error: 'Unauthorized' });
-
-    const tkts = await dbStore.getTickets();
-    if (user.role === UserRole.SUPERADMIN) {
-      return res.json(tkts);
-    }
-    // Filter scoped by role
-    const filtered = tkts.filter(t => t.userId === user.id || t.userEmail === user.email);
-    res.json(filtered);
-  });
-
-  app.post('/api/tickets/create', async (req, res) => {
-    const user = getAuthUser(req);
-    if (!user) return res.status(401).json({ error: 'Unauthorized' });
-
-    const { type, subject, description } = req.body;
-    if (type === 'curriculum' && user.role !== UserRole.TEACHER && user.role !== UserRole.VOLUNTEER) {
-      return res.status(400).json({ error: 'Curriculum feedback can only be submitted by Teachers or Volunteers.' });
-    }
-
-    const newTicket: Ticket = {
-      id: 'tkt_' + Date.now(),
-      userId: user.id,
-      userEmail: user.email,
-      userName: user.name,
-      userRole: user.role,
-      type: type || 'general',
-      subject,
-      description,
-      status: 'Open',
-      createdAt: new Date().toISOString()
-    };
-
-    await dbStore.addTicket(newTicket);
-
-    await dbStore.addLog({
-      id: 'log_' + Date.now(),
-      timestamp: new Date().toISOString(),
-      schoolId: user.schoolId || '',
-      schoolName: user.schoolId ? 'Assigned School' : 'National Framework',
-      userId: user.id,
-      userEmail: user.email,
-      userRole: user.role,
-      activityType: 'ticket',
-      status: 'Success',
-      details: `Created feedback ticket: ${subject}`
-    });
-
-    res.json(newTicket);
-  });
-
-  app.post('/api/tickets/:id/resolve', async (req, res) => {
-    const user = getAuthUser(req);
-    if (!user || user.role !== UserRole.SUPERADMIN) {
-      return res.status(403).json({ error: 'Forbidden. Superadmin only.' });
-    }
-    const { status } = req.body; // Reviewed or Resolved
-    const updated = await dbStore.updateTicket(req.params.id, { status });
-    res.json(updated);
-  });
-
-  // Logbook
-  app.get('/api/logbook', async (req, res) => {
-    const user = getAuthUser(req);
-    if (!user) return res.status(401).json({ error: 'Unauthorized' });
-
-    const logs = await dbStore.getLogbook();
-
-    // Server-side role scoping - mirrors the pattern used elsewhere in this
-    // file (e.g. /api/admin/coordinators). LogEntry only carries schoolId,
-    // so district/block/state scoping goes through a schools lookup first.
-    if (user.role === UserRole.SUPERADMIN) {
-      return res.json(logs);
-    }
-    if (user.role === UserRole.TEACHER || user.role === UserRole.SCHOOL) {
-      return res.json(logs.filter(l => l.schoolId === user.schoolId));
-    }
-    if (user.role === UserRole.VOLUNTEER) {
-      return res.json(logs.filter(l => user.assignedSchools?.includes(l.schoolId)));
-    }
-
-    const schools = await dbStore.getSchools();
-    let allowedSchoolIds: Set<string>;
-    if (user.role === UserRole.ADMIN) {
-      allowedSchoolIds = new Set(schools.filter(s => s.stateCode === user.stateCode).map(s => s.id));
-    } else if (user.role === UserRole.DISTRICT_ADMIN) {
-      allowedSchoolIds = new Set(schools.filter(s => s.districtCode === user.districtCode).map(s => s.id));
-    } else if (user.role === UserRole.BLOCK_ADMIN) {
-      allowedSchoolIds = new Set(schools.filter(s => s.blockCode === user.blockCode).map(s => s.id));
-    } else {
-      return res.status(403).json({ error: 'Forbidden: role not permitted to view the logbook.' });
-    }
-    res.json(logs.filter(l => allowedSchoolIds.has(l.schoolId)));
-  });
   // Admin Creation (by Superadmin)
   app.post('/api/admin/create', async (req, res) => {
     const user = getAuthUser(req);
@@ -285,37 +120,7 @@ registerStatsRoutes(app);
   // creating a teacher account scoped to the chosen school.
   const COORDINATOR_ROLES = [UserRole.SUPERADMIN, UserRole.ADMIN, UserRole.DISTRICT_ADMIN, UserRole.BLOCK_ADMIN];
 
-  app.get('/api/states', (_req, res) => {
-    res.json(STATES_UTS.map(s => ({ id: s.code, name: s.name })));
-  });
-
-  app.get('/api/districts/by-state/:stateId', (req, res) => {
-    const state = STATES_UTS.find(s => s.code.toLowerCase() === req.params.stateId.toLowerCase());
-    if (!state) return res.status(404).json({ error: 'Unknown state.' });
-    res.json(state.districts.map(d => ({ id: d.code, name: d.name })));
-  });
-
-  app.get('/api/blocks/by-district/:districtId', async (req, res) => {
-    const districtCode = req.params.districtId.toUpperCase();
-    const district = STATES_UTS.flatMap(s => s.districts).find(d => d.code === districtCode);
-    if (!district) return res.status(404).json({ error: 'Unknown district.' });
-
-    const schools = await dbStore.getSchools();
-    const blockCodes = Array.from(new Set(
-      schools.filter(s => s.districtCode === districtCode).map(s => s.blockCode)
-    )).sort();
-
-    res.json(blockCodes.map(code => {
-      const blockNum = parseInt(code.split('_').pop() || '0', 10);
-      return { id: code, name: `${district.name} Block ${blockNum}`, districtId: districtCode };
-    }));
-  });
-
-  app.get('/api/schools/by-block/:blockId', async (req, res) => {
-    const blockCode = req.params.blockId.toUpperCase();
-    const schools = await dbStore.getSchools();
-    res.json(schools.filter(s => s.blockCode === blockCode));
-  });
+  registerGeoRoutes(app);
 
   app.get('/api/teachers', async (req, res) => {
     const user = getAuthUser(req);
@@ -486,20 +291,7 @@ registerStatsRoutes(app);
   });
 
   // Classes
-  app.get('/api/classes', async (req, res) => {
-    const user = getAuthUser(req);
-    if (!user) return res.status(401).json({ error: 'Unauthorized' });
-
-    const classes = await dbStore.getClasses();
-    if (user.role === UserRole.SUPERADMIN || user.role === UserRole.ADMIN || user.role === UserRole.DISTRICT_ADMIN || user.role === UserRole.BLOCK_ADMIN) {
-      return res.json(classes);
-    }
-    let filtered = classes.filter(c => c.schoolId === user.schoolId || (user.assignedSchools && user.assignedSchools.includes(c.schoolId || '')));
-    if (filtered.length === 0) {
-      filtered = classes;
-    }
-    res.json(filtered);
-  });
+  registerClassRoutes(app);
 
   // Students
   app.get('/api/students', async (req, res) => {
