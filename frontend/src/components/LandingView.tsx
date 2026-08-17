@@ -9,6 +9,7 @@ import { Sparkles, Award, Globe, BookOpen, Users, BarChart3, ArrowRight, MapPin 
 
 interface LandingViewProps {
   onNavigateToLogin: () => void;
+  isLoggedIn?: boolean;
 }
 
 interface Stats {
@@ -21,7 +22,7 @@ interface Stats {
   totalUsers: number;
 }
 
-export const LandingView: React.FC<LandingViewProps> = ({ onNavigateToLogin }) => {
+export const LandingView: React.FC<LandingViewProps> = ({ onNavigateToLogin, isLoggedIn }) => {
   const [fontSize, setFontSize] = useState(100);
   const [stats, setStats] = useState<Stats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
@@ -129,7 +130,7 @@ export const LandingView: React.FC<LandingViewProps> = ({ onNavigateToLogin }) =
               onClick={onNavigateToLogin}
               className="rounded-lg bg-indigo-700 dark:bg-indigo-800 px-6 py-2.5 text-xs font-extrabold text-white shadow-md dark:shadow-slate-950/50 transition-all duration-150 hover:bg-indigo-600 dark:hover:bg-indigo-700 border border-indigo-300 dark:border-indigo-700 active:scale-[0.98] uppercase tracking-wider"
             >
-              Sign In to Dashboard
+              {isLoggedIn ? 'Go to Dashboard' : 'Sign In to Dashboard'}
             </button>
           </div>
         </div>

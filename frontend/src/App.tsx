@@ -126,6 +126,11 @@ export default function App() {
 
   const handleClearNotifications = () => setAnnouncements([]);
 
+  const handleNavigateHome = () => {
+    setCurrentView('home');
+    navigate('/');
+  };
+
   const handleLogout = () => {
     setToken(null);
     setCurrentUser(null);
@@ -164,7 +169,12 @@ return <SuperadminDashboard user={currentUser} token={token!} />;
         path="*"
         element={
           <div className="flex min-h-screen flex-col font-sans bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 antialiased">
-            {currentView === 'home' && <LandingView onNavigateToLogin={() => setCurrentView('login')} />}
+            {currentView === 'home' && (
+              <LandingView
+                isLoggedIn={!!(token && currentUser)}
+                onNavigateToLogin={() => setCurrentView(token && currentUser ? 'dashboard' : 'login')}
+              />
+            )}
             {currentView === 'login' && <LoginView onLoginSuccess={handleLoginSuccess} onBackToHome={() => setCurrentView('home')} />}
 
             {currentView === 'dashboard' && currentUser && token && (
@@ -177,6 +187,7 @@ return <SuperadminDashboard user={currentUser} token={token!} />;
                 onMarkNotificationRead={handleMarkNotificationRead}
                 onClearNotifications={handleClearNotifications}
                 onLogout={handleLogout}
+                onNavigateHome={handleNavigateHome}
                 isDark={isDark}
                 onThemeToggle={() => setIsDark(!isDark)}
               >
