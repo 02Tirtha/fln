@@ -1,7 +1,7 @@
 import { apiFetch, withBase } from '../services/apiClient';
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { User, UserRole, Student, ClassGroup, School, LogEntry, Ticket, DashboardProps } from '../types';
+import { User, UserRole, Student, ClassGroup, School, LogEntry, Ticket } from '../types';
 
 import { DiagnosticWorkflow } from './DiagnosticWorkflow';
 import { BulkDiagnosticWorkflow } from './BulkDiagnosticWorkflow';
@@ -38,6 +38,125 @@ const DISTRICT_NAMES: Record<string, string> = {
 
 // export type { DashboardProps };
 
+export function splitCSVLine(line: string): string[] {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === ',' && !inQuotes) {
+      result.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  result.push(current);
+  return result;
+}
+
+export function parseCSVText(text: string): Record<string, any>[] {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) {
+    throw new Error('CSV must have a header row and at least one data row.');
+  }
+
+  const rawHeaders = splitCSVLine(lines[0]);
+  const headerMap: Record<string, string> = {
+    'name': 'name',
+    'class': 'classGroup',
+    'classgroup': 'classGroup',
+    'section': 'section',
+    'aadhar': 'aadharNumber',
+    'aadharnumber': 'aadharNumber',
+    'id': 'aadharNumber',
+    'idcard': 'aadharNumber',
+    'id card': 'aadharNumber',
+    'dob': 'dob',
+    'date of birth': 'dob',
+    'date-of-birth': 'dob',
+    'gender': 'gender',
+    'guardianname': 'guardianName',
+    'guardian name': 'guardianName',
+    'guardianrelation': 'guardianRelation',
+    'guardian relation': 'guardianRelation',
+    'guardiancontact': 'guardianContact',
+    'guardian contact': 'guardianContact',
+    'address': 'address',
+    'bloodgroup': 'bloodGroup',
+    'blood group': 'bloodGroup',
+    'disabilitystatus': 'disabilityStatus',
+    'disability status': 'disabilityStatus',
+    'middaymealbeneficiary': 'midDayMealBeneficiary',
+    'mid day meal beneficiary': 'midDayMealBeneficiary',
+    'busroute': 'busRoute',
+    'bus route': 'busRoute',
+    'siblingsinschool': 'siblingsInSchool',
+    'siblings in school': 'siblingsInSchool'
+  };
+
+  const headers = rawHeaders.map(h => {
+    const clean = h.trim().toLowerCase();
+    return headerMap[clean] || clean;
+  });
+
+  return lines.slice(1).map(line => {
+    const vals = splitCSVLine(line);
+    const row: Record<string, any> = {};
+    headers.forEach((h, i) => {
+      let val = (vals[i] || '').trim();
+      if (val.startsWith('"') && val.endsWith('"')) {
+        val = val.slice(1, -1).trim();
+      }
+
+      // Normalize classGroup (e.g. '2' -> 'Class 2')
+      if (h === 'classGroup') {
+        const numMatch = val.match(/\d+/);
+        if (numMatch) {
+          val = `Class ${numMatch[0]}`;
+        } else if (val.toLowerCase().includes('preschool 1')) {
+          val = 'Preschool 1';
+        } else if (val.toLowerCase().includes('preschool 2')) {
+          val = 'Preschool 2';
+        } else if (val.toLowerCase().includes('balvatika')) {
+          val = 'Balvatika';
+        }
+      }
+
+      // Normalize dob (DD-MM-YYYY or DD/MM/YYYY to YYYY-MM-DD)
+      if (h === 'dob' && val) {
+        const dmyMatch = val.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+        if (dmyMatch) {
+          const day = dmyMatch[1].padStart(2, '0');
+          const month = dmyMatch[2].padStart(2, '0');
+          const year = dmyMatch[3];
+          val = `${year}-${month}-${day}`;
+        }
+      }
+
+      // Normalize aadharNumber (scientific notation)
+      if (h === 'aadharNumber' && val) {
+        if (/^\d+(\.\d+)?[eE]\+?\d+$/.test(val)) {
+          try {
+            val = Number(val).toFixed(0);
+          } catch (e) {
+            // fallback
+          }
+        }
+      }
+
+      row[h] = val;
+    });
+    return row;
+  });
+}
+
+interface DashboardProps {
+  user: User;
+  token: string;
+}
 
 // ==========================================
 // GEOGRAPHICAL COMPARATIVE ANALYTICS (SHARED VIEW)
