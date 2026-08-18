@@ -42,13 +42,33 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { ROOT_DIR, PYTHON_BIN, AI_SERVICES_DIR } from './config';
 
+// Safety net: the MongoDB driver occasionally rejects a connection AFTER
+// connectDB() has returned (the client class keeps background pools
+// alive). In ESM, an unhandled promise rejection exits the process by
+// default. Swallow these so a transient Atlas outage doesn't kill the
+// ICR/Ollama server, which can keep serving from the local file DB
+// until the driver recovers.
+process.on('unhandledRejection', (reason) => {
+  console.warn('Unhandled promise rejection (likely MongoDB driver):', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.warn('Uncaught exception (likely MongoDB driver):', err);
+});
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 async function startServer() {
-  // Connect to MongoDB
-  await connectDB();
+  // Connect to MongoDB — connectDB() has its own internal 3-attempt
+  // retry and falls back to a local file DB if all attempts fail. Wrap
+  // the call in try/catch too so that any unhandledRejection from the
+  // background driver doesn't exit the process.
+  try {
+    await connectDB();
+  } catch (err: any) {
+    console.warn('connectDB threw despite its fallback path: ' + (err?.message || err));
+  }
 
   // Initialize file-based DB
   await dbStore.init();
