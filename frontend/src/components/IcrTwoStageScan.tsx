@@ -95,7 +95,7 @@ const MAX_UPLOAD_LABEL = '8 MB';
 // source scan. The PROVider_CLASSES map below uses pre-built class strings
 // for each provider — that way Tailwind sees every class as a literal.
 const PROVIDER_COLORS: Record<
-  'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace',
+  'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace' | 'ollama-gemma4',
   'violet'
 > = {
   google: 'violet',
@@ -103,6 +103,7 @@ const PROVIDER_COLORS: Record<
   azure: 'violet',
   minimax: 'violet',
   ocrspace: 'violet',
+  'ollama-gemma4': 'violet',
 };
 
 // Pre-built Tailwind class strings for each provider. Two sets: the
@@ -115,36 +116,40 @@ const PROVIDER_COLORS: Record<
 // pills also look the same — the user wants one uniform violet row, with
 // the active model indicated by the "Run via Cloud API" button subtitle
 // ("Using GOOGLE — admin-configured on server"), NOT by pill color.
-const PROVIDER_PILL_CLASS: Record<'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace', string> = {
+const PROVIDER_PILL_CLASS: Record<'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace' | 'ollama-gemma4', string> = {
   google:   'bg-violet-600 hover:bg-violet-700 text-white border border-violet-700 dark:border-violet-800',
   aws:      'bg-violet-600 hover:bg-violet-700 text-white border border-violet-700 dark:border-violet-800',
   azure:    'bg-violet-600 hover:bg-violet-700 text-white border border-violet-700 dark:border-violet-800',
   minimax:  'bg-violet-600 hover:bg-violet-700 text-white border border-violet-700 dark:border-violet-800',
   ocrspace: 'bg-violet-600 hover:bg-violet-700 text-white border border-violet-700 dark:border-violet-800',
+  'ollama-gemma4': 'bg-violet-600 hover:bg-violet-700 text-white border border-violet-700 dark:border-violet-800',
 };
 
 // Pre-built BigButton bg class strings per provider. Same JIT-safety
 // reason as the pill maps above.
-const PROVIDER_BUTTON_BG: Record<'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace', string> = {
+const PROVIDER_BUTTON_BG: Record<'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace' | 'ollama-gemma4', string> = {
   google:   'bg-violet-600 hover:bg-violet-700',
   aws:      'bg-violet-600 hover:bg-violet-700',
   azure:    'bg-violet-600 hover:bg-violet-700',
   minimax:  'bg-violet-600 hover:bg-violet-700',
   ocrspace: 'bg-violet-600 hover:bg-violet-700',
+  'ollama-gemma4': 'bg-violet-600 hover:bg-violet-700',
 };
-const PROVIDER_BUTTON_BG_RUNNING: Record<'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace', string> = {
+const PROVIDER_BUTTON_BG_RUNNING: Record<'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace' | 'ollama-gemma4', string> = {
   google:   'bg-violet-500 cursor-wait',
   aws:      'bg-violet-500 cursor-wait',
   azure:    'bg-violet-500 cursor-wait',
   minimax:  'bg-violet-500 cursor-wait',
   ocrspace: 'bg-violet-500 cursor-wait',
+  'ollama-gemma4': 'bg-violet-500 cursor-wait',
 };
-const PROVIDER_BUTTON_BG_DONE: Record<'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace', string> = {
+const PROVIDER_BUTTON_BG_DONE: Record<'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace' | 'ollama-gemma4', string> = {
   google:   'bg-violet-700',
   aws:      'bg-violet-700',
   azure:    'bg-violet-700',
   minimax:  'bg-violet-700',
   ocrspace: 'bg-violet-700',
+  'ollama-gemma4': 'bg-violet-700',
 };
 
 function fileToDataUrl(file: File): Promise<string> {
@@ -385,39 +390,60 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
   // admin-configured via /api/icr/cloud-config). Frontend NEVER sees
   // the key — it just picks a provider and asks the backend to OCR.
   // The button is disabled until the backend confirms at least one
-  // provider is configured.
-  const [cloudProvider, setCloudProviderState] = useState<'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace'>(
-      () => (localStorage.getItem('icrCloudProvider') as 'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace') || 'google'
-    );
-    const setCloudProvider = (p: 'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace') => {
-      setCloudProviderState(p);
-      localStorage.setItem('icrCloudProvider', p);
-    };
-    const [cloudProvidersConfigured, setCloudProvidersConfigured] = useState<Record<string, boolean>>({});
-    const [cloudError, setCloudError] = useState<string | null>(null);
-
-  // On mount, fetch which providers the server has configured. The ICR
-  // UI uses this to enable/disable the cloud button.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await apiFetch('/api/icr/cloud-config', {
-          headers: { 'Authorization': `Bearer ${token}` },
-        });
-        if (!res.ok || cancelled) return;
-        const data = await res.json();
-        if (!cancelled && data.providers) {
-          setCloudProvidersConfigured(data.providers);
+    // provider is configured.
+    // Default order: a stored choice from a previous session; otherwise
+    // 'ollama-gemma4' if it's the lone configured provider (we'll correct on
+    // the providersConfigured effect); finally 'google' as the historical
+    // fallback.
+    const [cloudProvider, setCloudProviderState] = useState<'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace' | 'ollama-gemma4'>(
+        () => {
+          const stored = localStorage.getItem('icrCloudProvider');
+          if (stored === 'google' || stored === 'aws' || stored === 'azure' ||
+              stored === 'minimax' || stored === 'ocrspace' || stored === 'ollama-gemma4') {
+            return stored;
+          }
+          return 'google';
         }
-      } catch {
-        // Ignore — button stays disabled
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
+      );
+      const setCloudProvider = (p: 'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace' | 'ollama-gemma4') => {
+        setCloudProviderState(p);
+        localStorage.setItem('icrCloudProvider', p);
+      };
+      const [cloudProvidersConfigured, setCloudProvidersConfigured] = useState<Record<string, boolean>>({});
+      const [cloudError, setCloudError] = useState<string | null>(null);
+
+    // On mount, fetch which providers the server has configured. The ICR
+    // UI uses this to enable/disable the cloud button.
+    useEffect(() => {
+      let cancelled = false;
+      (async () => {
+        try {
+          const res = await apiFetch('/api/icr/cloud-config', {
+            headers: { 'Authorization': `Bearer ${token}` },
+          });
+          if (!res.ok || cancelled) return;
+          const data = await res.json();
+          if (!cancelled && data.providers) {
+            setCloudProvidersConfigured(data.providers);
+            // If the persisted or default provider isn't actually configured
+            // AND exactly one provider IS configured, auto-pick that one.
+            // This avoids the "google is not configured" surprise for new
+            // Ollama-only or single-provider setups.
+            const configured = Object.keys(data.providers).filter(k => data.providers[k]);
+            if (configured.length === 1 && !data.providers[cloudProvider as string]) {
+              const only = configured[0] as 'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace' | 'ollama-gemma4';
+              setCloudProviderState(only);
+              localStorage.setItem('icrCloudProvider', only);
+            }
+          }
+        } catch {
+          // Ignore — button stays disabled
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [token, cloudProvider]);
 
   const runCloudOcr = async () => {
       if (!uploadedFile) return;
@@ -465,20 +491,55 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
           setOcrState('error');
           return;
         }
-        const normalized: ScanResponse = {
-          success: true,
-          ocrAnalysis: {
-            rawOcrText: data.rawOcrText || '',
-            extractedTokens: (data.extractedTokens || []).map((t: any) => ({
-              text: t.text,
-              confidence: t.confidence ?? 0.9,
-              bbox: t.bbox,
-            })),
-            processingTimeMs: data.processingTimeMs ?? clientMs,
-            ocrEngine: data.ocrEngine || 'Cloud OCR',
-          },
-          processingTimeMs: data.processingTimeMs ?? clientMs,
-        };
+        // Prefer the structured `studentResponses` from Ollama's JSON-output mode
+        // (question_number → response, with status: answered|blank|unclear).
+        // Fall back to the legacy `extractedTokens` (whitespace-split) when
+        // the model returned prose or the JSON parse failed.
+        const answers: Record<string, { value: string; confidence: number; blue_pixels: number }> = {};
+        if (data.studentResponses && Array.isArray(data.studentResponses)) {
+          for (const r of data.studentResponses) {
+            const qKey = `q_${r.question_number}`;
+            const status = r.status || 'answered';
+            let value = String(r.response || '');
+            // [BLANK] / [UNCLEAR] pass through unchanged so the verify table
+            // can show them as non-answers.
+            if (status === 'blank') value = '[BLANK]';
+            else if (status === 'unclear') value = '[UNCLEAR]';
+            answers[qKey] = {
+              value,
+              confidence: status === 'answered' ? 0.85 : 0.5,
+              blue_pixels: 0,
+            };
+          }
+        } else if (data.extractedTokens && data.extractedTokens.length > 0) {
+          data.extractedTokens.forEach((t: any, i: number) => {
+            const v = String(t?.text ?? '').trim();
+            if (!v) return;
+            answers[`q_${i + 1}`] = {
+              value: v,
+              confidence: Number(t?.confidence ?? 0.7),
+              blue_pixels: 0,
+            };
+          });
+        }
+
+                  // tokens exist, that's already handled above; if neither is present
+                  // (shouldn't happen for a successful call) the consumer will warn.
+                const normalized: ScanResponse = {
+                  success: true,
+                  answers,
+                  ocrAnalysis: {
+                    rawOcrText: data.rawOcrText || '',
+                    extractedTokens: (data.extractedTokens || []).map((t: any) => ({
+                      text: t.text,
+                      confidence: t.confidence ?? 0.9,
+                      bbox: t.bbox,
+                    })),
+                    processingTimeMs: data.processingTimeMs ?? clientMs,
+                    ocrEngine: data.ocrEngine || 'Cloud OCR',
+                  },
+                  processingTimeMs: data.processingTimeMs ?? clientMs,
+                };
         setOcrResult(normalized);
         setOcrTiming({
           clientMs,
@@ -565,33 +626,33 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
           // that's confusing. Just allow OCR anytime; the backend is idempotent.
           // (Re-enabling.)
         />
-        {/* Provider toggle — only shows providers the server has keys for.
-                    Each provider gets a brand-ish color so the cloud button below
-                    visually echoes the active pick. If exactly one provider is
-                    configured, we hide the row (no choice to make). */}
-                {(() => {
-                  const configuredProviders = (['google', 'minimax', 'ocrspace', 'aws', 'azure'] as const)
-                    .filter((p) => cloudProvidersConfigured[p]);
-                  if (configuredProviders.length < 2) return null;
-                                    return (
-                              <div className="flex flex-wrap items-center gap-1.5 px-1">
-                                                              <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mr-1">
-                                                                Model:
-                                                              </span>
-                                                              {configuredProviders.map((p) => (
-                                                                <button
-                                                                  key={p}
-                                                                  type="button"
-                                                                  onClick={() => setCloudProvider(p)}
-                                                                  className={`px-2.5 py-1 rounded-full text-xs font-mono font-bold shadow-sm transition-all ${PROVIDER_PILL_CLASS[p]}`}
-                                                                  title={p.toUpperCase()}
-                                                                >
-                                                                  {p.toUpperCase()}
-                                                                </button>
-                                                              ))}
-                                                            </div>
-                                                          );
-                })()}
+        {/* Provider toggle — shows providers the server has keys for.
+                            With 2+ configured, user picks. With exactly 1, show that
+                            one as a single informational pill (auto-selected) so a
+                            single Ollama-only setup still surfaces the provider. */}
+                        {(() => {
+                          const configuredProviders = (['google', 'minimax', 'ocrspace', 'aws', 'azure', 'ollama-gemma4'] as const)
+                            .filter((p) => cloudProvidersConfigured[p]);
+                          if (configuredProviders.length === 0) return null;
+                                            return (
+                                      <div className="flex flex-wrap items-center gap-1.5 px-1">
+                                                                      <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mr-1">
+                                                                        Model:
+                                                                      </span>
+                                                                      {configuredProviders.map((p) => (
+                                                                        <button
+                                                                          key={p}
+                                                                          type="button"
+                                                                          onClick={() => setCloudProvider(p)}
+                                                                          className={`px-2.5 py-1 rounded-full text-xs font-mono font-bold shadow-sm transition-all ${configuredProviders.length === 1 ? 'cursor-default opacity-90' : ''} ${PROVIDER_PILL_CLASS[p]}`}
+                                                                          title={p.toUpperCase()}
+                                                                        >
+                                                                          {p.toUpperCase()}
+                                                                        </button>
+                                                                      ))}
+                                                                    </div>
+                                                                  );
+                        })()}
 
                 <BigButton
                                   providerKey={cloudProvider}
@@ -769,7 +830,7 @@ interface BigButtonProps {
   // BigButton can render any provider's brand color. We split them into
   // two props to avoid a discriminated-union ceremony at every call site.
   variant?: 'indigo' | 'blue' | 'purple' | 'violet' | 'teal' | 'orange' | 'sky';
-  providerKey?: 'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace';
+  providerKey?: 'google' | 'aws' | 'azure' | 'minimax' | 'ocrspace' | 'ollama-gemma4';
   icon: React.ReactNode;
   title: string;
   subtitle: string;
