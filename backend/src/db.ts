@@ -537,6 +537,28 @@ export class DBStore {
           console.warn('Collection check info:', e.message);
         }
 
+        // Ensure indexes on students collection for performance
+        try {
+          const studentsColl = db.collection('students');
+          await studentsColl.createIndex({ id: 1 }, { unique: true });
+          await studentsColl.createIndex({ schoolId: 1 });
+          await studentsColl.createIndex({ teacherId: 1 });
+          await studentsColl.createIndex({ aadharMasked: 1 });
+          console.log('Successfully ensured indexes on "students" collection');
+        } catch (e: any) {
+          console.warn('Failed to ensure indexes on "students" collection:', e.message);
+        }
+
+        // Ensure indexes on users collection for performance
+        try {
+          const usersColl = db.collection('users');
+          await usersColl.createIndex({ id: 1 }, { unique: true });
+          await usersColl.createIndex({ email: 1 }, { unique: true });
+          console.log('Successfully ensured indexes on "users" collection');
+        } catch (e: any) {
+          console.warn('Failed to ensure indexes on "users" collection:', e.message);
+        }
+
         for (const [key, collName] of Object.entries(COLLECTION_NAMES)) {
           (this.data as any)[key] = [];
         }
