@@ -477,6 +477,12 @@ export function registerEvaluationRoutes(app: express.Express) {
   const getCloudKey = async (provider) => {
     const envKey = process.env['ICR_CLOUD_API_KEY_' + provider.toUpperCase()];
     if (envKey) return envKey;
+    // Ollama's convention is to call its key OLLAMA_API_KEY (not
+    // ICR_CLOUD_API_KEY_OLLAMA_GEMMA4). Fall back to that env name
+    // so users can drop their Ollama key into .env without renaming.
+    if (provider === 'ollama-gemma4' && process.env.OLLAMA_API_KEY) {
+      return process.env.OLLAMA_API_KEY;
+    }
     if (!_cloudKeyCache) {
       try {
         const stored = await dbStore.getConfig('icrCloudKeys');
@@ -497,8 +503,8 @@ export function registerEvaluationRoutes(app: express.Express) {
       return res.status(403).json({ error: 'Admin role required.' });
     }
     const { provider, apiKey } = req.body || {};
-    if (!provider || ['google', 'aws', 'azure', 'minimax', 'ocrspace'].indexOf(provider) === -1) {
-      return res.status(400).json({ error: 'provider must be one of google/aws/azure/minimax/ocrspace.' });
+    if (!provider || ['google', 'aws', 'azure', 'minimax', 'ocrspace', 'ollama-gemma4'].indexOf(provider) === -1) {
+      return res.status(400).json({ error: 'provider must be one of google/aws/azure/minimax/ocrspace/ollama-gemma4.' });
     }
     if (!_cloudKeyCache) _cloudKeyCache = {};
     if (apiKey == null || apiKey === '') {
@@ -523,7 +529,7 @@ export function registerEvaluationRoutes(app: express.Express) {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
     const result = {};
-    const providers = ['google', 'aws', 'azure', 'minimax', 'ocrspace'];
+    const providers = ['google', 'aws', 'azure', 'minimax', 'ocrspace', 'ollama-gemma4'];
     for (let i = 0; i < providers.length; i++) {
       const k = await getCloudKey(providers[i]);
       result[providers[i]] = !!k;
@@ -536,12 +542,17 @@ export function registerEvaluationRoutes(app: express.Express) {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const { imageDataUrl, provider } = req.body || {};
-    if (!imageDataUrl || typeof imageDataUrl !== 'string' || imageDataUrl.indexOf('data:image/') !== 0) {
-      return res.status(400).json({ error: 'imageDataUrl is required (data URL).' });
+    // Accept either field name so the cloud endpoint mirrors the legacy
+    // local-OCR endpoint shape, and accept image OR PDF data URLs since
+    // Ollama's vision API only accepts image MIME types (we rasterize PDFs).
+    const { imageDataUrl, fileBase64, provider } = req.body || {};
+    const dataUrl = imageDataUrl || fileBase64;
+    if (!dataUrl || typeof dataUrl !== 'string' ||
+        (dataUrl.indexOf('data:image/') !== 0 && dataUrl.indexOf('data:application/') !== 0)) {
+      return res.status(400).json({ error: 'imageDataUrl (or fileBase64) is required (data URL).' });
     }
-    if (!provider || ['google', 'aws', 'azure', 'minimax', 'ocrspace'].indexOf(provider) === -1) {
-      return res.status(400).json({ error: 'provider must be one of google/aws/azure/minimax/ocrspace.' });
+    if (!provider || ['google', 'aws', 'azure', 'minimax', 'ocrspace', 'ollama-gemma4'].indexOf(provider) === -1) {
+      return res.status(400).json({ error: 'provider must be one of google/aws/azure/minimax/ocrspace/ollama-gemma4.' });
     }
 
     const apiKey = await getCloudKey(provider);
@@ -552,8 +563,8 @@ export function registerEvaluationRoutes(app: express.Express) {
     }
 
     // Strip the data URL prefix -> raw base64
-    const commaIdx = imageDataUrl.indexOf(',');
-    const base64Body = commaIdx >= 0 ? imageDataUrl.slice(commaIdx + 1) : imageDataUrl;
+    const commaIdx = dataUrl.indexOf(',');
+    const base64Body = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
     const t0 = Date.now();
 
     try {
@@ -755,6 +766,164 @@ export function registerEvaluationRoutes(app: express.Express) {
           error: 'AWS Textract integration is not yet implemented. Pick Google Cloud Vision, MiniMax, OCR.space or use the local OCR button.',
         });
       }
+
+      // ===== Ollama Cloud + Gemma 4 (vision) =====
+      // Single-page box-only OCR via Ollama Cloud chat completions.
+      // Prompt: read ONLY the handwritten value inside each digit-box; ignore
+      // printed text. Output a flat { "answers": ["75, null, 89", ...] } array.
+      if (provider === 'ollama-gemma4') {
+        const modelName = process.env.OLLAMA_MODEL || 'gemma4:cloud';
+        const apiBase = process.env.OLLAMA_API_URL || 'https://ollama.com/api/chat';
+
+        // Ollama's vision API only accepts image MIME types. PDFs must be
+        // rasterized to PNG first — same path /api/icr/filter already uses.
+        let imageBase64 = base64Body;
+        let mimeUsed: string = (dataUrl.indexOf('data:') === 0)
+          ? dataUrl.slice(5, dataUrl.indexOf(';'))
+          : 'image/jpeg';
+        if (mimeUsed === 'application/pdf') {
+          try {
+            const { execFileSync } = await import('child_process');
+            const scratchDir = path.join(AI_SERVICES_DIR, 'scratch');
+            fs.mkdirSync(scratchDir, { recursive: true });
+            const pdfPath = path.join(scratchDir, `cloud_pdf_${Date.now()}_${Math.random().toString(36).slice(2)}.pdf`);
+            const pngPath = pdfPath.replace(/\.pdf$/, '.png');
+            fs.writeFileSync(pdfPath, Buffer.from(base64Body, 'base64'));
+            const scriptPath = path.join(AI_SERVICES_DIR, 'scripts', 'pdf_rasterize.py');
+            const childOut = execFileSync(PYTHON_BIN, [scriptPath, pdfPath, pngPath], {
+              cwd: AI_SERVICES_DIR,
+              env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+              timeout: 30000,
+              maxBuffer: 10 * 1024 * 1024,
+            });
+            const pdfJson = JSON.parse(childOut.toString());
+            if (!pdfJson.success) {
+              try { fs.unlinkSync(pdfPath); } catch {}
+              try { fs.unlinkSync(pngPath); } catch {}
+              return res.status(500).json({
+                error: 'Cloud OCR (OLLAMA-GEMMA4) could not rasterize PDF: ' + (pdfJson.error || 'unknown'),
+              });
+            }
+            imageBase64 = fs.readFileSync(pngPath).toString('base64');
+            mimeUsed = 'image/png';
+            try { fs.unlinkSync(pdfPath); } catch {}
+            try { fs.unlinkSync(pngPath); } catch {}
+          } catch (e: any) {
+            return res.status(500).json({
+              error: 'Cloud OCR (OLLAMA-GEMMA4) PDF rasterization failed: ' + (e?.message || String(e)),
+            });
+          }
+        }
+
+        const ocrPrompt = [
+          'You are an OCR assistant. The image is a single-page student answer sheet.',
+          '',
+          'On the page there are small drawn rectangular boxes scattered around. Each box has a closed (or near-closed) border. Inside each box, a student may have handwritten digits or characters as their answer.',
+          '',
+          'Your ONLY job: read the handwritten content inside each box. Do not transcribe any printed text (questions, options, instructions, headers, school name, page numbers, decorative borders, printed digit examples).',
+          '',
+          'Box dimensions (for reference):',
+          '- Box height: 0.20 to 0.35 inches (one line of handwriting).',
+          '- Box width: 0.17 to 0.23 inches per digit slot. So 1-digit box ≈ 0.17-0.23 in, 2-digit ≈ 0.34-0.46 in, 3-digit ≈ 0.51-0.69 in. Wider than that means it is a multi-line answer area — read the full handwritten text inside, do not split.',
+          '',
+          'Output: a single JSON object with this exact shape:',
+          '{ "answers": [ "75, null, 89", "42", "100", null, "abc" ] }',
+          '',
+          'Rules:',
+          '- "answers" is a flat array of strings, one entry per VISUAL ROW on the page (top-to-bottom).',
+          '- For each row, output ONE string. If a row contains multiple digit-boxes side by side, the string is the answers in left-to-right order separated by commas. Use the literal "null" (no quotes around it) for any unanswered box in that row.',
+          '- For a wide multi-line area, output the full handwritten text the student wrote there as one string.',
+          '- Empty rows (no box, no writing) — emit a literal "null" string for that row index, OR skip it. Prefer skipping if you can.',
+          '- A row containing one wide multi-line area — emit as one string.',
+          '- Preserve what the student wrote exactly. Do not correct, normalize, or compute.',
+          '- If a box has only a smudge or stray dot, output "unclear". If the box is empty, output "null".',
+          '- Output ONLY the JSON object. No prose, no markdown fences, no commentary.',
+        ].join('\n');
+
+        const ollamaRes = await fetch(apiBase, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + apiKey,
+          },
+          body: JSON.stringify({
+            model: modelName,
+            messages: [
+              {
+                role: 'user',
+                content: ocrPrompt,
+                images: [imageBase64],
+              },
+            ],
+            // Force the model to emit valid JSON. Without this, even with
+            // a strong prompt it may wrap the JSON in ```json fences or
+            // add prose the frontend then can't parse.
+            format: 'json',
+            stream: false,
+          }),
+        });
+        const ollamaJson = await ollamaRes.json().catch(() => ({}));
+        if (!ollamaRes.ok) {
+          const msg = (ollamaJson && ollamaJson.error)
+            || ('Ollama Cloud HTTP ' + ollamaRes.status);
+          return res.status(502).json({ error: 'Ollama Cloud: ' + msg });
+        }
+        // Ollama's /api/chat with format:'json' returns the model's
+        // JSON object as a string under message.content. Parse it; on
+        // any failure (fenced markdown, prose wrapper, etc.) fall back
+        // to the raw text we did receive.
+        const rawText = (ollamaJson && ollamaJson.message && ollamaJson.message.content)
+          ? String(ollamaJson.message.content)
+          : '';
+        // The user wants only the handwritten answers as a flat list.
+        let flatAnswers: string[] | null = null;
+        let parseError: string | null = null;
+        if (rawText) {
+          // Strip ```json / ``` fences if the model wrapped anyway.
+          const stripped = rawText
+            .replace(/^```(?:json)?\s*/i, '')
+            .replace(/\s*```\s*$/i, '')
+            .trim();
+          try {
+            const parsed = JSON.parse(stripped);
+            if (parsed && Array.isArray(parsed.answers)) {
+              flatAnswers = parsed.answers.map((s: any) => String(s ?? ''));
+            } else {
+              parseError = 'model output did not contain answers array';
+            }
+          } catch (e: any) {
+            parseError = 'JSON parse failed: ' + (e?.message || String(e));
+          }
+        } else {
+          parseError = 'empty model output';
+        }
+        // Build a flat token list (whitespace split) for the existing
+        // downstream consumers (Verify table + EasyOCR-style fill).
+        const tokens = rawText
+          .split(/\s+/)
+          .map(s => s.trim())
+          .filter(Boolean)
+          .map(text => ({ text, confidence: 0.7 }));
+        return res.json({
+          success: true,
+          provider: 'ollama-gemma4',
+          model: modelName,
+          mimeUsed,
+          // The cleaned, flat answer list — exactly what the verify UI consumes.
+          answers: flatAnswers || [],
+          // Keep raw text + tokens for the OCR analysis preview pane.
+          extractedText: rawText,
+          extractedTokens: tokens,
+          rawOcrText: rawText,
+          // When JSON parsing fails we still want the UI to show the raw text
+          // and an explicit warning — the question-classifier flow can then
+          // try to parse it client-side as a fallback.
+          structured: flatAnswers != null,
+          structuredError: parseError,
+          processingTimeMs: Date.now() - t0,
+        });
+      }
+
 
       // ===== Azure Computer Vision (stub) =====
       if (provider === 'azure') {
