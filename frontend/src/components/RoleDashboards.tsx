@@ -9,6 +9,7 @@ import { LogbookView } from './LogbookView';
 import { TicketSubmission } from './TicketSubmission';
 import { IcrScanner } from './IcrScanner';
 import { BaselineUpload } from './BaselineUpload';
+import { SkillGraphPanel } from './SkillGraphPanel';
 import { Users, ShieldAlert, BookOpen, UserCheck, Calendar, ArrowRight, CheckCircle2, XCircle, SlidersHorizontal, Layers, Award, MapPin, School as SchoolIcon, BarChart3, FileText, ClipboardList, Layers as BulkIcon } from 'lucide-react';
 import { Table, Column } from './Table';
 import { MetricCard } from './Card';
@@ -1701,6 +1702,7 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
   const [baselineStudent, setBaselineStudent] = useState<Student | null>(null);
   const [showWorksheetPortal, setShowWorksheetPortal] = useState(false);
   const [showLevelRef, setShowLevelRef] = useState(false);
+  const [showSkillGraph, setShowSkillGraph] = useState(false);
   const [showIcrScanner, setShowIcrScanner] = useState(false);
   const [showBulkDiagnostic, setShowBulkDiagnostic] = useState(false);
 
@@ -2039,6 +2041,12 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
             className="bg-white dark:bg-slate-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 font-mono text-xs font-semibold px-4 py-2.5 rounded-lg transition-colors cursor-pointer"
           >
             📖 93 FLN Framework
+          </button>
+          <button
+            onClick={() => setShowSkillGraph(true)}
+            className="bg-white dark:bg-slate-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 font-mono text-xs font-semibold px-4 py-2.5 rounded-lg transition-colors cursor-pointer"
+          >
+            🧠 Skill Progression (93 levels)
           </button>
           <button
             onClick={() => setShowAddForm(!showAddForm)}
@@ -2460,6 +2468,7 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
       </div>
       )}
       <FLNLevelReferenceModal isOpen={showLevelRef} onClose={() => setShowLevelRef(false)} />
+      <SkillGraphPanel open={showSkillGraph} onClose={() => setShowSkillGraph(false)} />
     </div>
   );
 };
@@ -2477,6 +2486,7 @@ export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) =>
   const [baselineStudent, setBaselineStudent] = useState<Student | null>(null);
   const [showWorksheetPortal, setShowWorksheetPortal] = useState(false);
   const [showLevelRef, setShowLevelRef] = useState(false);
+  const [showSkillGraph, setShowSkillGraph] = useState(false);
   const [showIcrScanner, setShowIcrScanner] = useState(false);
   const [showBulkDiagnostic, setShowBulkDiagnostic] = useState(false);
 
@@ -2740,6 +2750,12 @@ export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) =>
             className="bg-white dark:bg-slate-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 font-mono text-xs font-semibold px-4 py-2.5 rounded-lg transition-colors cursor-pointer"
           >
             📖 93 FLN Framework
+          </button>
+          <button
+            onClick={() => setShowSkillGraph(true)}
+            className="bg-white dark:bg-slate-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 font-mono text-xs font-semibold px-4 py-2.5 rounded-lg transition-colors cursor-pointer"
+          >
+            🧠 Skill Progression (93 levels)
           </button>
           <button
             onClick={() => setShowAddForm(!showAddForm)}
@@ -3116,6 +3132,7 @@ export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) =>
       </div>
       )}
       <FLNLevelReferenceModal isOpen={showLevelRef} onClose={() => setShowLevelRef(false)} />
+      <SkillGraphPanel open={showSkillGraph} onClose={() => setShowSkillGraph(false)} />
     </div>
   );
 };
