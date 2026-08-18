@@ -229,8 +229,8 @@ export function registerStudentRoutes(app: express.Express) {
     }
 
     // Build aadhars set for uniqueness check
-    const allStudents = await dbStore.getStudents();
-    const existingAadhars = new Set(allStudents.map(s => s.aadharMasked));
+    const rawAadhar = String(req.body.aadharNumber).replace(/[^0-9]/g, '');
+    const existingAadhars = await dbStore.getExistingAadhars([rawAadhar]);
 
     const result = await createStudentFromData(
       { ...req.body, schoolId: req.body.schoolId || user.schoolId },
@@ -280,8 +280,8 @@ export function registerStudentRoutes(app: express.Express) {
 
     // Pre-load all existing aadhar numbers once; the helper adds new ones as
     // it inserts, so intra-batch duplicates are caught too.
-    const allStudents = await dbStore.getStudents();
-    const existingAadhars = new Set(allStudents.map(s => s.aadharMasked));
+    const aadharsInBatch = rows.map(r => String(r.aadharNumber).replace(/[^0-9]/g, '')).filter(Boolean);
+    const existingAadhars = await dbStore.getExistingAadhars(aadharsInBatch);
 
     const results: {
       row: number; status: 'created' | 'failed'; name?: string; id?: string; reason?: string;
@@ -330,8 +330,7 @@ export function registerStudentRoutes(app: express.Express) {
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
     const { currentLevel, currentSubLevel, targetLevel, levelHistory } = req.body;
-    const students = await dbStore.getStudents();
-    const student = students.find(s => s.id === req.params.id);
+    const student = await dbStore.getStudentById(req.params.id);
     if (!student) return res.status(404).json({ error: 'Student not found.' });
     if (!canAccessStudent(user, student)) return res.status(403).json({ error: 'Forbidden.' });
 
@@ -352,8 +351,7 @@ export function registerStudentRoutes(app: express.Express) {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const students = await dbStore.getStudents();
-    const student = students.find(s => s.id === req.params.id);
+    const student = await dbStore.getStudentById(req.params.id);
     if (!student) return res.status(404).json({ error: 'Student not found.' });
     if (!canAccessStudent(user, student)) return res.status(403).json({ error: 'Forbidden.' });
 
@@ -386,8 +384,7 @@ export function registerStudentRoutes(app: express.Express) {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const students = await dbStore.getStudents();
-    const student = students.find(s => s.id === req.params.id);
+    const student = await dbStore.getStudentById(req.params.id);
     if (!student) return res.status(404).json({ error: 'Student not found.' });
     if (!canAccessStudent(user, student)) return res.status(403).json({ error: 'Forbidden.' });
 
@@ -481,8 +478,7 @@ export function registerStudentRoutes(app: express.Express) {
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
     const { questions, answers } = req.body;
-    const students = await dbStore.getStudents();
-    const student = students.find(s => s.id === req.params.id);
+    const student = await dbStore.getStudentById(req.params.id);
     if (!student) return res.status(404).json({ error: 'Student not found.' });
     if (!canAccessStudent(user, student)) return res.status(403).json({ error: 'Forbidden.' });
 
