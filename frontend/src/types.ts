@@ -49,9 +49,9 @@ export interface Student {
   section: string;
   schoolId: string;
   teacherId?: string;
-  currentLevel: number;
-  currentSubLevel?: number;
-  targetLevel: number;
+  currentLevel: number | null;
+  currentSubLevel?: number | null;
+  targetLevel: number | null;
   aadharMasked: string;
   levelHistory: { level: number; subLevel?: number; date: string; reason: string }[];
   streak: number;

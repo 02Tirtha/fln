@@ -195,9 +195,9 @@ export function registerStudentRoutes(app: express.Express) {
       classGroup: String(classGroup).trim(),
       section: String(section).trim(),
       schoolId,
-      currentLevel: 1,
-      currentSubLevel: 0,
-      targetLevel: 2,
+      currentLevel: null,
+      currentSubLevel: null,
+      targetLevel: null,
       aadharMasked: rawAadhar,
       levelHistory: [],
       streak: 0,
@@ -336,9 +336,9 @@ export function registerStudentRoutes(app: express.Express) {
     if (!canAccessStudent(user, student)) return res.status(403).json({ error: 'Forbidden.' });
 
     await dbStore.updateStudent(student.id, {
-      currentLevel: Number(currentLevel),
+      currentLevel: currentLevel !== null && currentLevel !== undefined ? Number(currentLevel) : null,
       currentSubLevel: currentSubLevel !== undefined ? Number(currentSubLevel) : student.currentSubLevel,
-      targetLevel: Number(targetLevel),
+      targetLevel: targetLevel !== null && targetLevel !== undefined ? Number(targetLevel) : null,
       levelHistory: levelHistory || student.levelHistory
     });
 

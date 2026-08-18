@@ -284,7 +284,7 @@ export const RegionalAnalyticsView: React.FC<{ token: string; user: User }> = ({
             {/* Total Indicator */}
             <div className="text-center md:text-right mt-3">
               <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-mono">
-                Roster segment: <strong className="text-zinc-800 dark:text-zinc-100">{Object.values(activeMetrics.levelDistribution || {}).reduce((a: any, b: any) => a + b, 0)} student profiles</strong>
+                Roster segment: <strong className="text-zinc-800 dark:text-zinc-100">{(Object.values(activeMetrics.levelDistribution || {}).reduce((a: any, b: any) => a + b, 0) as number)} student profiles</strong>
               </span>
             </div>
           </div>
