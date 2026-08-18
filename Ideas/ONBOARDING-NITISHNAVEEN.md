@@ -46,15 +46,21 @@ Then once the grades/certications are given to students then teacher can now gen
 Tech Stack: MERN stack has been used to build this project. This represents MongoDB as database, Express as backend framework, React as frontend and Node.js as backend runtime. The auth is handled using JWT tokens with 7 days expiry and bycrpt which is secure. There is role-based access control and express auth middleware in backend/src for now. Though we will use ai-services file at later stages. The login page does not have a dropdown rather it has server side role determining in place. There is specific @fl.org email id check for login in place, password must have min 8 chars, 1 uppercase, 1 number, 1 special character. The program will be refactored before deployment as we have to use ai-servies directory which is core for automation in terms of paper generating as well as evaluation and grade allocation to them. The system falls back to gemini using deterministic fallbacks when APi key isn't available.
 The teacher/block admin generates the question (generic for new class and personalized for existing student's prfiles). Papers get rendered as HTML where templates are in place for now, so if need to change anything we have to work with templates not the MongoDB, which is ideal. Papers then get A4 PDF converted using Puppeteer and printed. Student give the assessment within the assessment window, then teacher/vlounteer scans the answer sheets and system auto-evaluates via python pipeline (classify->compare->evaluate->report). Then the student's FLN level gets updated concept mastery profile updates and weak ones also get associated with their profiles. If they pass certificate is given and they move forward, if fail then diagnosis and worksheets, and this cycle repeats.
 
-Generation locks are also in place to prevent pairwise enforcement so two roles cannot generate the paper for same puprpose.
+Generation locks are also in place to prevent pairwise enforcement so two roles cannot generate the paper for same purpose.
 
 **4) Gaps observed in the code:**
-RoleDashboards.tsx is a 3,100+ line file holding all 8 role dashboards. So, it is not easy to debug and solve the problems. So for better management we have to move them to separate directories.
-It improves the functionality, maintainability and correctness of the repo structure.
+RoleDashboards.tsx is a 3,139 line file holding all 8 role dashboards. So, it is not easy to debug and solve the problems while navigating through such a big codebase. So for better management, understanding and navigation we have to move them to separate directories.
+
+**5) Ideas for the Project**
+What? Refactoring and refining the directory structure, so debugging would be easier and since it is a shared analytics used by various dashboards it will cause problems in navigation and debugging.
+Why? For easier navigation, debugging, understanding and working of the codebase.
+How? I will create a separate component in dashboard and also update dependencies and path wherever required so the app remains intact. The detailed points have been mentioned in My contribution i.e. point 6.
 
 **6) My Contribution:**
-- Create frontend/src/components/dashboards/RegionalAnalyticsView.tsx.
-- Cut the component out of RoleDashboards.tsx into the new file, with whatever imports it needs.
-- Back in RoleDashboards.tsx, add: export { RegionalAnalyticsView } from './dashboards/RegionalAnalyticsView'; where it used to be.
-- Not changing any logic, keeping it as it is.
+The steps that I would follow to correctly tackle this issue.
+- Will first create frontend/src/components/dashboards/RegionalAnalyticsView.tsx.
+- Then, will cut the component out of RoleDashboards.tsx into the new file, with imports it needs carefully.
+- Then, back in RoleDashboards.tsx, will add: export { RegionalAnalyticsView } from './dashboards/RegionalAnalyticsView'; where it used to be.
+- Not changing any logic, keeping it as it is will change it and also update dependencies/path wherever needed. 
+- This will close the issue as per requirement of the repository.
 
