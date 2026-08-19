@@ -81,15 +81,6 @@ const DIAGNOSTIC_HISTORY = [
   { id: 'dh5', student: 'Jasmine Kaur', date: '2026-02-20', score: 5, total: 10, placedLevel: 8, evaluator: 'Amit Kumar' },
 ];
 
-const WORKSHEETS_MOCK = [
-  { id: 'ws1', cycle: 'Baseline', class: 'Class 2-A', date: '2026-01-10', questions: 10, status: 'Evaluated', avgScore: '78%' },
-  { id: 'ws2', cycle: 'Mid-year', class: 'Class 2-A', date: '2026-02-20', questions: 10, status: 'Evaluated', avgScore: '65%' },
-  { id: 'ws3', cycle: 'Baseline', class: 'Class 3-A', date: '2026-01-10', questions: 10, status: 'Evaluated', avgScore: '85%' },
-  { id: 'ws4', cycle: 'Mid-year', class: 'Class 3-A', date: '2026-03-01', questions: 10, status: 'Evaluated', avgScore: '72%' },
-  { id: 'ws5', cycle: 'End-of-year', class: 'Class 2-A', date: '2026-05-15', questions: 12, status: 'Pending', avgScore: '-' },
-  { id: 'ws6', cycle: 'End-of-year', class: 'Class 3-A', date: '2026-05-20', questions: 12, status: 'Pending', avgScore: '-' },
-];
-
 const CONTENT_ITEMS = [
   { id: 'c1', title: 'Number Line 1-10', type: 'Visual Aid', level: 'L1-L4', language: 'English, Punjabi', status: 'Approved' },
   { id: 'c2', title: 'Addition with Objects', type: 'Lesson Plan', level: 'L7-L12', language: 'English, Hindi', status: 'Approved' },
@@ -955,21 +946,62 @@ const students = apiStudents.length > 0 ? apiStudents : STUDENTS_FALLBACK;
   }
 
   if (panel === 'worksheets') {
+    // Real data: group real EvaluationReport records by cycle + class,
+    // instead of the old WORKSHEETS_MOCK fixture (which never made an API
+    // call at all — every teacher saw the same 6 invented rows). Cycle
+    // name is derived from the closest levelHistory entry on the report's
+    // student, matching the same Baseline/Midline/Endline naming standardized
+    // in #179.
+    const cycleForReport = (r: EvaluationReport): string => {
+      const s = students.find(st => st.id === r.studentId);
+      if (!s || s.levelHistory.length === 0) return 'Assessment';
+      const reportTime = new Date(r.timestamp).getTime();
+      let closest = s.levelHistory[0];
+      let closestDiff = Math.abs(new Date(closest.date).getTime() - reportTime);
+      for (const lh of s.levelHistory) {
+        const diff = Math.abs(new Date(lh.date).getTime() - reportTime);
+        if (diff < closestDiff) { closest = lh; closestDiff = diff; }
+      }
+      return closest.reason || 'Assessment';
+    };
+    type CycleGroup = { cycle: string; classGroup: string; reports: EvaluationReport[] };
+    const groups = new Map<string, CycleGroup>();
+    reportsList.forEach(r => {
+      const s = students.find(st => st.id === r.studentId);
+      const classGroup = s?.classGroup || 'Unknown Class';
+      const cycle = cycleForReport(r);
+      const key = `${cycle}__${classGroup}`;
+      if (!groups.has(key)) groups.set(key, { cycle, classGroup, reports: [] });
+      groups.get(key)!.reports.push(r);
+    });
+    const cycleGroups = Array.from(groups.values()).sort((a, b) =>
+      Math.max(...b.reports.map(r => new Date(r.timestamp).getTime())) -
+      Math.max(...a.reports.map(r => new Date(r.timestamp).getTime()))
+    );
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <MetricCard title="Total Worksheets" value={WORKSHEETS_MOCK.length} subtext="Across all cycles" icon={ClipboardList} />
-          <MetricCard title="Evaluated" value={WORKSHEETS_MOCK.filter(w => w.status === 'Evaluated').length} subtext="Graded and scored" icon={CheckCircle2} />
-          <MetricCard title="Pending" value={WORKSHEETS_MOCK.filter(w => w.status === 'Pending').length} subtext="Awaiting evaluation" icon={FileText} />
+          <MetricCard title="Total Worksheets" value={reportsList.length} subtext="Across all cycles" icon={ClipboardList} />
+          <MetricCard title="Evaluated" value={reportsList.length} subtext="Graded and scored" icon={CheckCircle2} />
+          <MetricCard title="Cycle Groups" value={cycleGroups.length} subtext="Cycle x class combinations" icon={FileText} />
         </div>
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm">
-          <PageHeader title="Worksheet Cycles" desc="Baseline, Mid-year, and End-of-year assessments" />
-          <div className="space-y-3 mt-4">{WORKSHEETS_MOCK.map(w => (
-            <div key={w.id} className="flex justify-between items-center p-4 border border-slate-200 dark:border-slate-700 rounded-lg">
-              <div><div className="font-semibold text-sm">{w.cycle} — {w.class}</div><div className="text-xs text-slate-400 dark:text-slate-500">{w.date} · {w.questions} questions</div></div>
-              <div className="text-right"><span className={`text-xs font-mono font-bold px-2 py-1 rounded ${w.status === 'Evaluated' ? 'text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800' : 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800'}`}>{w.status}</span><div className="text-xs text-slate-400 dark:text-slate-500 mt-1">Avg: {w.avgScore}</div></div>
-            </div>
-          ))}</div>
+          <PageHeader title="Worksheet Cycles" desc="Baseline, Midline, and Endline assessments" />
+          <div className="space-y-3 mt-4">
+            {cycleGroups.length === 0 && (
+              <div className="text-sm text-slate-400 dark:text-slate-500 py-4 text-center">No worksheet evaluations yet.</div>
+            )}
+            {cycleGroups.map(g => {
+              const avgPct = Math.round(g.reports.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / g.reports.length);
+              const latestDate = new Date(Math.max(...g.reports.map(r => new Date(r.timestamp).getTime()))).toLocaleDateString();
+              return (
+                <div key={`${g.cycle}__${g.classGroup}`} className="flex justify-between items-center p-4 border border-slate-200 dark:border-slate-700 rounded-lg">
+                  <div><div className="font-semibold text-sm">{g.cycle} — {g.classGroup}</div><div className="text-xs text-slate-400 dark:text-slate-500">{latestDate} · {g.reports.length} worksheet{g.reports.length === 1 ? '' : 's'}</div></div>
+                  <div className="text-right"><span className="text-xs font-mono font-bold px-2 py-1 rounded text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800">Evaluated</span><div className="text-xs text-slate-400 dark:text-slate-500 mt-1">Avg: {avgPct}%</div></div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
     );
