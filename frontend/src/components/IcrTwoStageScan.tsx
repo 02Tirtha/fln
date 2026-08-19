@@ -454,24 +454,31 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
         );
         return;
       }
-      const imageToSend = filteredImageDataUrl
-        ? await Promise.resolve(filteredImageDataUrl)
-        : await fileToDataUrl(uploadedFile);
       setOcrState('running');
       setCloudError(null);
       const t0 = performance.now();
       try {
-        // Send only {imageDataUrl, provider} — NO apiKey from the frontend.
+        // Prefer the pages[] shape (same as the local OCR path) so the
+        // backend runs Cloud OCR on every filtered page, not just the
+        // first — a multi-page scan (e.g. several students' sheets in one
+        // PDF) shouldn't silently drop pages 2+. Falls back to a single
+        // imageDataUrl if the user skipped the filter stage.
+        // NO apiKey is ever sent from the frontend.
+        const body: Record<string, unknown> = { provider: cloudProvider };
+        if (filteredPages.length > 0) {
+          body.pages = filteredPages.map((p) => ({ pageNumber: p.pageNumber, imageDataUrl: p.imageDataUrl }));
+        } else {
+          body.imageDataUrl = filteredImageDataUrl
+            ? filteredImageDataUrl
+            : await fileToDataUrl(uploadedFile);
+        }
         const res = await apiFetch('/api/icr/evaluate-cloud', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`,
           },
-          body: JSON.stringify({
-            imageDataUrl: imageToSend,
-            provider: cloudProvider,
-          }),
+          body: JSON.stringify(body),
         });
         const clientMs = Math.round(performance.now() - t0);
         const data = await res.json();
