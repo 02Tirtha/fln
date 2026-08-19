@@ -1,6 +1,6 @@
 import { apiFetch } from '../services/apiClient';
 import React, { useState, useEffect } from 'react';
-import { User, UserRole, Student, ClassGroup, School, EvaluationReport, LogEntry, Ticket } from '../types';
+import { User, UserRole, Student, ClassGroup, School, EvaluationReport, Worksheet, LogEntry, Ticket } from '../types';
 import { Users, ShieldAlert, BookOpen, Calendar, ArrowRight, CheckCircle2, XCircle, SlidersHorizontal, Layers, Award, MapPin, School as SchoolIcon, BarChart3, FileText, ClipboardList, Building2, GraduationCap, BookMarked, Globe, Settings, Database, RefreshCw, Search, ChevronDown } from 'lucide-react';
 import { Table, Column } from './Table';
 import { MetricCard } from './Card';
@@ -143,6 +143,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   const [apiSchools, setApiSchools] = useState<School[]>([]);
   const [apiUsers, setApiUsers] = useState<any[]>([]);
   const [apiReports, setApiReports] = useState<EvaluationReport[]>([]);
+  const [apiWorksheets, setApiWorksheets] = useState<Worksheet[]>([]);
   const [apiTeachers, setApiTeachers] = useState<any[]>([]);
 
   useEffect(() => {
@@ -150,6 +151,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
     apiFetch('/api/schools', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiSchools(d); }).catch(() => {});
     apiFetch('/api/admin/coordinators', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiUsers(d); }).catch(() => {});
     apiFetch('/api/evaluation/reports', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiReports(d); }).catch(() => {});
+    apiFetch('/api/worksheets', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiWorksheets(d); }).catch(() => {});
     if (currentUser.role === UserRole.SCHOOL || currentUser.role === UserRole.BLOCK_ADMIN) {
       apiFetch('/api/teachers', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiTeachers(d); }).catch(() => {});
     }
@@ -174,6 +176,7 @@ const students = apiStudents.length > 0 ? apiStudents : STUDENTS_FALLBACK;
   // which rendered as a literal "Unknown" name - showing an empty list on
   // fetch failure is honest, a mismatched fake report is not.
   const reportsList: EvaluationReport[] = apiReports;
+  const worksheetsList: Worksheet[] = apiWorksheets;
   const teachersList = apiTeachers.length > 0 ? apiTeachers : TEACHERS_MOCK;
 
   // Real per-district / per-block rollups, derived from the already-fetched
@@ -946,61 +949,63 @@ const students = apiStudents.length > 0 ? apiStudents : STUDENTS_FALLBACK;
   }
 
   if (panel === 'worksheets') {
-    // Real data: group real EvaluationReport records by cycle + class,
-    // instead of the old WORKSHEETS_MOCK fixture (which never made an API
-    // call at all — every teacher saw the same 6 invented rows). Cycle
-    // name is derived from the closest levelHistory entry on the report's
-    // student, matching the same Baseline/Midline/Endline naming standardized
-    // in #179.
-    const cycleForReport = (r: EvaluationReport): string => {
-      const s = students.find(st => st.id === r.studentId);
-      if (!s || s.levelHistory.length === 0) return 'Assessment';
-      const reportTime = new Date(r.timestamp).getTime();
-      let closest = s.levelHistory[0];
-      let closestDiff = Math.abs(new Date(closest.date).getTime() - reportTime);
-      for (const lh of s.levelHistory) {
-        const diff = Math.abs(new Date(lh.date).getTime() - reportTime);
-        if (diff < closestDiff) { closest = lh; closestDiff = diff; }
-      }
-      return closest.reason || 'Assessment';
-    };
-    type CycleGroup = { cycle: string; classGroup: string; reports: EvaluationReport[] };
-    const groups = new Map<string, CycleGroup>();
+    // Real data: each row is a real Worksheet generation record (created
+    // when a teacher runs the Bulk Diagnostic Generator — see
+    // backend/src/routes/diagnosticBulk.ts), not the old WORKSHEETS_MOCK
+    // fixture (which never made an API call at all). A worksheet is
+    // "Pending" until a matching EvaluationReport.worksheetId shows up for
+    // each of its studentIds — a paper takes hours (print, exam, scan)
+    // between generation and results, so this reflects real turnaround
+    // time instead of only ever showing "Evaluated" or nothing at all.
+    const reportsByWorksheet = new Map<string, EvaluationReport[]>();
     reportsList.forEach(r => {
-      const s = students.find(st => st.id === r.studentId);
-      const classGroup = s?.classGroup || 'Unknown Class';
-      const cycle = cycleForReport(r);
-      const key = `${cycle}__${classGroup}`;
-      if (!groups.has(key)) groups.set(key, { cycle, classGroup, reports: [] });
-      groups.get(key)!.reports.push(r);
+      if (!r.worksheetId) return;
+      if (!reportsByWorksheet.has(r.worksheetId)) reportsByWorksheet.set(r.worksheetId, []);
+      reportsByWorksheet.get(r.worksheetId)!.push(r);
     });
-    const cycleGroups = Array.from(groups.values()).sort((a, b) =>
-      Math.max(...b.reports.map(r => new Date(r.timestamp).getTime())) -
-      Math.max(...a.reports.map(r => new Date(r.timestamp).getTime()))
-    );
+    const rows = worksheetsList.map(w => {
+      const total = w.studentIds?.length ?? 0;
+      const evaluated = reportsByWorksheet.get(w.id) ?? [];
+      const evaluatedStudentIds = new Set(evaluated.map(r => r.studentId));
+      const evaluatedCount = evaluatedStudentIds.size;
+      const pendingCount = Math.max(0, total - evaluatedCount);
+      const status: 'Evaluated' | 'Partial' | 'Pending' =
+        pendingCount === 0 && total > 0 ? 'Evaluated' : evaluatedCount > 0 ? 'Partial' : 'Pending';
+      const avgPct = evaluated.length > 0
+        ? Math.round(evaluated.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / evaluated.length)
+        : null;
+      return { worksheet: w, total, evaluatedCount, pendingCount, status, avgPct };
+    }).sort((a, b) => new Date(b.worksheet.date).getTime() - new Date(a.worksheet.date).getTime());
+
+    const totalWorksheets = rows.length;
+    const evaluatedCount = rows.filter(r => r.status === 'Evaluated').length;
+    const pendingCount = rows.filter(r => r.status !== 'Evaluated').length;
+
+    const statusStyle: Record<string, string> = {
+      Evaluated: 'text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800',
+      Partial: 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800',
+      Pending: 'text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700',
+    };
+
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <MetricCard title="Total Worksheets" value={reportsList.length} subtext="Across all cycles" icon={ClipboardList} />
-          <MetricCard title="Evaluated" value={reportsList.length} subtext="Graded and scored" icon={CheckCircle2} />
-          <MetricCard title="Cycle Groups" value={cycleGroups.length} subtext="Cycle x class combinations" icon={FileText} />
+          <MetricCard title="Total Worksheets" value={totalWorksheets} subtext="Across all cycles" icon={ClipboardList} />
+          <MetricCard title="Evaluated" value={evaluatedCount} subtext="All students graded" icon={CheckCircle2} />
+          <MetricCard title="Pending" value={pendingCount} subtext="Awaiting scan/evaluation" icon={FileText} />
         </div>
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm">
-          <PageHeader title="Worksheet Cycles" desc="Baseline, Midline, and Endline assessments" />
+          <PageHeader title="Worksheet Cycles" desc="Baseline, Mid-year, and End-of-year assessments" />
           <div className="space-y-3 mt-4">
-            {cycleGroups.length === 0 && (
-              <div className="text-sm text-slate-400 dark:text-slate-500 py-4 text-center">No worksheet evaluations yet.</div>
+            {rows.length === 0 && (
+              <div className="text-sm text-slate-400 dark:text-slate-500 py-4 text-center">No worksheets generated yet.</div>
             )}
-            {cycleGroups.map(g => {
-              const avgPct = Math.round(g.reports.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / g.reports.length);
-              const latestDate = new Date(Math.max(...g.reports.map(r => new Date(r.timestamp).getTime()))).toLocaleDateString();
-              return (
-                <div key={`${g.cycle}__${g.classGroup}`} className="flex justify-between items-center p-4 border border-slate-200 dark:border-slate-700 rounded-lg">
-                  <div><div className="font-semibold text-sm">{g.cycle} — {g.classGroup}</div><div className="text-xs text-slate-400 dark:text-slate-500">{latestDate} · {g.reports.length} worksheet{g.reports.length === 1 ? '' : 's'}</div></div>
-                  <div className="text-right"><span className="text-xs font-mono font-bold px-2 py-1 rounded text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800">Evaluated</span><div className="text-xs text-slate-400 dark:text-slate-500 mt-1">Avg: {avgPct}%</div></div>
-                </div>
-              );
-            })}
+            {rows.map(({ worksheet: w, total, evaluatedCount: ec, status, avgPct }) => (
+              <div key={w.id} className="flex justify-between items-center p-4 border border-slate-200 dark:border-slate-700 rounded-lg">
+                <div><div className="font-semibold text-sm">{w.cycle} — {w.className}{w.section ? ` ${w.section}` : ''}</div><div className="text-xs text-slate-400 dark:text-slate-500">{new Date(w.date).toLocaleDateString()} · {ec}/{total} evaluated</div></div>
+                <div className="text-right"><span className={`text-xs font-mono font-bold px-2 py-1 rounded ${statusStyle[status]}`}>{status}</span><div className="text-xs text-slate-400 dark:text-slate-500 mt-1">Avg: {avgPct !== null ? `${avgPct}%` : '—'}</div></div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
