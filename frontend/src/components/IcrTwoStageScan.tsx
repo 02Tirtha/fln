@@ -493,8 +493,12 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
         }
         // Prefer the structured `studentResponses` from Ollama's JSON-output mode
         // (question_number → response, with status: answered|blank|unclear).
-        // Fall back to the legacy `extractedTokens` (whitespace-split) when
-        // the model returned prose or the JSON parse failed.
+        // Next, prefer the backend's already-parsed `answers` array (present
+        // whenever `structured: true` — see /api/icr/evaluate-cloud) — this
+        // is the model's real per-question answers, not raw OCR text.
+        // Only fall back to `extractedTokens` (the raw token stream, which
+        // can include JSON punctuation from the model's own response text)
+        // when neither structured shape is available.
         const answers: Record<string, { value: string; confidence: number; blue_pixels: number }> = {};
         if (data.studentResponses && Array.isArray(data.studentResponses)) {
           for (const r of data.studentResponses) {
@@ -511,6 +515,14 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
               blue_pixels: 0,
             };
           }
+        } else if (data.answers && Array.isArray(data.answers) && data.answers.length > 0) {
+          data.answers.forEach((v: any, i: number) => {
+            answers[`q_${i + 1}`] = {
+              value: String(v ?? ''),
+              confidence: 0.8,
+              blue_pixels: 0,
+            };
+          });
         } else if (data.extractedTokens && data.extractedTokens.length > 0) {
           data.extractedTokens.forEach((t: any, i: number) => {
             const v = String(t?.text ?? '').trim();
@@ -536,7 +548,7 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
                       bbox: t.bbox,
                     })),
                     processingTimeMs: data.processingTimeMs ?? clientMs,
-                    ocrEngine: data.ocrEngine || 'Cloud OCR',
+                    ocrEngine: data.ocrEngine || (data.model ? `Cloud OCR (${data.model})` : `Cloud OCR (${cloudProvider})`),
                   },
                   processingTimeMs: data.processingTimeMs ?? clientMs,
                 };

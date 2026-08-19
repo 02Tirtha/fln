@@ -153,10 +153,16 @@ export function registerEvaluationRoutes(app: express.Express) {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const { classId, studentId, pdfBase64, fileBase64, filename } = req.body;
-    const inputBase64 = fileBase64 || pdfBase64;
+    const { classId, studentId, pdfBase64, fileBase64, filename, pages } = req.body;
+    // The frontend's two-stage scan flow (IcrTwoStageScan) sends a `pages`
+    // array once the blue-ink filter step has run, instead of a single
+    // fileBase64/pdfBase64 — one entry per filtered page. This route only
+    // evaluates one image per call, so take the first page here; full
+    // multi-page evaluation is tracked separately.
+    const firstPageDataUrl = Array.isArray(pages) && pages.length > 0 ? pages[0]?.imageDataUrl : undefined;
+    const inputBase64 = fileBase64 || pdfBase64 || firstPageDataUrl;
     if (!inputBase64) {
-      return res.status(400).json({ error: 'fileBase64 or pdfBase64 is required.' });
+      return res.status(400).json({ error: 'fileBase64, pdfBase64, or pages is required.' });
     }
 
     // Fast path: no classId → single-image OCR. Just run EasyOCR once and
