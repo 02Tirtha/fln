@@ -21,6 +21,8 @@ import { STATES_UTS } from './geoData';
 import { getAuthUser, canAccessStudent, sanitizeUser, JWT_SECRET, JWT_EXPIRES_IN, SEED_DEMO_PASSWORD_HASH } from './auth';
 import { registerAnnouncementRoutes } from './routes/announcements';
 import { registerStatsRoutes } from './routes/stats';
+import remediationRouter from './routes/remediation.routes';
+import blueprintRouter from './routes/blueprint.routes';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
 import bcrypt from 'bcrypt';
@@ -65,6 +67,8 @@ async function startServer() {
   // --- API Endpoints ---
 
 registerStatsRoutes(app);
+  app.use('/api/remediation', remediationRouter);
+  app.use('/api/blueprint', blueprintRouter);
 
   // Auth: Login
   app.post('/api/auth/login', authRateLimiter, async (req, res) => {
@@ -734,8 +738,9 @@ const students = await dbStore.getStudents();
     const classMatch = student.classGroup.match(/\d+/);
     const classNumber = classMatch ? parseInt(classMatch[0], 10) : 1;
 
-    let questions: Question[];
+    let questions: Question[] = [];
     let pdfUrl = '';
+    const jobId = 'single_' + student.id + '_' + Date.now();
 
     try {
       // Generate the official PDF worksheet paper via Puppeteer
@@ -754,6 +759,33 @@ const students = await dbStore.getStudents();
       });
       questions = result.questions;
       pdfUrl = `/output/${result.fileName}`;
+
+      const keyItem = (Array.isArray(result.answerKeyData) && result.answerKeyData.length > 0)
+        ? result.answerKeyData[0]
+        : { masterJson: null, coords: null, questionPaperJson: null };
+
+      await dbStore.addDiagnosticAnswerKey({
+        id: 'dak_' + randomUUID(),
+        jobId: jobId,
+        studentId: student.id,
+        studentName: student.name,
+        classNumber,
+        setNumber: 1,
+        masterJson: keyItem.masterJson,
+        coords: keyItem.coords,
+        questionPaperJson: keyItem.questionPaperJson,
+        questions: questions,
+        answerKey: questions.map((q: Question) => ({
+          qid: q.question_id,
+          question_id: q.question_id,
+          answer: q.answer,
+          type: 'graded'
+        })),
+        createdAt: new Date().toISOString()
+      });
+
+      await dbStore.assignDiagnosticPaperToStudent(student.id, questions);
+
     } catch (err: any) {
       console.error("Puppeteer paper generation failed, using level generator mock:", err);
       const startLevel = (classNumber - 1) * 12 + 1;
@@ -769,12 +801,34 @@ const students = await dbStore.getStudents();
         });
       }
       questions = questions.slice(0, 12);
+
+      await dbStore.addDiagnosticAnswerKey({
+        id: 'dak_mock_' + randomUUID().slice(0, 8),
+        jobId: jobId,
+        studentId: student.id,
+        studentName: student.name,
+        classNumber,
+        setNumber: 1,
+        masterJson: null,
+        coords: null,
+        questionPaperJson: null,
+        questions,
+        answerKey: questions.map((q: Question) => ({
+          qid: q.question_id,
+          question_id: q.question_id,
+          answer: q.answer,
+          type: 'graded'
+        })),
+        createdAt: new Date().toISOString()
+      });
+
+      await dbStore.assignDiagnosticPaperToStudent(student.id, questions);
     }
 
     res.json({
       student,
       diagnosticPaper: {
-        id: 'diag_' + student.id + '_' + Date.now(),
+        id: jobId,
         studentId: student.id,
         studentName: student.name,
         questions,
@@ -820,10 +874,28 @@ const students = await dbStore.getStudents();
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const { questions, answers } = req.body;
+    const { questions: clientQuestions, answers, diagnosticId } = req.body;
     const students = await dbStore.getStudents();
     const student = students.find(s => s.id === req.params.id);
     if (!student) return res.status(404).json({ error: 'Student not found.' });
+
+    const answerKey = await dbStore.getStudentDiagnosticAnswerKey(student.id, diagnosticId);
+    if (!answerKey) {
+      return res.status(404).json({ error: 'Diagnostic answer key not found for this student and paper.' });
+    }
+
+    if (clientQuestions && Array.isArray(clientQuestions)) {
+      if (clientQuestions.length !== answerKey.questions.length) {
+        return res.status(400).json({ error: `Question count mismatch. Expected ${answerKey.questions.length}, but received ${clientQuestions.length}.` });
+      }
+      for (const clientQ of clientQuestions) {
+        const backendQ = answerKey.questions.find((q: Question) => q.question_id === clientQ.id || q.question_id === clientQ.question_id);
+        if (!backendQ) {
+          return res.status(400).json({ error: `Question ID ${clientQ.id || clientQ.question_id} does not match the generated answer key.` });
+        }
+      }
+    }
+
     if (!canAccessStudent(user, student)) return res.status(403).json({ error: 'Forbidden.' });
 
     // Parse class number from classGroup (e.g. "Class 2" -> 2)
@@ -857,7 +929,7 @@ const students = await dbStore.getStudents();
 
     // Map answers sequentially (diag_q_X_Y to Q1, Q2, Q3...)
     const pipelineAnswers: { [qId: string]: { answer: string, confidence: number } } = {};
-    questions.forEach((q, idx) => {
+    answerKey.questions.forEach((q, idx) => {
       const qNum = idx + 1;
       const pipelineQId = `Q${qNum}`;
       const submitted = (answers[q.question_id] || '').trim();
@@ -880,7 +952,32 @@ const students = await dbStore.getStudents();
     const responsePath = path.join(responseDir, `${student.id}.json`);
     fs.writeFileSync(responsePath, JSON.stringify(studentResponse, null, 2));
 
-    let score = 0;
+    // Validate that correct answers exist in the database for all questions
+    for (const q of answerKey.questions) {
+      if (q.answer === undefined || q.answer === null || String(q.answer).trim() === '') {
+        return res.status(400).json({ error: `Question ${q.question_id} is missing a correct answer in the database.` });
+      }
+    }
+
+    const evaluatedQuestions = answerKey.questions.map((q: Question) => {
+      const studentAns = (answers[q.question_id] || '').trim();
+      const correctAns = String(q.answer).trim();
+      const isCorrect = studentAns.toLowerCase() === correctAns.toLowerCase();
+      return {
+        question_id: q.question_id,
+        question: q.question,
+        correctAnswer: correctAns,
+        studentAnswer: studentAns,
+        isCorrect,
+        topic: q.topic || 'General',
+        concept: q.concept || q.subtopic || 'General',
+        status: isCorrect ? 'Correct' : 'Incorrect'
+      };
+    });
+
+    const correctCount = evaluatedQuestions.filter(eq => eq.isCorrect).length;
+    const score = correctCount;
+
     let recommendedLevel = 1;
     let narrative = '';
 
@@ -912,7 +1009,6 @@ const students = await dbStore.getStudents();
 
       if (fs.existsSync(evalReportPath)) {
         const evalData = JSON.parse(fs.readFileSync(evalReportPath, 'utf-8'));
-        score = evalData.total_questions - (evalData.wrong_count || 0);
 
         const levelStr = String(evalData.demonstrated_level || '1');
         const lvlMatch = levelStr.match(/\d+/);
@@ -934,15 +1030,14 @@ const students = await dbStore.getStudents();
     } catch (pipelineErr) {
       console.error('Python evaluation pipeline failed, falling back to Gemini AI:', pipelineErr);
       // Fallback to Gemini AI if Python pipeline fails
-      const evaluation = await evaluateAIDiagnostic(student.name, questions, answers);
-      score = evaluation.score;
+      const evaluation = await evaluateAIDiagnostic(student.name, answerKey.questions, answers);
       recommendedLevel = evaluation.recommendedLevel;
       narrative = evaluation.narrative;
     }
 
     // Determine the subLevel based on weakest-level mapping questions
     let subLevel = 0; // default Mastery
-    const levelQuestions = questions.filter(q => q.source_level === recommendedLevel);
+    const levelQuestions = answerKey.questions.filter(q => q.source_level === recommendedLevel);
     if (levelQuestions.length > 0) {
       let failedCount = 0;
       levelQuestions.forEach(q => {
@@ -1004,15 +1099,29 @@ const students = await dbStore.getStudents();
       studentId: student.id,
       worksheetId: 'diagnostic',
       score,
-      totalQuestions: questions.length,
+      totalQuestions: answerKey.questions.length,
       conceptMastery,
       narrative,
       recommendedLevel,
       recommendedSubLevel: subLevel,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      questions: evaluatedQuestions
     };
 
     await dbStore.addEvaluationReport(report);
+
+    // [FLN TRACE] debug logging
+    console.log(`[FLN TRACE] teacherId=${user.id}`);
+    console.log(`[FLN TRACE] studentId=${student.id}`);
+    console.log(`[FLN TRACE] diagnosticId=${answerKey?.jobId || 'onboarding'}`);
+    console.log(`[FLN TRACE] generatedQuestions=${answerKey.questions.length}`);
+    console.log(`[FLN TRACE] persistedQuestions=${answerKey.questions.length}`);
+    console.log(`[FLN TRACE] answerKeyQuestions=${answerKey.questions.length}`);
+    console.log(`[FLN TRACE] icrQuestions=${answerKey.questions.length}`);
+    console.log(`[FLN TRACE] submittedAnswers=${Object.keys(answers).length}`);
+    console.log(`[FLN TRACE] backendCorrect=${correctCount}`);
+    console.log(`[FLN TRACE] backendTotal=${answerKey.questions.length}`);
+    console.log(`[FLN TRACE] incorrectQuestionIds=${evaluatedQuestions.filter(eq => !eq.isCorrect).map(eq => eq.question_id).join(',')}`);
 
     await dbStore.addLog({
       id: 'log_' + Date.now(),
