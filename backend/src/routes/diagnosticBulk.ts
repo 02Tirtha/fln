@@ -160,7 +160,12 @@ export function registerDiagnosticBulkRoutes(app: express.Express) {
         // "Pending" on the teacher's Worksheets page until evaluation
         // reports come in — previously this bulk-generation job only lived
         // in the in-memory `bulkJobs` map, invisible to that page entirely.
-        const matchedClass = classes.find(c => c.className === `Class ${classNumber}`);
+        // Scope by the requesting user's own school first — className alone
+        // matches nationally (e.g. every "Class 2" in every school), which
+        // would attach this worksheet to a same-named class in a different
+        // school entirely.
+        const matchedClass = classes.find(c => c.className === `Class ${classNumber}` && c.schoolId === user.schoolId)
+          || classes.find(c => c.className === `Class ${classNumber}`);
         const nowIso = new Date().toISOString();
         const thirtyDaysOut = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
         const realStudentIds = paperStudents
