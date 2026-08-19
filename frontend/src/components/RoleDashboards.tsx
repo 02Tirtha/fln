@@ -9,6 +9,7 @@ import { LogbookView } from './LogbookView';
 import { TicketSubmission } from './TicketSubmission';
 import { IcrScanner } from './IcrScanner';
 import { BaselineUpload } from './BaselineUpload';
+import { SkillGraphPanel } from './SkillGraphPanel';
 import { Users, ShieldAlert, BookOpen, UserCheck, Calendar, ArrowRight, CheckCircle2, XCircle, SlidersHorizontal, Layers, Award, MapPin, School as SchoolIcon, BarChart3, FileText, ClipboardList, Layers as BulkIcon } from 'lucide-react';
 import { Table, Column } from './Table';
 import { MetricCard } from './Card';
@@ -1701,6 +1702,7 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
   const [baselineStudent, setBaselineStudent] = useState<Student | null>(null);
   const [showWorksheetPortal, setShowWorksheetPortal] = useState(false);
   const [showLevelRef, setShowLevelRef] = useState(false);
+  const [showSkillGraph, setShowSkillGraph] = useState(false);
   const [showIcrScanner, setShowIcrScanner] = useState(false);
   const [showBulkDiagnostic, setShowBulkDiagnostic] = useState(false);
 
@@ -1747,7 +1749,7 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
       });
       const data = await res.json();
       if (res.ok && data.pdfUrl) {
-        window.open(data.pdfUrl, '_blank');
+        window.open(withBase(data.pdfUrl), '_blank');
       } else {
         setLevelPdfError(data.error || 'Failed to generate level worksheet.');
       }
@@ -2041,6 +2043,12 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
             📖 93 FLN Framework
           </button>
           <button
+            onClick={() => setShowSkillGraph(true)}
+            className="bg-white dark:bg-slate-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 font-mono text-xs font-semibold px-4 py-2.5 rounded-lg transition-colors cursor-pointer"
+          >
+            🧠 Skill Progression (93 levels)
+          </button>
+          <button
             onClick={() => setShowAddForm(!showAddForm)}
             className="bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-xs font-mono px-4 py-2.5 rounded-lg transition-colors cursor-pointer"
           >
@@ -2239,7 +2247,7 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
                       </div>
                       <div className="flex gap-3">
                         <a
-                          href={bulkJob.pdfUrl || bulkJob.downloadUrl || '#'}
+                          href={bulkJob.pdfUrl ? withBase(bulkJob.pdfUrl) : bulkJob.downloadUrl ? withBase(bulkJob.downloadUrl) : '#'}
                           target="_blank"
                           rel="noreferrer"
                           className="inline-flex items-center gap-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-mono font-bold px-4 py-2.5 rounded-lg transition-colors cursor-pointer shadow-sm"
@@ -2329,7 +2337,7 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
                     {levelBatchResults.map((r, i) => (
                       <div key={`${r.studentId}-${r.sublevelId}-${r.setNum}-${i}`} className="flex items-center justify-between text-xs bg-zinc-50 dark:bg-zinc-800 border border-zinc-100 dark:border-zinc-700 rounded px-2 py-1">
                         <span className="text-zinc-700 dark:text-zinc-300 font-medium">{r.studentName} <span className="text-zinc-400 dark:text-zinc-500 font-mono">L{r.sublevelId} set{r.setNum}</span></span>
-                        <a href={r.pdfUrl} target="_blank" rel="noreferrer" className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-mono font-bold">View PDF</a>
+                        <a href={withBase(r.pdfUrl)} target="_blank" rel="noreferrer" className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-mono font-bold">View PDF</a>
                       </div>
                     ))}
                   </div>
@@ -2460,6 +2468,7 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
       </div>
       )}
       <FLNLevelReferenceModal isOpen={showLevelRef} onClose={() => setShowLevelRef(false)} />
+      <SkillGraphPanel open={showSkillGraph} onClose={() => setShowSkillGraph(false)} />
     </div>
   );
 };
@@ -2477,6 +2486,7 @@ export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) =>
   const [baselineStudent, setBaselineStudent] = useState<Student | null>(null);
   const [showWorksheetPortal, setShowWorksheetPortal] = useState(false);
   const [showLevelRef, setShowLevelRef] = useState(false);
+  const [showSkillGraph, setShowSkillGraph] = useState(false);
   const [showIcrScanner, setShowIcrScanner] = useState(false);
   const [showBulkDiagnostic, setShowBulkDiagnostic] = useState(false);
 
@@ -2515,7 +2525,7 @@ export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) =>
       });
       const data = await res.json();
       if (res.ok && data.pdfUrl) {
-        window.open(data.pdfUrl, '_blank');
+        window.open(withBase(data.pdfUrl), '_blank');
       } else {
         setLevelPdfError(data.error || 'Failed to generate level worksheet.');
       }
@@ -2742,6 +2752,12 @@ export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) =>
             📖 93 FLN Framework
           </button>
           <button
+            onClick={() => setShowSkillGraph(true)}
+            className="bg-white dark:bg-slate-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 font-mono text-xs font-semibold px-4 py-2.5 rounded-lg transition-colors cursor-pointer"
+          >
+            🧠 Skill Progression (93 levels)
+          </button>
+          <button
             onClick={() => setShowAddForm(!showAddForm)}
             className="bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-xs font-mono px-4 py-2.5 rounded-lg transition-colors cursor-pointer"
           >
@@ -2911,7 +2927,7 @@ export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) =>
                     {bulkJob.status === 'completed' && (
                       <div className="flex gap-2 pt-1">
                         <a
-                          href={bulkJob.pdfUrl || bulkJob.downloadUrl || '#'}
+                          href={bulkJob.pdfUrl ? withBase(bulkJob.pdfUrl) : bulkJob.downloadUrl ? withBase(bulkJob.downloadUrl) : '#'}
                           target="_blank"
                           rel="noreferrer"
                           className="inline-flex items-center gap-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-mono font-bold px-3 py-2 rounded-lg transition-colors cursor-pointer"
@@ -2965,7 +2981,7 @@ export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) =>
                         throw new Error(data.error || 'Batch generation failed.');
                       }
                       for (const result of data.results || []) {
-                        window.open(result.pdfUrl, '_blank');
+                        window.open(withBase(result.pdfUrl), '_blank');
                       }
                       setLevelBulkProgress({ total: placed.length, completed: placed.length, errors: [] });
                     } catch (err: any) {
@@ -3116,6 +3132,7 @@ export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) =>
       </div>
       )}
       <FLNLevelReferenceModal isOpen={showLevelRef} onClose={() => setShowLevelRef(false)} />
+      <SkillGraphPanel open={showSkillGraph} onClose={() => setShowSkillGraph(false)} />
     </div>
   );
 };

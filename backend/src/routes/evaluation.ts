@@ -54,97 +54,102 @@ export function registerEvaluationRoutes(app: express.Express) {
         fs.mkdirSync(tempDir, { recursive: true });
         const stamp = Date.now();
         const inputPath = path.join(tempDir, `filter_${stamp}_in.${ext}`);
-        // After this point, the path the blue-ink filter reads from is `filterInputPath`.
-        // For images, it's the raw uploaded file; for PDFs, it's the rasterized PNG.
-        let filterInputPath = inputPath;
-            let pdfRasterizedPath: string | null = null;
-            const outputPath = path.join(tempDir, `filter_${stamp}_out.jpg`);
+        const cleanupPaths: string[] = [inputPath];
 
         try {
           fs.writeFileSync(inputPath, buf);
+          const { execFileSync } = await import('child_process');
+          const filterScript = path.join(AI_SERVICES_DIR, 'scripts', 'bluepen_filter.py');
 
-          // PDF path: rasterize page 1 to PNG, then point filterInputPath at the PNG.
+          // Runs the blue-ink filter on a single already-rasterized image
+          // and returns {imageDataUrl, bluePixelRatio, bluePixelCount, imageSize}.
+          const filterOneImage = (imgPath: string, outPath: string) => {
+            cleanupPaths.push(outPath);
+            const stdout = execFileSync(
+              PYTHON_BIN,
+              [filterScript, imgPath, outPath],
+              { cwd: AI_SERVICES_DIR, timeout: 30000, encoding: 'utf8' }
+            );
+            const jsonLine = stdout.trim().split('\n').filter(Boolean).pop() || '{}';
+            const parsed = JSON.parse(jsonLine);
+            if (!parsed.success) throw new Error(parsed.error || 'Filter failed.');
+            const filteredBuf = fs.readFileSync(outPath);
+            return {
+              imageDataUrl: `data:image/jpeg;base64,${filteredBuf.toString('base64')}`,
+              bluePixelRatio: parsed.blue_pixel_ratio,
+              bluePixelCount: parsed.blue_pixel_count,
+              imageSize: parsed.image_size,
+            };
+          };
+
           if (isPdf) {
+            // Rasterize EVERY page (not just page 1) so multi-page answer
+            // sheets — e.g. one PDF holding several students' scans — get
+            // filtered and OCR'd in full, not silently truncated.
             const rasterScript = path.join(AI_SERVICES_DIR, 'scripts', 'pdf_rasterize.py');
-            const { execFileSync: execPdf } = await import('child_process');
-            const pdfOut = path.join(tempDir, `filter_${stamp}_raster.png`);
+            const rasterDir = path.join(tempDir, `filter_${stamp}_pages`);
             let pdfStdout: string;
             try {
-              pdfStdout = execPdf(
+              pdfStdout = execFileSync(
                 PYTHON_BIN,
-                [rasterScript, inputPath, pdfOut],
-                { cwd: AI_SERVICES_DIR, timeout: 30000, encoding: 'utf8' }
+                [rasterScript, inputPath, rasterDir, '--all-pages'],
+                { cwd: AI_SERVICES_DIR, timeout: 60000, encoding: 'utf8' }
               );
             } catch (e: any) {
-              return res.status(500).json({
-                success: false,
-                error: `PDF rasterization failed: ${e?.message || e}`,
-              });
+              return res.status(500).json({ success: false, error: `PDF rasterization failed: ${e?.message || e}` });
             }
             const pdfLine = pdfStdout.trim().split('\n').filter(Boolean).pop() || '{}';
             let pdfResult: any = {};
             try {
               pdfResult = JSON.parse(pdfLine);
             } catch {
-              return res.status(500).json({
-                success: false,
-                error: `PDF rasterizer returned non-JSON: ${pdfStdout.slice(0, 300)}`,
-              });
+              return res.status(500).json({ success: false, error: `PDF rasterizer returned non-JSON: ${pdfStdout.slice(0, 300)}` });
             }
             if (!pdfResult.success) {
               return res.status(500).json({ success: false, error: pdfResult.error || 'PDF rasterization failed.' });
             }
-            filterInputPath = pdfOut;
-                        pdfRasterizedPath = pdfOut;
-                      }
+            const rasterPages: Array<{ page_number: number; output_path: string }> = pdfResult.pages || [];
+            cleanupPaths.push(rasterDir);
+            const pages = rasterPages
+              .sort((a, b) => a.page_number - b.page_number)
+              .map((p) => {
+                const outPath = path.join(tempDir, `filter_${stamp}_out_p${p.page_number}.jpg`);
+                const filtered = filterOneImage(p.output_path, outPath);
+                cleanupPaths.push(p.output_path);
+                return { pageNumber: p.page_number, ...filtered };
+              });
+            return res.json({
+              success: true,
+              sourceType: 'pdf',
+              pageCount: pages.length,
+              pages,
+              // Legacy fields (page 1) so any client not yet reading `pages[]` still works.
+              imageDataUrl: pages[0]?.imageDataUrl,
+              bluePixelRatio: pages[0]?.bluePixelRatio,
+              bluePixelCount: pages[0]?.bluePixelCount,
+              imageSize: pages[0]?.imageSize,
+            });
+          }
 
-          const { execFileSync } = await import('child_process');
-          const scriptPath = path.join(AI_SERVICES_DIR, 'scripts', 'bluepen_filter.py');
-          const stdout = execFileSync(
-            PYTHON_BIN,
-            [scriptPath, filterInputPath, outputPath],
-            { cwd: AI_SERVICES_DIR, timeout: 30000, encoding: 'utf8' }
-          );
-          // Last non-empty line is the JSON result.
-          const jsonLine = stdout.trim().split('\n').filter(Boolean).pop() || '{}';
-          let parsed: any = {};
-          try {
-            parsed = JSON.parse(jsonLine);
-          } catch {
-            return res.status(500).json({ success: false, error: `Filter returned non-JSON: ${stdout.slice(0, 300)}` });
-          }
-          if (!parsed.success) {
-            return res.status(500).json({ success: false, error: parsed.error || 'Filter failed.' });
-          }
-          const filteredBuf = fs.readFileSync(outputPath);
-          const filteredDataUrl = `data:image/jpeg;base64,${filteredBuf.toString('base64')}`;
+          // Non-PDF (single image upload) — unchanged single-page behavior.
+          const outputPath = path.join(tempDir, `filter_${stamp}_out.jpg`);
+          const filtered = filterOneImage(inputPath, outputPath);
           return res.json({
             success: true,
-            imageDataUrl: filteredDataUrl,
-            bluePixelRatio: parsed.blue_pixel_ratio,
-            bluePixelCount: parsed.blue_pixel_count,
-            imageSize: parsed.image_size,
-            // Tell the client the input was a PDF so it can show a one-time
-            // "rasterized from PDF" note if it wants. Pure informational.
-            sourceType: isPdf ? 'pdf' : 'image',
-            // Pass the temp output path so the OCR step can read the same file
-            // without re-running the filter. (Frontend currently ignores this
-            // and re-uploads the data URL — both work; this is just an
-            // optimization for server-side chaining later.)
-            filteredPath: outputPath,
+            sourceType: 'image',
+            ...filtered,
           });
         } catch (err: any) {
           const msg = err?.message || String(err);
           console.error('[icr-filter] failed:', msg);
           return res.status(500).json({ success: false, error: msg });
         } finally {
-          // Clean up the input; leave outputPath around briefly so the OCR
-          // endpoint could pick it up if it wanted (filteredPath). For now
-          // the frontend re-uploads the data URL, so outputPath is also safe
-          // to delete.
-          try { fs.unlinkSync(inputPath); } catch { /* noop */ }
-          if (pdfRasterizedPath) { try { fs.unlinkSync(pdfRasterizedPath); } catch { /* noop */ } }
-          try { fs.unlinkSync(outputPath); } catch { /* noop */ }
+          for (const p of cleanupPaths) {
+            try {
+              if (fs.existsSync(p) && fs.statSync(p).isDirectory()) fs.rmSync(p, { recursive: true, force: true });
+              else fs.unlinkSync(p);
+            } catch { /* noop */ }
+          }
         }
       });
 
@@ -153,58 +158,98 @@ export function registerEvaluationRoutes(app: express.Express) {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const { classId, studentId, pdfBase64, fileBase64, filename } = req.body;
-    const inputBase64 = fileBase64 || pdfBase64;
+    const { classId, studentId, pdfBase64, fileBase64, filename, pages } = req.body;
+    // The frontend's two-stage scan flow (IcrTwoStageScan) sends a `pages`
+    // array once the blue-ink filter step has run — one entry per filtered
+    // page, so a multi-page scan (e.g. several students' sheets in one
+    // PDF) runs OCR on every page, not just the first.
+    const pageList: Array<{ pageNumber?: number; imageDataUrl: string }> =
+      Array.isArray(pages) && pages.length > 0 ? pages : [];
+    const inputBase64 = fileBase64 || pdfBase64 || pageList[0]?.imageDataUrl;
     if (!inputBase64) {
-      return res.status(400).json({ error: 'fileBase64 or pdfBase64 is required.' });
+      return res.status(400).json({ error: 'fileBase64, pdfBase64, or pages is required.' });
     }
 
-    // Fast path: no classId → single-image OCR. Just run EasyOCR once and
-    // return a flat answer list keyed by position (q_1, q_2, ...). No
-    // student/class lookup, no bulk evaluation. Used by the new two-stage
-    // ICR flow (frontend's IcrTwoStageScan component) which doesn't have
-    // a class context at scan time.
+    // Fast path: no classId → single- or multi-image OCR. Runs EasyOCR
+    // once per page and returns one flat answer list keyed by position
+    // (q_1, q_2, ... continuing across pages). No student/class lookup,
+    // no bulk evaluation. Used by the new two-stage ICR flow (frontend's
+    // IcrTwoStageScan component) which doesn't have a class context at
+    // scan time.
     if (!classId) {
       const tempDir = path.join(AI_SERVICES_DIR, 'scratch');
       fs.mkdirSync(tempDir, { recursive: true });
       const ext = path.extname(filename || 'worksheet.jpg') || '.jpg';
-      const tempFilePath = path.join(tempDir, `scan_noclass_${Date.now()}_file${ext}`);
-      const cleanBase64 = inputBase64.includes(',') ? inputBase64.split(',')[1] : inputBase64;
-      fs.writeFileSync(tempFilePath, Buffer.from(cleanBase64, 'base64'));
-      try {
-        const { execFileSync } = await import('child_process');
-        const scriptPath = path.join(AI_SERVICES_DIR, 'scripts', 'ocr.py');
-        const output = execFileSync(PYTHON_BIN, [scriptPath, tempFilePath, 'SCAN', '1'], {
-          cwd: AI_SERVICES_DIR,
-          env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
-          timeout: 60000,
-          maxBuffer: 10 * 1024 * 1024,
-        });
-        const ocrResult = JSON.parse(output.toString());
-        const tokens = ocrResult?.evaluation?.extractedTokens || ocrResult?.extracted_tokens || [];
-        const rawText = ocrResult?.evaluation?.rawOcrText || ocrResult?.raw_text || '';
-        const detectedNumbers = ocrResult?.evaluation?.detectedNumbers || ocrResult?.digits_found || [];
-        // Build a flat answers map: q_1, q_2, ... for each detected digit/token.
-        const answers: Record<string, { value: string; confidence: number; blue_pixels: number }> = {};
-        const sourceItems = detectedNumbers.length > 0 ? detectedNumbers : tokens.map((t: any) => t.text);
-        sourceItems.forEach((item: any, i: number) => {
-          const value = typeof item === 'string' ? item : (item.text || '');
-          const conf = typeof item === 'object' && item?.confidence != null ? item.confidence : 0.5;
-          answers[`q_${i + 1}`] = { value: String(value), confidence: Number(conf) || 0.5, blue_pixels: 0 };
-        });
-        // Cleanup temp file
-        try { fs.unlinkSync(tempFilePath); } catch { /* noop */ }
-        return res.json({
-          success: true,
-          isSingleImage: true,
-          answers,
-          ocrAnalysis: {
-            rawOcrText: rawText,
-            extractedTokens: tokens,
+      const scriptPath = path.join(AI_SERVICES_DIR, 'scripts', 'ocr.py');
+
+      // Run EasyOCR on a single already-decoded image, return its raw
+      // per-item detections (does not itself renumber into q_N — the
+      // caller does that once across all pages).
+      const runOcrOnPage = async (dataUrl: string, tag: string) => {
+        const tempFilePath = path.join(tempDir, `scan_noclass_${Date.now()}_${tag}${ext}`);
+        const cleanBase64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+        fs.writeFileSync(tempFilePath, Buffer.from(cleanBase64, 'base64'));
+        try {
+          const { execFileSync } = await import('child_process');
+          const output = execFileSync(PYTHON_BIN, [scriptPath, tempFilePath, 'SCAN', '1'], {
+            cwd: AI_SERVICES_DIR,
+            env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+            timeout: 60000,
+            maxBuffer: 10 * 1024 * 1024,
+          });
+          const ocrResult = JSON.parse(output.toString());
+          const tokens = ocrResult?.evaluation?.extractedTokens || ocrResult?.extracted_tokens || [];
+          const rawText = ocrResult?.evaluation?.rawOcrText || ocrResult?.raw_text || '';
+          const detectedNumbers = ocrResult?.evaluation?.detectedNumbers || ocrResult?.digits_found || [];
+          const sourceItems = detectedNumbers.length > 0 ? detectedNumbers : tokens.map((t: any) => t.text);
+          return {
+            sourceItems,
+            tokens,
+            rawText,
             processingTimeMs: ocrResult?.processingTimeMs || 0,
             ocrEngine: ocrResult?.evaluation?.ocrEngine || 'EasyOCR (PyTorch Fast Reader)',
+          };
+        } finally {
+          try { fs.unlinkSync(tempFilePath); } catch { /* noop */ }
+        }
+      };
+
+      try {
+        const pagesToRun = pageList.length > 0 ? pageList : [{ pageNumber: 1, imageDataUrl: inputBase64 }];
+        const answers: Record<string, { value: string; confidence: number; blue_pixels: number }> = {};
+        let qIndex = 1;
+        let combinedTokens: any[] = [];
+        let combinedRawText = '';
+        let totalMs = 0;
+        let lastEngine = 'EasyOCR (PyTorch Fast Reader)';
+        let totalEvaluated = 0;
+        for (let pi = 0; pi < pagesToRun.length; pi++) {
+          const page = pagesToRun[pi];
+          const result = await runOcrOnPage(page.imageDataUrl, `p${page.pageNumber ?? pi + 1}`);
+          result.sourceItems.forEach((item: any) => {
+            const value = typeof item === 'string' ? item : (item.text || '');
+            const conf = typeof item === 'object' && item?.confidence != null ? item.confidence : 0.5;
+            answers[`q_${qIndex}`] = { value: String(value), confidence: Number(conf) || 0.5, blue_pixels: 0 };
+            qIndex += 1;
+          });
+          combinedTokens = combinedTokens.concat(result.tokens);
+          combinedRawText += (combinedRawText ? ' | ' : '') + `[page ${page.pageNumber ?? pi + 1}] ${result.rawText}`;
+          totalMs += result.processingTimeMs;
+          lastEngine = result.ocrEngine;
+          totalEvaluated += result.sourceItems.length;
+        }
+        return res.json({
+          success: true,
+          isSingleImage: pagesToRun.length === 1,
+          pageCount: pagesToRun.length,
+          answers,
+          ocrAnalysis: {
+            rawOcrText: combinedRawText,
+            extractedTokens: combinedTokens,
+            processingTimeMs: totalMs,
+            ocrEngine: lastEngine,
           },
-          totalEvaluated: sourceItems.length,
+          totalEvaluated,
         });
       } catch (e: any) {
         const raw = e?.message || String(e);
@@ -477,6 +522,12 @@ export function registerEvaluationRoutes(app: express.Express) {
   const getCloudKey = async (provider) => {
     const envKey = process.env['ICR_CLOUD_API_KEY_' + provider.toUpperCase()];
     if (envKey) return envKey;
+    // Ollama's convention is to call its key OLLAMA_API_KEY (not
+    // ICR_CLOUD_API_KEY_OLLAMA_GEMMA4). Fall back to that env name
+    // so users can drop their Ollama key into .env without renaming.
+    if (provider === 'ollama-gemma4' && process.env.OLLAMA_API_KEY) {
+      return process.env.OLLAMA_API_KEY;
+    }
     if (!_cloudKeyCache) {
       try {
         const stored = await dbStore.getConfig('icrCloudKeys');
@@ -497,8 +548,8 @@ export function registerEvaluationRoutes(app: express.Express) {
       return res.status(403).json({ error: 'Admin role required.' });
     }
     const { provider, apiKey } = req.body || {};
-    if (!provider || ['google', 'aws', 'azure', 'minimax', 'ocrspace'].indexOf(provider) === -1) {
-      return res.status(400).json({ error: 'provider must be one of google/aws/azure/minimax/ocrspace.' });
+    if (!provider || ['google', 'aws', 'azure', 'minimax', 'ocrspace', 'ollama-gemma4'].indexOf(provider) === -1) {
+      return res.status(400).json({ error: 'provider must be one of google/aws/azure/minimax/ocrspace/ollama-gemma4.' });
     }
     if (!_cloudKeyCache) _cloudKeyCache = {};
     if (apiKey == null || apiKey === '') {
@@ -523,7 +574,7 @@ export function registerEvaluationRoutes(app: express.Express) {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
     const result = {};
-    const providers = ['google', 'aws', 'azure', 'minimax', 'ocrspace'];
+    const providers = ['google', 'aws', 'azure', 'minimax', 'ocrspace', 'ollama-gemma4'];
     for (let i = 0; i < providers.length; i++) {
       const k = await getCloudKey(providers[i]);
       result[providers[i]] = !!k;
@@ -531,29 +582,24 @@ export function registerEvaluationRoutes(app: express.Express) {
     return res.json({ success: true, providers: result });
   });
 
-  // OCR endpoint: takes {provider, imageDataUrl} only. NO apiKey from frontend.
-  app.post('/api/icr/evaluate-cloud', async (req, res) => {
-    const user = getAuthUser(req);
-    if (!user) return res.status(401).json({ error: 'Unauthorized' });
-
-    const { imageDataUrl, provider } = req.body || {};
-    if (!imageDataUrl || typeof imageDataUrl !== 'string' || imageDataUrl.indexOf('data:image/') !== 0) {
-      return res.status(400).json({ error: 'imageDataUrl is required (data URL).' });
-    }
-    if (!provider || ['google', 'aws', 'azure', 'minimax', 'ocrspace'].indexOf(provider) === -1) {
-      return res.status(400).json({ error: 'provider must be one of google/aws/azure/minimax/ocrspace.' });
-    }
-
-    const apiKey = await getCloudKey(provider);
-    if (!apiKey) {
-      return res.status(503).json({
-        error: provider + ' API key not configured on the server. Ask an admin to set it via /api/icr/cloud-config or the ICR_CLOUD_API_KEY_' + provider.toUpperCase() + ' env var.',
-      });
+  // Runs a single image through the chosen cloud OCR provider. Returns
+  // {status, body} instead of writing to `res` directly so the route
+  // handler below can call this once per page (for multi-page PDFs) and
+  // merge the results, while every provider's OCR logic below stays
+  // exactly as it was for the single-page case.
+  const runCloudOcrOnImage = async (
+    dataUrl: string,
+    provider: string,
+    apiKey: string
+  ): Promise<{ status: number; body: any }> => {
+    if (!dataUrl || typeof dataUrl !== 'string' ||
+        (dataUrl.indexOf('data:image/') !== 0 && dataUrl.indexOf('data:application/') !== 0)) {
+      return { status: 400, body: { error: 'imageDataUrl (or fileBase64) is required (data URL).' } };
     }
 
     // Strip the data URL prefix -> raw base64
-    const commaIdx = imageDataUrl.indexOf(',');
-    const base64Body = commaIdx >= 0 ? imageDataUrl.slice(commaIdx + 1) : imageDataUrl;
+    const commaIdx = dataUrl.indexOf(',');
+    const base64Body = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
     const t0 = Date.now();
 
     try {
@@ -578,11 +624,11 @@ export function registerEvaluationRoutes(app: express.Express) {
           const msg = (visionJson && visionJson.error && visionJson.error.message) ||
             (visionJson && visionJson.responses && visionJson.responses[0] && visionJson.responses[0].error && visionJson.responses[0].error.message) ||
             ('Google Vision HTTP ' + visionRes.status);
-          return res.status(502).json({ error: 'Google Vision: ' + msg });
+          return { status: 502, body: { error: 'Google Vision: ' + msg } };
         }
         const resp = visionJson && visionJson.responses && visionJson.responses[0];
         if (resp && resp.error) {
-          return res.status(502).json({ error: 'Google Vision: ' + resp.error.message });
+          return { status: 502, body: { error: 'Google Vision: ' + resp.error.message } };
         }
         const fullText = (resp && resp.fullTextAnnotation && resp.fullTextAnnotation.text) || '';
         const blocks = (resp && resp.fullTextAnnotation && resp.fullTextAnnotation.pages && resp.fullTextAnnotation.pages[0] && resp.fullTextAnnotation.pages[0].blocks) || [];
@@ -613,14 +659,14 @@ export function registerEvaluationRoutes(app: express.Express) {
             }
           }
         }
-        return res.json({
+        return { status: 200, body: {
           success: true,
           provider: 'google',
           ocrEngine: 'Google Cloud Vision (DOCUMENT_TEXT_DETECTION)',
           rawOcrText: fullText,
           extractedTokens: tokens,
           processingTimeMs: Date.now() - t0,
-        });
+        }};
       }
 
       // ===== MiniMax (vision-capable chat completion) =====
@@ -661,7 +707,7 @@ export function registerEvaluationRoutes(app: express.Express) {
           const msg = (minimaxJson && minimaxJson.error && minimaxJson.error.message) ||
             (minimaxJson && minimaxJson.message) ||
             ('MiniMax HTTP ' + minimaxRes.status);
-          return res.status(502).json({ error: 'MiniMax: ' + msg });
+          return { status: 502, body: { error: 'MiniMax: ' + msg } };
         }
         const reply = (minimaxJson && minimaxJson.choices && minimaxJson.choices[0] && minimaxJson.choices[0].message && minimaxJson.choices[0].message.content) || '';
         const cleaned = String(reply).replace(/\`\`\`json\n?/gi, '').replace(/\`\`\`\n?/g, '').trim();
@@ -684,14 +730,14 @@ export function registerEvaluationRoutes(app: express.Express) {
           yPos += 30;
         }
         const rawText = tokens.map(function (t) { return t.text; }).join(' ');
-        return res.json({
+        return { status: 200, body: {
           success: true,
           provider: 'minimax',
           ocrEngine: 'MiniMax minimax-m3 (vision)',
           rawOcrText: rawText,
           extractedTokens: tokens,
           processingTimeMs: Date.now() - t0,
-        });
+        }};
       }
 
       // ===== OCR.space (free tier) =====
@@ -714,7 +760,7 @@ export function registerEvaluationRoutes(app: express.Express) {
           const errMsg = (ocrJson.ErrorMessage && ocrJson.ErrorMessage[0]) ||
             ocrJson.ErrorDetails ||
             ('OCR.space HTTP ' + ocrRes.status);
-          return res.status(502).json({ error: 'OCR.space: ' + errMsg });
+          return { status: 502, body: { error: 'OCR.space: ' + errMsg } };
         }
         const parsed = (ocrJson.ParsedResults && ocrJson.ParsedResults[0]) || null;
         const fullText = (parsed && parsed.ParsedText) || '';
@@ -739,34 +785,258 @@ export function registerEvaluationRoutes(app: express.Express) {
           }
           yPos += 30;
         }
-        return res.json({
+        return { status: 200, body: {
           success: true,
           provider: 'ocrspace',
           ocrEngine: 'OCR.space (Engine 2, free tier)',
           rawOcrText: fullText,
           extractedTokens: tokens,
           processingTimeMs: Date.now() - t0,
-        });
+        }};
       }
 
       // ===== AWS Textract (stub) =====
       if (provider === 'aws') {
-        return res.status(501).json({
+        return { status: 501, body: {
           error: 'AWS Textract integration is not yet implemented. Pick Google Cloud Vision, MiniMax, OCR.space or use the local OCR button.',
-        });
+        }};
       }
+
+      // ===== Ollama Cloud + Gemma 4 (vision) =====
+      // Box-only OCR via Ollama Cloud chat completions, one call per page.
+      // Prompt: read ONLY the handwritten value inside each digit-box; ignore
+      // printed text. Output a flat { "answers": ["75, null, 89", ...] } array.
+      if (provider === 'ollama-gemma4') {
+        const modelName = process.env.OLLAMA_MODEL || 'gemma4:cloud';
+        const apiBase = process.env.OLLAMA_API_URL || 'https://ollama.com/api/chat';
+
+        // Ollama's vision API only accepts image MIME types. PDFs must be
+        // rasterized to PNG first — same path /api/icr/filter already uses.
+        let imageBase64 = base64Body;
+        let mimeUsed: string = (dataUrl.indexOf('data:') === 0)
+          ? dataUrl.slice(5, dataUrl.indexOf(';'))
+          : 'image/jpeg';
+        if (mimeUsed === 'application/pdf') {
+          try {
+            const { execFileSync } = await import('child_process');
+            const scratchDir = path.join(AI_SERVICES_DIR, 'scratch');
+            fs.mkdirSync(scratchDir, { recursive: true });
+            const pdfPath = path.join(scratchDir, `cloud_pdf_${Date.now()}_${Math.random().toString(36).slice(2)}.pdf`);
+            const pngPath = pdfPath.replace(/\.pdf$/, '.png');
+            fs.writeFileSync(pdfPath, Buffer.from(base64Body, 'base64'));
+            const scriptPath = path.join(AI_SERVICES_DIR, 'scripts', 'pdf_rasterize.py');
+            const childOut = execFileSync(PYTHON_BIN, [scriptPath, pdfPath, pngPath], {
+              cwd: AI_SERVICES_DIR,
+              env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+              timeout: 30000,
+              maxBuffer: 10 * 1024 * 1024,
+            });
+            const pdfJson = JSON.parse(childOut.toString());
+            if (!pdfJson.success) {
+              try { fs.unlinkSync(pdfPath); } catch {}
+              try { fs.unlinkSync(pngPath); } catch {}
+              return { status: 500, body: {
+                error: 'Cloud OCR (OLLAMA-GEMMA4) could not rasterize PDF: ' + (pdfJson.error || 'unknown'),
+              }};
+            }
+            imageBase64 = fs.readFileSync(pngPath).toString('base64');
+            mimeUsed = 'image/png';
+            try { fs.unlinkSync(pdfPath); } catch {}
+            try { fs.unlinkSync(pngPath); } catch {}
+          } catch (e: any) {
+            return { status: 500, body: {
+              error: 'Cloud OCR (OLLAMA-GEMMA4) PDF rasterization failed: ' + (e?.message || String(e)),
+            }};
+          }
+        }
+
+        const ocrPrompt = [
+          'You are an OCR assistant. The image is a single-page student answer sheet.',
+          '',
+          'On the page there are small drawn rectangular boxes scattered around. Each box has a closed (or near-closed) border. Inside each box, a student may have handwritten digits or characters as their answer.',
+          '',
+          'Your ONLY job: read the handwritten content inside each box. Do not transcribe any printed text (questions, options, instructions, headers, school name, page numbers, decorative borders, printed digit examples).',
+          '',
+          'Box dimensions (for reference):',
+          '- Box height: 0.20 to 0.35 inches (one line of handwriting).',
+          '- Box width: 0.17 to 0.23 inches per digit slot. So 1-digit box ≈ 0.17-0.23 in, 2-digit ≈ 0.34-0.46 in, 3-digit ≈ 0.51-0.69 in. Wider than that means it is a multi-line answer area — read the full handwritten text inside, do not split.',
+          '',
+          'Output: a single JSON object with this exact shape:',
+          '{ "answers": [ "75, null, 89", "42", "100", null, "abc" ] }',
+          '',
+          'Rules:',
+          '- "answers" is a flat array of strings, one entry per VISUAL ROW on the page (top-to-bottom).',
+          '- For each row, output ONE string. If a row contains multiple digit-boxes side by side, the string is the answers in left-to-right order separated by commas. Use the literal "null" (no quotes around it) for any unanswered box in that row.',
+          '- For a wide multi-line area, output the full handwritten text the student wrote there as one string.',
+          '- Empty rows (no box, no writing) — emit a literal "null" string for that row index, OR skip it. Prefer skipping if you can.',
+          '- A row containing one wide multi-line area — emit as one string.',
+          '- Preserve what the student wrote exactly. Do not correct, normalize, or compute.',
+          '- If a box has only a smudge or stray dot, output "unclear". If the box is empty, output "null".',
+          '- Output ONLY the JSON object. No prose, no markdown fences, no commentary.',
+        ].join('\n');
+
+        const ollamaRes = await fetch(apiBase, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + apiKey,
+          },
+          body: JSON.stringify({
+            model: modelName,
+            messages: [
+              {
+                role: 'user',
+                content: ocrPrompt,
+                images: [imageBase64],
+              },
+            ],
+            // Force the model to emit valid JSON. Without this, even with
+            // a strong prompt it may wrap the JSON in ```json fences or
+            // add prose the frontend then can't parse.
+            format: 'json',
+            stream: false,
+          }),
+        });
+        const ollamaJson = await ollamaRes.json().catch(() => ({}));
+        if (!ollamaRes.ok) {
+          const msg = (ollamaJson && ollamaJson.error)
+            || ('Ollama Cloud HTTP ' + ollamaRes.status);
+          return { status: 502, body: { error: 'Ollama Cloud: ' + msg } };
+        }
+        // Ollama's /api/chat with format:'json' returns the model's
+        // JSON object as a string under message.content. Parse it; on
+        // any failure (fenced markdown, prose wrapper, etc.) fall back
+        // to the raw text we did receive.
+        const rawText = (ollamaJson && ollamaJson.message && ollamaJson.message.content)
+          ? String(ollamaJson.message.content)
+          : '';
+        // The user wants only the handwritten answers as a flat list.
+        let flatAnswers: string[] | null = null;
+        let parseError: string | null = null;
+        if (rawText) {
+          // Strip ```json / ``` fences if the model wrapped anyway.
+          const stripped = rawText
+            .replace(/^```(?:json)?\s*/i, '')
+            .replace(/\s*```\s*$/i, '')
+            .trim();
+          try {
+            const parsed = JSON.parse(stripped);
+            if (parsed && Array.isArray(parsed.answers)) {
+              flatAnswers = parsed.answers.map((s: any) => String(s ?? ''));
+            } else {
+              parseError = 'model output did not contain answers array';
+            }
+          } catch (e: any) {
+            parseError = 'JSON parse failed: ' + (e?.message || String(e));
+          }
+        } else {
+          parseError = 'empty model output';
+        }
+        // Build a flat token list (whitespace split) for the existing
+        // downstream consumers (Verify table + EasyOCR-style fill).
+        const tokens = rawText
+          .split(/\s+/)
+          .map(s => s.trim())
+          .filter(Boolean)
+          .map(text => ({ text, confidence: 0.7 }));
+        return { status: 200, body: {
+          success: true,
+          provider: 'ollama-gemma4',
+          model: modelName,
+          mimeUsed,
+          // The cleaned, flat answer list — exactly what the verify UI consumes.
+          answers: flatAnswers || [],
+          // Keep raw text + tokens for the OCR analysis preview pane.
+          extractedText: rawText,
+          extractedTokens: tokens,
+          rawOcrText: rawText,
+          // When JSON parsing fails we still want the UI to show the raw text
+          // and an explicit warning — the question-classifier flow can then
+          // try to parse it client-side as a fallback.
+          structured: flatAnswers != null,
+          structuredError: parseError,
+          processingTimeMs: Date.now() - t0,
+        }};
+      }
+
 
       // ===== Azure Computer Vision (stub) =====
       if (provider === 'azure') {
-        return res.status(501).json({
+        return { status: 501, body: {
           error: 'Azure Computer Vision integration is not yet implemented. Pick Google Cloud Vision, MiniMax, OCR.space or use the local OCR button.',
-        });
+        }};
       }
 
-      return res.status(400).json({ error: 'Unknown provider: ' + provider });
-    } catch (e) {
-      return res.status(500).json({ error: 'Cloud OCR failed: ' + (e && e.message ? e.message : String(e)) });
+      return { status: 400, body: { error: 'Unknown provider: ' + provider } };
+    } catch (e: any) {
+      return { status: 500, body: { error: 'Cloud OCR failed: ' + (e && e.message ? e.message : String(e)) } };
     }
+  };
+
+  // OCR endpoint: takes {provider, imageDataUrl} for a single image, or
+  // {provider, pages} — one entry per filtered page — for multi-page PDFs
+  // (e.g. several students' sheets scanned into one file). NO apiKey from
+  // frontend.
+  app.post('/api/icr/evaluate-cloud', async (req, res) => {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+    // Accept either field name so the cloud endpoint mirrors the legacy
+    // local-OCR endpoint shape, and accept image OR PDF data URLs since
+    // Ollama's vision API only accepts image MIME types (we rasterize PDFs).
+    const { imageDataUrl, fileBase64, provider, pages } = req.body || {};
+    const pageList: Array<{ pageNumber?: number; imageDataUrl: string }> =
+      Array.isArray(pages) && pages.length > 0 ? pages : [];
+    const singleDataUrl = imageDataUrl || fileBase64;
+    if (pageList.length === 0 && (!singleDataUrl || typeof singleDataUrl !== 'string')) {
+      return res.status(400).json({ error: 'imageDataUrl, fileBase64, or pages is required (data URL).' });
+    }
+    if (!provider || ['google', 'aws', 'azure', 'minimax', 'ocrspace', 'ollama-gemma4'].indexOf(provider) === -1) {
+      return res.status(400).json({ error: 'provider must be one of google/aws/azure/minimax/ocrspace/ollama-gemma4.' });
+    }
+
+    const apiKey = await getCloudKey(provider);
+    if (!apiKey) {
+      return res.status(503).json({
+        error: provider + ' API key not configured on the server. Ask an admin to set it via /api/icr/cloud-config or the ICR_CLOUD_API_KEY_' + provider.toUpperCase() + ' env var.',
+      });
+    }
+
+    const pagesToRun = pageList.length > 0 ? pageList : [{ pageNumber: 1, imageDataUrl: singleDataUrl as string }];
+    const results: any[] = [];
+    for (const page of pagesToRun) {
+      const r = await runCloudOcrOnImage(page.imageDataUrl, provider, apiKey);
+      if (r.status !== 200) {
+        const prefix = pagesToRun.length > 1 ? `Page ${page.pageNumber}: ` : '';
+        return res.status(r.status).json({ ...r.body, error: prefix + (r.body?.error || 'unknown error') });
+      }
+      results.push({ pageNumber: page.pageNumber, ...r.body });
+    }
+
+    if (results.length === 1) {
+      return res.json(results[0]);
+    }
+
+    // Merge multi-page results into the same response shape the frontend
+    // already consumes for a single page. provider/model/ocrEngine/mimeUsed
+    // are identical across pages (same request, same provider) so page 1's
+    // values are used; everything else concatenates across pages.
+    const first = results[0];
+    return res.json({
+      success: true,
+      provider: first.provider,
+      model: first.model,
+      ocrEngine: first.ocrEngine,
+      mimeUsed: first.mimeUsed,
+      pageCount: results.length,
+      answers: results.flatMap(r => r.answers || []),
+      extractedTokens: results.flatMap(r => r.extractedTokens || []),
+      rawOcrText: results.map(r => `[page ${r.pageNumber}] ${r.rawOcrText || ''}`).join(' | '),
+      extractedText: results.map(r => r.extractedText).filter(Boolean).join(' | '),
+      structured: results.every(r => r.structured !== false),
+      structuredError: results.map(r => r.structuredError).filter(Boolean).join('; ') || null,
+      processingTimeMs: results.reduce((a, r) => a + (r.processingTimeMs || 0), 0),
+    });
   });
 
 // Generate Personalized Class Worksheets

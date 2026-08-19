@@ -215,6 +215,11 @@ export interface Worksheet {
   cycle: CycleName;
   date: string;
   questions: Question[];
+  // Which students this worksheet was actually generated for — needed to
+  // compute how many are still pending evaluation (studentIds.length minus
+  // the number with a matching EvaluationReport.worksheetId). Optional so
+  // older/other worksheet-creation paths that don't set it still validate.
+  studentIds?: string[];
   locks: {
     locked: boolean;
     lockedByRole: UserRole | null;
@@ -758,92 +763,152 @@ export class DBStore {
   }
 
   /**
-   * Generate a 10-question FLN paper for Class 2 using real MongoDB Atlas questionBank documents (Level 22 to Level 31)
-   */
-  async generateClass2PaperFromAtlas(studentId?: string): Promise<Question[]> {
-    const questions: Question[] = [];
-    const minLevel = 22;
-    const maxLevel = 31;
+     * Level range for a given class, per the 93-level FLN registry
+     * (see backend/src/config/curriculumMap.ts).
+     *
+     *   Pre-school 1:  1-7
+     *   Pre-school 2:  8-17
+     *   Pre-school 3: 18-27
+     *   Class 1:      28-42
+     *   Class 2:      43-61
+     *   Class 3:      62-75
+     *   Class 4:      76-93
+     */
+    static classLevelRange(classNumber: number): { min: number; max: number } {
+      if (classNumber <= 1)  return { min: 28, max: 42 }; // class 1
+      if (classNumber === 2) return { min: 43, max: 61 };
+      if (classNumber === 3) return { min: 62, max: 75 };
+      return { min: 76, max: 93 }; // class 4 (and any >4 default)
+    }
 
-    for (let lvl = minLevel; lvl <= maxLevel; lvl++) {
-      let qDoc: any = null;
+    /**
+     * Generate a 10-question FLN paper for the given class using real MongoDB Atlas
+     * `questionBank` documents. Each question is sourced from one level in the class's band.
+     *
+     * Default for class 2 was 22-31 (legacy); now correctly 43-61.
+     */
+    async generateClassPaperFromAtlas(studentId: string | undefined, classNumber: number): Promise<Question[]> {
+      const { min: minLevel, max: maxLevel } = DBStore.classLevelRange(classNumber);
+      const questions: Question[] = [];
+      for (let lvl = minLevel; lvl <= maxLevel && questions.length < 10; lvl++) {
+        let qDoc: any = null;
+        if (this.mongoDb) {
+          try {
+            const docs = await this.mongoDb.collection('questionBank').aggregate([
+              { $match: { level: lvl } },
+              { $sample: { size: 1 } }
+            ]).toArray();
+            if (docs && docs.length > 0) qDoc = docs[0];
+          } catch (_) {}
+        }
+        if (qDoc) {
+          questions.push({
+            question_id: `Q_L${lvl}_${qDoc.questionNumber || (questions.length + 1)}`,
+            question: qDoc.questionText || qDoc.question || `Level ${lvl} Problem`,
+            answer: String(qDoc.answer || '').trim(),
+            answer_type: 'number',
+            topic: qDoc.levelTitle || `Level ${lvl}`,
+            subtopic: qDoc.section || `Section ${lvl}.0`,
+            difficulty: 'medium',
+            source_level: lvl
+          });
+        } else {
+          // Deterministic fallback so the generated paper still has a valid answer key
+          // even when questionBank has no docs for this level.
+          const a = lvl;
+          const b = (lvl % 7) + 2;
+          questions.push({
+            question_id: `Q_L${lvl}_${questions.length + 1}`,
+            question: `Level ${lvl}: Calculate ${a} + ${b} = ?`,
+            answer: String(a + b),
+            answer_type: 'number',
+            topic: `Level ${lvl} Number Operations`,
+            subtopic: 'Addition',
+            difficulty: 'medium',
+            source_level: lvl
+          });
+        }
+      }
+      if (studentId && questions.length > 0) {
+        await this.assignDiagnosticPaperToStudent(studentId, questions);
+      }
+      return questions;
+    }
+
+    /**
+     * Back-compat: legacy callers (paperGenerator.ts line ~147) pass classNumber=2.
+     * Routes through the new class-aware generator.
+     */
+    async generateClass2PaperFromAtlas(studentId?: string): Promise<Question[]> {
+      return await this.generateClassPaperFromAtlas(studentId, 2);
+    }
+
+    async assignDiagnosticPaperToStudent(studentId: string, questions: Question[]) {
       if (this.mongoDb) {
         try {
-          const docs = await this.mongoDb.collection('questionBank').aggregate([
-            { $match: { level: lvl } },
-            { $sample: { size: 1 } }
-          ]).toArray();
-          if (docs && docs.length > 0) qDoc = docs[0];
-        } catch (_) {}
+          await this.mongoDb.collection('students').updateOne(
+            { id: studentId },
+            { $set: { assignedDiagnosticQuestions: questions } }
+          );
+        } catch (e) {
+          console.warn('Failed to persist assigned paper to MongoDB student:', e);
+        }
       }
-
-      if (qDoc) {
-        questions.push({
-          question_id: `Q_L${lvl}_${qDoc.questionNumber || (lvl - minLevel + 1)}`,
-          question: qDoc.questionText || qDoc.question || `Level ${lvl} Problem`,
-          answer: String(qDoc.answer || '').trim(),
-          answer_type: 'number',
-          topic: qDoc.levelTitle || `Level ${lvl}`,
-          subtopic: qDoc.section || `Section ${lvl}.0`,
-          difficulty: 'medium',
-          source_level: lvl
-        });
-      } else {
-        const a = lvl * 2;
-        const b = lvl;
-        questions.push({
-          question_id: `Q_L${lvl}_1`,
-          question: `Level ${lvl}: Calculate ${a} + ${b} = ?`,
-          answer: String(a + b),
-          answer_type: 'number',
-          topic: `Level ${lvl} Number Operations`,
-          subtopic: `Addition`,
-          difficulty: 'medium',
-          source_level: lvl
-        });
+      if (this.data && this.data.students) {
+        const st = this.data.students.find(s => s.id === studentId);
+        if (st) st.assignedDiagnosticQuestions = questions;
       }
     }
 
-    if (studentId) {
-      await this.assignDiagnosticPaperToStudent(studentId, questions);
-    }
-
-    return questions;
-  }
-
-  async assignDiagnosticPaperToStudent(studentId: string, questions: Question[]) {
-    if (this.mongoDb) {
-      try {
-        await this.mongoDb.collection('students').updateOne(
-          { id: studentId },
-          { $set: { assignedDiagnosticQuestions: questions } }
-        );
-      } catch (e) {
-        console.warn('Failed to persist assigned paper to MongoDB student:', e);
+    async getStudentAssignedQuestions(studentId: string, classNumber: number = 2): Promise<Question[]> {
+      let student: Student | null = null;
+      if (this.mongoDb) {
+        student = await this.mongoDb.collection<Student>('students').findOne({ id: studentId });
       }
-    }
-    if (this.data && this.data.students) {
-      const st = this.data.students.find(s => s.id === studentId);
-      if (st) st.assignedDiagnosticQuestions = questions;
-    }
-  }
-
-  async getStudentAssignedQuestions(studentId: string, classNumber: number = 2): Promise<Question[]> {
-    let student: Student | null = null;
-    if (this.mongoDb) {
-      student = await this.mongoDb.collection<Student>('students').findOne({ id: studentId });
-    }
-    if (!student && this.data && this.data.students) {
-      student = this.data.students.find(s => s.id === studentId) || null;
+      if (!student && this.data && this.data.students) {
+        student = this.data.students.find(s => s.id === studentId) || null;
+      }
+      if (student && student.assignedDiagnosticQuestions && student.assignedDiagnosticQuestions.length > 0) {
+        return student.assignedDiagnosticQuestions;
+      }
+      // Fall back to a class-correct generator (legacy = always L22-L31, wrong for all classes).
+      return await this.generateClassPaperFromAtlas(studentId, classNumber);
     }
 
-    if (student && student.assignedDiagnosticQuestions && student.assignedDiagnosticQuestions.length > 0) {
-      return student.assignedDiagnosticQuestions;
+    /**
+     * Three-tier lookup for ICR grading:
+     *   1. if jobId provided  → diagnostic_answer_keys collection  (most accurate: the printed paper)
+     *   2. else               → students.assignedDiagnosticQuestions (the teacher's most recent assignment)
+     *   3. else               → class-correct generator (L28-L42 / L43-L61 / L62-L75 / L76-L93)
+     *
+     * Returns { questions, source } where source tells the caller which tier answered.
+     */
+    async getStudentPaperForGrading(
+      studentId: string,
+      classNumber: number,
+      jobId?: string
+    ): Promise<{ questions: Question[]; source: 'answer_key' | 'assigned' | 'generated' }> {
+      if (jobId) {
+        const answerKeyDoc = await this.getStudentDiagnosticAnswerKey(studentId, jobId);
+        if (answerKeyDoc && Array.isArray(answerKeyDoc.questions) && answerKeyDoc.questions.length > 0) {
+          return { questions: answerKeyDoc.questions as Question[], source: 'answer_key' };
+        }
+      }
+      // Tier 2: student.assignedDiagnosticQuestions
+      let student: Student | null = null;
+      if (this.mongoDb) {
+        student = await this.mongoDb.collection<Student>('students').findOne({ id: studentId });
+      }
+      if (!student && this.data && this.data.students) {
+        student = this.data.students.find(s => s.id === studentId) || null;
+      }
+      if (student && Array.isArray(student.assignedDiagnosticQuestions) && student.assignedDiagnosticQuestions.length > 0) {
+        return { questions: student.assignedDiagnosticQuestions, source: 'assigned' };
+      }
+      // Tier 3: class-correct generator
+      const generated = await this.generateClassPaperFromAtlas(studentId, classNumber);
+      return { questions: generated, source: 'generated' };
     }
-
-    // Generate paper from MongoDB Atlas (Levels 22 to 31 for Class 2)
-    return await this.generateClass2PaperFromAtlas(studentId);
-  }
   async getAnswerSubmissions() {
     if (this.mongoDb) return await this.mongoDb.collection<AnswerSubmission>('answerSubmissions').find({}).toArray();
     return this.data?.answerSubmissions || [];
