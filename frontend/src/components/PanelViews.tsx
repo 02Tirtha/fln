@@ -1,7 +1,7 @@
 import { apiFetch } from '../services/apiClient';
 import React, { useState, useEffect } from 'react';
-import { User, UserRole, Student, ClassGroup, School, EvaluationReport, Worksheet, LogEntry, Ticket } from '../types';
-import { Users, BookOpen, Calendar, ArrowRight, CheckCircle2, XCircle, SlidersHorizontal, Layers, Award, MapPin, School as SchoolIcon, BarChart3, FileText, ClipboardList, Building2, GraduationCap, BookMarked, Globe, Settings, Database, RefreshCw, Search, ChevronDown } from 'lucide-react';
+import { User, UserRole, Student, ClassGroup, School, Worksheet, LogEntry, Ticket } from '../types';
+import { Users, BookOpen, Calendar, ArrowRight, SlidersHorizontal, Layers, Award, MapPin, School as SchoolIcon, BarChart3, FileText, Building2, BookMarked, Globe, Settings, Database, RefreshCw, Search, ChevronDown } from 'lucide-react';
 import { Table, Column } from './Table';
 import { MetricCard } from './Card';
 import { STATE_NAMES, DISTRICT_NAMES, BLOCK_NAMES } from '../constants';
@@ -16,6 +16,11 @@ import { SystemSettingsPanel } from './panels/SystemSettingsPanel';
 import { StudentListPanel } from './panels/StudentListPanel';
 import { DiagnosticTestPanel } from './panels/DiagnosticTestPanel';
 import { PerformancePanel } from './panels/PerformancePanel';
+import { WorksheetsPanel } from './panels/WorksheetsPanel';
+import { AssignedSchoolsPanel } from './panels/AssignedSchoolsPanel';
+import { StudentProgressPanel } from './panels/StudentProgressPanel';
+import { AttendancePanel } from './panels/AttendancePanel';
+import { TeachersPanel } from './panels/TeachersPanel';
 
 interface PanelViewsProps {
   activePanel: string;
@@ -619,69 +624,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
 
   if (panel === 'test_history') return <TestHistoryPanel />;
 
-  if (panel === 'worksheets') {
-    // Real data: each row is a real Worksheet generation record (created
-    // when a teacher runs the Bulk Diagnostic Generator — see
-    // backend/src/routes/diagnosticBulk.ts), not the old WORKSHEETS_MOCK
-    // fixture (which never made an API call at all). A worksheet is
-    // "Pending" until a matching EvaluationReport.worksheetId shows up for
-    // each of its studentIds — a paper takes hours (print, exam, scan)
-    // between generation and results, so this reflects real turnaround
-    // time instead of only ever showing "Evaluated" or nothing at all.
-    const reportsByWorksheet = new Map<string, EvaluationReport[]>();
-    reportsList.forEach(r => {
-      if (!r.worksheetId) return;
-      if (!reportsByWorksheet.has(r.worksheetId)) reportsByWorksheet.set(r.worksheetId, []);
-      reportsByWorksheet.get(r.worksheetId)!.push(r);
-    });
-    const rows = worksheetsList.map(w => {
-      const total = w.studentIds?.length ?? 0;
-      const evaluated = reportsByWorksheet.get(w.id) ?? [];
-      const evaluatedStudentIds = new Set(evaluated.map(r => r.studentId));
-      const evaluatedCount = evaluatedStudentIds.size;
-      const pendingCount = Math.max(0, total - evaluatedCount);
-      const status: 'Evaluated' | 'Partial' | 'Pending' =
-        pendingCount === 0 && total > 0 ? 'Evaluated' : evaluatedCount > 0 ? 'Partial' : 'Pending';
-      const avgPct = evaluated.length > 0
-        ? Math.round(evaluated.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / evaluated.length)
-        : null;
-      return { worksheet: w, total, evaluatedCount, pendingCount, status, avgPct };
-    }).sort((a, b) => new Date(b.worksheet.date).getTime() - new Date(a.worksheet.date).getTime());
-
-    const totalWorksheets = rows.length;
-    const evaluatedCount = rows.filter(r => r.status === 'Evaluated').length;
-    const pendingCount = rows.filter(r => r.status !== 'Evaluated').length;
-
-    const statusStyle: Record<string, string> = {
-      Evaluated: 'text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800',
-      Partial: 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800',
-      Pending: 'text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700',
-    };
-
-    return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <MetricCard title="Total Worksheets" value={totalWorksheets} subtext="Across all cycles" icon={ClipboardList} />
-          <MetricCard title="Evaluated" value={evaluatedCount} subtext="All students graded" icon={CheckCircle2} />
-          <MetricCard title="Pending" value={pendingCount} subtext="Awaiting scan/evaluation" icon={FileText} />
-        </div>
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm">
-          <PageHeader title="Worksheet Cycles" desc="Baseline, Mid-year, and End-of-year assessments" />
-          <div className="space-y-3 mt-4">
-            {rows.length === 0 && (
-              <div className="text-sm text-slate-400 dark:text-slate-500 py-4 text-center">No worksheets generated yet.</div>
-            )}
-            {rows.map(({ worksheet: w, total, evaluatedCount: ec, status, avgPct }) => (
-              <div key={w.id} className="flex justify-between items-center p-4 border border-slate-200 dark:border-slate-700 rounded-lg">
-                <div><div className="font-semibold text-sm">{w.cycle} — {w.className}{w.section ? ` ${w.section}` : ''}</div><div className="text-xs text-slate-400 dark:text-slate-500">{new Date(w.date).toLocaleDateString()} · {ec}/{total} evaluated</div></div>
-                <div className="text-right"><span className={`text-xs font-mono font-bold px-2 py-1 rounded ${statusStyle[status]}`}>{status}</span><div className="text-xs text-slate-400 dark:text-slate-500 mt-1">Avg: {avgPct !== null ? `${avgPct}%` : '—'}</div></div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
+  if (panel === 'worksheets') return <WorksheetsPanel reportsList={reportsList} worksheetsList={worksheetsList} />;
 
   if (panel === 'performance') return <PerformancePanel students={students} currentUser={currentUser} />;
 
@@ -796,99 +739,14 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   }
 
   // ===================== VOLUNTEER PANELS =====================
-  if (panel === 'assigned_schools') {
-    return (
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {['gps-vl-002', 'gps-jai-004', 'gps-lko-005', 'gps-amb-003'].map(id => {
-          const sch = schools.find(s => s.id === id);
-          if (!sch) return null;
-          const count = students.filter(s => s.schoolId === id).length;
-          return (
-            <div key={id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm space-y-3 hover:border-slate-400 dark:hover:border-slate-600 transition-all">
-              <div className="flex justify-between"><h3 className="font-bold text-slate-900 dark:text-white">{sch.name}</h3><span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${sch.strength === 'low' ? 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800' : 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800'}`}>{sch.strength === 'low' ? 'Low-Strength' : 'High-Strength'}</span></div>
-              <div className="text-xs text-slate-400 dark:text-slate-500">{sch.stateCode} / {sch.districtCode} / {sch.blockCode}</div>
-              <div className="grid grid-cols-3 gap-2 text-center text-xs pt-2 border-t border-slate-100 dark:border-slate-700"><div><div className="font-bold text-slate-800 dark:text-slate-100">{count}</div><div className="text-slate-400 dark:text-slate-500">Students</div></div><div><div className="font-bold text-slate-800 dark:text-slate-100">{sch.teachersCount}</div><div className="text-slate-400 dark:text-slate-500">Teachers</div></div><div><div className="font-bold text-green-600 dark:text-green-400">{sch.isAccessLocked ? 'Locked' : 'Active'}</div><div className="text-slate-400 dark:text-slate-500">Status</div></div></div>
-              <button className="w-full text-xs font-medium bg-slate-900 text-white py-2 rounded-lg hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200">Visit School</button>
-            </div>
-          );
-        })}
-      </div>
-    );
-  }
+  if (panel === 'assigned_schools') return <AssignedSchoolsPanel schools={schools} students={students} />;
 
-  if (panel === 'student_progress') {
-    return (
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm space-y-4">
-        <PageHeader title="Student Progress Tracking" desc="Monitor FLN level advancement across assigned schools" icon={<GraduationCap className="h-5 w-5" />} />
-        <div className="space-y-3">{students.sort((a, b) => b.currentLevel - a.currentLevel).map(s => (
-          <div key={s.id} className="flex items-center gap-4 p-3 border border-slate-200 dark:border-slate-700 rounded-lg">
-            <div className="flex-1"><div className="font-medium text-sm">{s.name}</div><div className="text-xs text-slate-400 dark:text-slate-500">{s.classGroup}</div></div>
-            <div className="w-40"><div className="flex justify-between text-[10px] text-slate-500 dark:text-slate-400 mb-1"><span>L{s.currentLevel}</span><span>Target L{s.targetLevel}</span></div><div className="w-full h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden"><div className="h-full bg-emerald-500 rounded-full" style={{ width: `${(s.currentLevel / s.targetLevel) * 100}%` }} /></div></div>
-            <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${s.levelHistory.length > 0 ? 'text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800' : 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800'}`}>{s.levelHistory.length > 0 ? 'Placed' : 'Pending'}</span>
-          </div>
-        ))}</div>
-      </div>
-    );
-  }
+  if (panel === 'student_progress') return <StudentProgressPanel students={students} />;
 
-  if (panel === 'attendance') {
-    const examAttendance = students.map(s => {
-      const reports = reportsList.filter(r => r.studentId === s.id);
-      const examsGiven = reports.length;
-      const lastExam = examsGiven > 0 ? new Date(Math.max(...reports.map(r => new Date(r.timestamp).getTime()))).toLocaleDateString() : 'N/A';
-      const avgScore = examsGiven > 0 ? Math.round(reports.reduce((a, r) => a + (r.score / r.totalQuestions) * 100, 0) / examsGiven) : 0;
-      return { student: s.name, class: `${s.classGroup} - ${s.section}`, examsGiven, lastExam, avgScore, placed: s.levelHistory.length > 0 };
-    });
-    const totalExams = examAttendance.reduce((a, e) => a + e.examsGiven, 0);
-    return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <MetricCard title="Total Students" value={examAttendance.length} subtext="Assigned roster" icon={Users} />
-          <MetricCard title="Exams Conducted" value={totalExams} subtext="Across all students" icon={FileText} />
-          <MetricCard title="Avg Exams/Student" value={`${(totalExams / examAttendance.length).toFixed(1)}`} subtext="Participation rate" icon={BarChart3} />
-          <MetricCard title="Placed Students" value={examAttendance.filter(e => e.placed).length} subtext="Have level history" icon={Award} />
-        </div>
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm">
-          <PageHeader title="Exam Attendance Records" desc="Track which students have appeared for assessments and their performance" icon={<Calendar className="h-5 w-5" />} />
-          <div className="space-y-2 mt-4">{examAttendance.map(a => (
-            <div key={a.student} className="flex items-center gap-4 p-3 border border-slate-100 dark:border-slate-700 rounded-lg">
-              <div className="flex items-center gap-3 w-8">{a.examsGiven > 0 ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <XCircle className="w-4 h-4 text-slate-300 dark:text-slate-600" />}</div>
-              <div className="flex-1 min-w-0"><span className="text-sm font-medium">{a.student}</span><span className="text-xs text-slate-400 dark:text-slate-500 ml-2">{a.class}</span></div>
-              <div className="flex items-center gap-6 text-sm shrink-0">
-                <div className="text-center"><div className="font-bold text-slate-900 dark:text-white">{a.examsGiven}</div><div className="text-[9px] text-slate-400 dark:text-slate-500 font-mono uppercase">Exams</div></div>
-                <div className="text-center"><div className={`font-bold ${a.avgScore >= 70 ? 'text-emerald-600' : a.avgScore >= 50 ? 'text-amber-600' : 'text-red-600'}`}>{a.examsGiven > 0 ? `${a.avgScore}%` : '—'}</div><div className="text-[9px] text-slate-400 dark:text-slate-500 font-mono uppercase">Avg Score</div></div>
-                <div className="text-center"><div className="text-xs text-slate-500 dark:text-slate-400 font-mono">{a.lastExam}</div><div className="text-[9px] text-slate-400 dark:text-slate-500 font-mono uppercase">Last Exam</div></div>
-                <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${a.placed ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-800' : 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800'}`}>{a.placed ? 'Placed' : 'Pending'}</span>
-              </div>
-            </div>
-          ))}</div>
-        </div>
-      </div>
-    );
-  }
+  if (panel === 'attendance') return <AttendancePanel students={students} reportsList={reportsList} />;
 
   // ===================== PRINCIPAL / SCHOOL ADMIN PANELS =====================
-  if (panel === 'teachers' && (currentUser.role === UserRole.SCHOOL || currentUser.role === UserRole.BLOCK_ADMIN)) {
-    const isBlockAdmin = currentUser.role === UserRole.BLOCK_ADMIN;
-    const schoolById = new Map<string, School>(schools.map(s => [s.id, s]));
-    return (
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm space-y-4">
-        <PageHeader title="Teacher Roster" desc={isBlockAdmin ? 'Teaching staff across your block' : 'Manage teaching staff at your school'} icon={<Users className="h-5 w-5" />} />
-        <div className="space-y-3">{teachersList.map((t: any) => (
-          <div key={t.id} className="flex justify-between items-center p-3 border border-slate-200 dark:border-slate-700 rounded-lg">
-            <div>
-              <div className="font-semibold text-sm">{t.name}</div>
-              <div className="text-xs text-slate-400 dark:text-slate-500">
-                {t.email}{t.classes?.length ? ` · ${t.classes.join(', ')}` : ''}
-                {isBlockAdmin && t.schoolId && ` · ${schoolById.get(t.schoolId)?.name || t.schoolId}`}
-              </div>
-            </div>
-            <div className="text-right"><span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${t.status === 'Active' ? 'text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800' : 'text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800'}`}>{t.status}</span><div className="text-xs text-slate-400 dark:text-slate-500 mt-1">{t.studentsCount} students</div></div>
-          </div>
-        ))}</div>
-      </div>
-    );
-  }
+  if (panel === 'teachers' && (currentUser.role === UserRole.SCHOOL || currentUser.role === UserRole.BLOCK_ADMIN)) return <TeachersPanel schools={schools} teachersList={teachersList} currentUser={currentUser} />;
 
   // ===================== BLOCK/DISTRICT/STATE ADMIN + SUPERADMIN SHARED PANELS =====================
   if (panel === 'schools') {
