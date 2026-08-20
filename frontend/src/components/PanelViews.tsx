@@ -6,63 +6,15 @@ import { Table, Column } from './Table';
 import { MetricCard } from './Card';
 import { STATE_NAMES, DISTRICT_NAMES, BLOCK_NAMES } from '../constants';
 import { FLN_LEVELS_LIST } from './RoleDashboards';
+import { usePanelData } from './panels/usePanelData';
+import { PageHeader, EmptyStudents } from './panels/PanelShared';
+import { handleDownloadPDF } from './panels/pdfReportGenerator';
 
 interface PanelViewsProps {
   activePanel: string;
   currentUser: User;
   token: string;
 }
-
-// Panels that render without ever reading the `students` variable — skipping
-// the fetch on these avoids an up-to-86,400-record national payload on
-// screens that don't display any student data.
-const STUDENTS_NOT_NEEDED_PANELS = new Set(['users', 'worksheet_templates', 'content', 'system_settings']);
-
-const STUDENTS_FALLBACK: Student[] = [
-  { id: 's1', name: 'Amanpreet Singh', age: 8, classGroup: 'Class 2', section: 'A', schoolId: 'gps-mt-001', currentLevel: 12, currentSubLevel: 0, targetLevel: 13, aadharMasked: 'XXXX-XXXX-1234', levelHistory: [{ level: 12, subLevel: 0, date: '2026-03-15', reason: 'Diagnostic' }], streak: 3 },
-  { id: 's2', name: 'Jasmine Kaur', age: 7, classGroup: 'Class 2', section: 'A', schoolId: 'gps-mt-001', currentLevel: 8, currentSubLevel: 1, targetLevel: 12, aadharMasked: 'XXXX-XXXX-5678', levelHistory: [{ level: 8, subLevel: 1, date: '2026-02-20', reason: 'Mid-year' }], streak: 1 },
-  { id: 's3', name: 'Rohit Kumar', age: 9, classGroup: 'Class 3', section: 'A', schoolId: 'gps-mt-001', currentLevel: 36, currentSubLevel: 0, targetLevel: 37, aadharMasked: 'XXXX-XXXX-9012', levelHistory: [{ level: 36, date: '2026-01-10', reason: 'Baseline' }], streak: 5 },
-  { id: 's4', name: 'Priya Sharma', age: 8, classGroup: 'Class 2', section: 'A', schoolId: 'gps-mt-001', currentLevel: 10, currentSubLevel: 2, targetLevel: 14, aadharMasked: 'XXXX-XXXX-3456', levelHistory: [], streak: 0 },
-  { id: 's5', name: 'Arjun Verma', age: 7, classGroup: 'Class 2', section: 'A', schoolId: 'gps-mt-001', currentLevel: 6, currentSubLevel: 0, targetLevel: 11, aadharMasked: 'XXXX-XXXX-7890', levelHistory: [{ level: 6, date: '2026-04-01', reason: 'Diagnostic' }], streak: 2 },
-  { id: 's6', name: 'Neha Gupta', age: 8, classGroup: 'Class 3', section: 'A', schoolId: 'gps-mt-001', currentLevel: 38, currentSubLevel: 1, targetLevel: 40, aadharMasked: 'XXXX-XXXX-2345', levelHistory: [{ level: 38, date: '2026-03-01', reason: 'Mid-year' }], streak: 4 },
-  { id: 's7', name: 'Simran Kaur', age: 6, classGroup: 'Class 1', section: 'A', schoolId: 'gps-mt-001', currentLevel: 4, currentSubLevel: 0, targetLevel: 8, aadharMasked: 'XXXX-XXXX-6789', levelHistory: [], streak: 0 },
-];
-
-const TEACHERS_MOCK = [
-  { id: 't1', name: 'Ritu Sharma', email: 'gps-mt-001.t01@fln.org', schoolId: 'gps-mt-001', classes: ['Class 2-A', 'Class 3-A'], studentsCount: 42, delayedAttempts: 0, status: 'Active' },
-  { id: 't2', name: 'Amit Kumar', email: 'gps-mt-001.t02@fln.org', schoolId: 'gps-mt-001', classes: ['Class 1-A'], studentsCount: 28, delayedAttempts: 1, status: 'Active' },
-  { id: 't3', name: 'Sunita Devi', email: 'gps-bth-006.t01@fln.org', schoolId: 'gps-bth-006', classes: ['Class 2-B', 'Class 4-A'], studentsCount: 35, delayedAttempts: 3, status: 'Suspended' },
-  { id: 't4', name: 'Rajesh Kumar', email: 'gps-pkl-008.t01@fln.org', schoolId: 'gps-pkl-008', classes: ['Class 3-B'], studentsCount: 30, delayedAttempts: 0, status: 'Active' },
-];
-
-const SCHOOLS_FALLBACK: School[] = [
-  { id: 'gps-mt-001', name: 'GPS Model Town', stateCode: 'PB', districtCode: 'LDH', blockCode: 'LDH-01', strength: 'standard', teachersCount: 8, isAccessLocked: false },
-  { id: 'gps-vl-002', name: 'GPS Village Lohara', stateCode: 'PB', districtCode: 'MOG', blockCode: 'MOG-01', strength: 'standard', teachersCount: 2, isAccessLocked: false },
-  { id: 'gps-amb-003', name: 'GPS Ambala Cantt', stateCode: 'HR', districtCode: 'AMB', blockCode: 'AMB-01', strength: 'standard', teachersCount: 6, isAccessLocked: false },
-  { id: 'gps-jai-004', name: 'GPS Govind Dev Ji', stateCode: 'RJ', districtCode: 'JAI', blockCode: 'JAI-01', strength: 'standard', teachersCount: 7, isAccessLocked: true },
-  { id: 'gps-lko-005', name: 'GPS Hazratganj', stateCode: 'UP', districtCode: 'LKO', blockCode: 'LKO-01', strength: 'standard', teachersCount: 5, isAccessLocked: false },
-  { id: 'gps-bth-006', name: 'GPS Bathinda City', stateCode: 'PB', districtCode: 'BTH', blockCode: 'BTH-01', strength: 'standard', teachersCount: 4, isAccessLocked: false },
-  { id: 'gps-asr-007', name: 'GPS Amritsar', stateCode: 'PB', districtCode: 'ASR', blockCode: 'ASR-01', strength: 'standard', teachersCount: 6, isAccessLocked: false },
-  { id: 'gps-pkl-008', name: 'GPS Panchkula', stateCode: 'HR', districtCode: 'PKL', blockCode: 'PKL-01', strength: 'standard', teachersCount: 5, isAccessLocked: false },
-  { id: 'gps-jai2-009', name: 'GPS Jaipur Rural', stateCode: 'RJ', districtCode: 'JAI', blockCode: 'JAI-02', strength: 'standard', teachersCount: 3, isAccessLocked: false },
-  { id: 'gps-uda-010', name: 'GPS Udaipur', stateCode: 'RJ', districtCode: 'UDA', blockCode: 'UDA-01', strength: 'standard', teachersCount: 3, isAccessLocked: false },
-  { id: 'gps-lko2-011', name: 'GPS Aliganj', stateCode: 'UP', districtCode: 'LKO', blockCode: 'LKO-02', strength: 'standard', teachersCount: 2, isAccessLocked: false },
-  { id: 'gps-knp-012', name: 'GPS Kanpur', stateCode: 'UP', districtCode: 'KNP', blockCode: 'KNP-01', strength: 'standard', teachersCount: 5, isAccessLocked: false },
-  { id: 'gps-pb-ldh2-013', name: 'GPS Gill Village', stateCode: 'PB', districtCode: 'LDH', blockCode: 'LDH-02', strength: 'standard', teachersCount: 2, isAccessLocked: false },
-  { id: 'gps-hr-amb2-014', name: 'GPS Ambala South', stateCode: 'HR', districtCode: 'AMB', blockCode: 'AMB-02', strength: 'standard', teachersCount: 2, isAccessLocked: false },
-];
-
-const USERS_FALLBACK = [
-  { name: 'Jinal Gupta', email: 'superadmin@fln.org', role: 'Super Admin', scope: 'National', status: 'Active' },
-  { name: 'State Coordinator Punjab', email: 'admin.pb@fln.org', role: 'State Admin', scope: 'PB', status: 'Active' },
-  { name: 'State Coordinator Haryana', email: 'admin.hr@fln.org', role: 'State Admin', scope: 'HR', status: 'Active' },
-  { name: 'Ludhiana District Officer', email: 'district.ldh@fln.org', role: 'District Admin', scope: 'PB-LDH', status: 'Active' },
-  { name: 'Ambala District Officer', email: 'district.amb@fln.org', role: 'District Admin', scope: 'HR-AMB', status: 'Active' },
-  { name: 'Ludhiana Block Admin 1', email: 'block.ldh-01@fln.org', role: 'Block Admin', scope: 'PB-LDH-LDH-01', status: 'Active' },
-  { name: 'GPS Model Town Principal', email: 'gps-mt-001@fln.org', role: 'Principal', scope: 'gps-mt-001', status: 'Active' },
-  { name: 'Ritu Sharma', email: 'gps-mt-001.t01@fln.org', role: 'Teacher', scope: 'gps-mt-001', status: 'Active' },
-  { name: 'Rahul Kumar', email: 'vol.rahul@fln.org', role: 'Volunteer', scope: 'Moga Villages', status: 'Active' },
-];
 
 const WS_TEMPLATES = [
   { id: 'WST-001', name: 'Baseline Assessment L1-L5', grade: 'Preschool 1-2', questions: 8, duration: '30 min', status: 'Published' },
@@ -99,28 +51,6 @@ const SYSTEM_LOGS_MOCK = [
   { action: 'Cache Invalidation', status: 'Success', timestamp: '2026-07-06 06:00', details: 'CDN cache purged for /api/analytics' },
 ];
 
-function PageHeader({ title, desc, icon }: { title: string; desc: string; icon?: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-3 border-b border-slate-200 dark:border-slate-700 pb-4">
-      {icon && <div className="text-slate-500 dark:text-slate-400">{icon}</div>}
-      <div>
-        <h2 className="text-lg font-bold text-slate-900 dark:text-white">{title}</h2>
-        <p className="text-xs text-slate-500 dark:text-slate-400">{desc}</p>
-      </div>
-    </div>
-  );
-}
-
-function EmptyStudents({ students }: { students: Student[] }) {
-  const cols: Column<Student>[] = [
-    { header: 'ID', accessor: 'id', className: 'font-mono text-xs text-slate-400 dark:text-slate-500' },
-    { header: 'Name', accessor: 'name', sortKey: 'name', className: 'font-semibold text-slate-800 dark:text-slate-100' },
-    { header: 'Class', accessor: 'classGroup', className: '' },
-    { header: 'Level', accessor: (s) => `L${s.currentLevel}.${s.currentSubLevel ?? 0}`, className: 'font-mono' },
-  ];
-  return <Table data={students} columns={cols} searchPlaceholder="Search students..." searchKey="name" />;
-}
-
 export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser, token }) => {
   const [search, setSearch] = useState('');
   const [stateFilter, setStateFilter] = useState('all');
@@ -139,83 +69,10 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   const [userRoleFilter, setUserRoleFilter] = useState('superadmin');
   const [userSearch, setUserSearch] = useState('');
 
-  const [apiStudents, setApiStudents] = useState<Student[]>([]);
-  const [apiSchools, setApiSchools] = useState<School[]>([]);
-  const [apiUsers, setApiUsers] = useState<any[]>([]);
-  const [apiReports, setApiReports] = useState<EvaluationReport[]>([]);
-  const [apiWorksheets, setApiWorksheets] = useState<Worksheet[]>([]);
-  const [apiTeachers, setApiTeachers] = useState<any[]>([]);
-
-  useEffect(() => {
-    const headers = { 'Authorization': `Bearer ${token}` };
-    apiFetch('/api/schools', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiSchools(d); }).catch(() => {});
-    apiFetch('/api/admin/coordinators', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiUsers(d); }).catch(() => {});
-    apiFetch('/api/evaluation/reports', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiReports(d); }).catch(() => {});
-    apiFetch('/api/worksheets', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiWorksheets(d); }).catch(() => {});
-    if (currentUser.role === UserRole.SCHOOL || currentUser.role === UserRole.BLOCK_ADMIN) {
-      apiFetch('/api/teachers', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiTeachers(d); }).catch(() => {});
-    }
-  }, [token, currentUser.role]);
-
-  // GET /api/students returns the caller's whole role-scoped list — up to
-  // 86,400 records nationally for Superadmin — so skip it entirely on the
-  // handful of Superadmin-only panels that never read `students` at all
-  // (verified by grepping for the identifier in each branch below).
-  useEffect(() => {
-    if (apiStudents.length > 0) return;
-    if (STUDENTS_NOT_NEEDED_PANELS.has(activePanel)) return;
-    const headers = { 'Authorization': `Bearer ${token}` };
-    apiFetch('/api/students', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiStudents(d); }).catch(() => {});
-  }, [token, activePanel, apiStudents.length]);
-
-const students = apiStudents.length > 0 ? apiStudents : STUDENTS_FALLBACK;
-  const schools = apiSchools.length > 0 ? apiSchools : SCHOOLS_FALLBACK;
-  const usersList = apiUsers.length > 0 ? apiUsers : USERS_FALLBACK;
-  // No mock fallback here (unlike students/schools/users): a fake report's
-  // studentId (e.g. 's1') will never match a real student in `students`,
-  // which rendered as a literal "Unknown" name - showing an empty list on
-  // fetch failure is honest, a mismatched fake report is not.
-  const reportsList: EvaluationReport[] = apiReports;
-  const worksheetsList: Worksheet[] = apiWorksheets;
-  const teachersList = apiTeachers.length > 0 ? apiTeachers : TEACHERS_MOCK;
-
-  // Real per-district / per-block rollups, derived from the already-fetched
-  // schools + students (no dedicated aggregation endpoint exists).
-  const getDistrictStats = (stateCode: string) => {
-    const stateSchools = schools.filter(s => s.stateCode === stateCode);
-    const codes: string[] = Array.from(new Set(stateSchools.map(s => s.districtCode)));
-    return codes.map(code => {
-      const distSchools = stateSchools.filter(s => s.districtCode === code);
-      const distStudents = students.filter(st => distSchools.some(s => s.id === st.schoolId));
-      const certified = distStudents.filter(st => st.currentLevel >= 5).length;
-      return {
-        code,
-        name: DISTRICT_NAMES[code] || code,
-        state: stateCode,
-        schools: distSchools.length,
-        students: distStudents.length,
-        certifiedRate: distStudents.length > 0 ? Math.round((certified / distStudents.length) * 100) : 0,
-      };
-    });
-  };
-
-  const getBlockStats = (districtCode: string) => {
-    const distSchools = schools.filter(s => s.districtCode === districtCode);
-    const codes: string[] = Array.from(new Set(distSchools.map(s => s.blockCode)));
-    return codes.map(code => {
-      const blockSchools = distSchools.filter(s => s.blockCode === code);
-      const blockStudents = students.filter(st => blockSchools.some(s => s.id === st.schoolId));
-      const certified = blockStudents.filter(st => st.currentLevel >= 5).length;
-      return {
-        code,
-        name: BLOCK_NAMES[code] || code,
-        district: districtCode,
-        schools: blockSchools.length,
-        students: blockStudents.length,
-        certifiedRate: blockStudents.length > 0 ? Math.round((certified / blockStudents.length) * 100) : 0,
-      };
-    });
-  };
+  const {
+    students, schools, usersList, reportsList, worksheetsList, teachersList,
+    getDistrictStats, getBlockStats, updateStudentLocally,
+  } = usePanelData(token, currentUser, activePanel);
 
   useEffect(() => {
     if (students.length > 0 && !sel) {
@@ -231,108 +88,6 @@ const students = apiStudents.length > 0 ? apiStudents : STUDENTS_FALLBACK;
   });
 
   const panel = activePanel;
-
-  const handleDownloadPDF = (student: Student, r: EvaluationReport) => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert('Please allow popups to download/print the PDF report card.');
-      return;
-    }
-
-    const conceptBadges = Object.entries(r.conceptMastery)
-      .map(([t, m]) => `<span class="badge ${m === 'Strong' ? 'badge-pass' : 'badge-fail'}">${t}: ${m}</span>`)
-      .join(' ');
-
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Assessment Report - ${student.name}</title>
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-        <style>
-          body { font-family: 'Inter', sans-serif; color: #1e293b; padding: 40px; line-height: 1.5; font-size: 13px; }
-          .header { text-align: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 25px; }
-          .title { font-size: 24px; font-weight: 700; color: #1e3a8a; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; }
-          .subtitle { font-size: 12px; color: #64748b; margin-top: 5px; font-weight: 500; }
-          .student-info { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 25px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; }
-          .info-item { font-size: 13px; }
-          .info-item strong { color: #0f172a; }
-          .section-title { font-size: 14px; font-weight: 700; border-left: 4px solid #4f46e5; padding-left: 10px; margin: 25px 0 15px 0; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px; }
-          .metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 25px; }
-          .metric-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
-          .metric-value { font-size: 22px; font-weight: 700; color: #4f46e5; }
-          .metric-label { font-size: 10px; color: #64748b; text-transform: uppercase; font-weight: 700; margin-top: 5px; letter-spacing: 0.5px; }
-          .narrative-box { background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; font-size: 13px; white-space: pre-line; margin-bottom: 25px; color: #334155; line-height: 1.6; }
-          table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 12px; }
-          th { background-color: #f1f5f9; text-align: left; padding: 10px; font-weight: 700; border-bottom: 2px solid #e2e8f0; color: #475569; text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px; }
-          td { padding: 12px 10px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
-          .badge { display: inline-block; padding: 3px 8px; font-size: 9px; font-weight: 700; border-radius: 4px; text-transform: uppercase; font-family: monospace; }
-          .badge-pass { background-color: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; }
-          .badge-fail { background-color: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
-          .footer { text-align: center; margin-top: 50px; font-size: 11px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; }
-          @media print {
-            body { padding: 20px; }
-            .no-print { display: none; }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="header">
-          <div class="title">FLN Portal</div>
-          <div class="subtitle">Foundation Level Diagnostic Evaluation Report</div>
-        </div>
-
-        <div class="student-info">
-          <div class="info-item">Student Name: <strong>${student.name}</strong></div>
-          <div class="info-item">Student ID: <strong>${student.id}</strong></div>
-          <div class="info-item">Class / Section: <strong>${student.classGroup} - ${student.section}</strong></div>
-          <div class="info-item">Report Date: <strong>${new Date(r.timestamp).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</strong></div>
-        </div>
-
-        <div class="metric-grid">
-          <div class="metric-card">
-            <div class="metric-value">${r.score} / ${r.totalQuestions}</div>
-            <div class="metric-label">Diagnostic Score</div>
-          </div>
-          <div class="metric-card">
-            <div class="metric-value">L${r.recommendedLevel}.${r.recommendedSubLevel ?? 0}</div>
-            <div class="metric-label">Placed Level</div>
-          </div>
-          <div class="metric-card">
-            <div class="metric-value">${Math.round((r.score / r.totalQuestions) * 100)}%</div>
-            <div class="metric-label">Accuracy Rate</div>
-          </div>
-        </div>
-
-        <div class="section-title">Concept Mastery Breakdown</div>
-        <div style="margin-bottom: 25px; display: flex; gap: 8px; flex-wrap: wrap;">
-          ${conceptBadges}
-        </div>
-
-        <div class="section-title">AI Evaluation Summary</div>
-        <div class="narrative-box">
-          ${r.narrative}
-        </div>
-
-        <div class="footer">
-          Generated automatically by the FLN Portal. Confidential Student Academic Record.
-        </div>
-
-        <script>
-          window.onload = function() {
-            setTimeout(function() {
-              window.print();
-            }, 300);
-          }
-        </script>
-      </body>
-      </html>
-    `;
-
-    printWindow.document.open();
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
-  };
 
   // ===================== TEACHER PANELS =====================
   if (panel === 'student_list') {
@@ -399,7 +154,7 @@ const students = apiStudents.length > 0 ? apiStudents : STUDENTS_FALLBACK;
           body: JSON.stringify(profileDraft),
         });
         if (res.ok) {
-          setApiStudents(prev => prev.map(st => st.id === s.id ? { ...st, ...profileDraft } : st));
+          updateStudentLocally(s.id, profileDraft);
           setEditingProfile(false);
         }
       } finally {
