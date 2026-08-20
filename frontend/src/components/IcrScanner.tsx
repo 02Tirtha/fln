@@ -2,7 +2,6 @@ import { apiFetch } from '../services/apiClient';
 import React, { useState, useEffect } from 'react';
 import { Student, ClassGroup, EvaluationReport, User } from '../types';
 import { IcrTwoStageScan } from './IcrTwoStageScan';
-import { ReasoningSection } from './EducationalReasoning';
 
 interface IcrScannerProps {
   token: string;
@@ -1128,10 +1127,6 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                     </table>
                   </div>
                 </div>
-              )}
-
-              {report.reasoning && (
-                <ReasoningSection report={report} />
               )}
 
               <div className="flex gap-3 pt-2">

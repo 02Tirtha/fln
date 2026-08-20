@@ -162,6 +162,7 @@ class ChildEvaluator:
         if result is None:
             print(f"[!] API call failed or key is missing. Using deterministic fallback evaluation.")
             failed_levels = []
+            failed_fln_levels = []
             for w in wrong_answers:
                 q_class = w.get("class", comparison.get("enrolled_class", 1))
                 if q_class:
@@ -169,14 +170,50 @@ class ChildEvaluator:
                         failed_levels.append(int(q_class))
                     except:
                         pass
-            
+                # 1_compare_answers.py records the paper's source_level as
+                # `fln_level` on each comparison row, so the deterministic
+                # fallback can show the actual 93-level framework level
+                # rather than the unknown "Level ?" the prior version emitted.
+                w_fln = w.get("fln_level")
+                if w_fln is not None:
+                    try:
+                        failed_fln_levels.append(int(w_fln))
+                    except:
+                        pass
+
             if failed_levels:
                 demonstrated_level = min(failed_levels)
             else:
                 demonstrated_level = int(comparison.get("enrolled_class", 1))
-            
+
+            # Build root_causes from the actual wrong answers so the
+            # downstream report shows real fln_level / topic / concept names
+            # rather than the "? / ? / Error: conceptual" the prior
+            # fallback emitted.
+            fallback_root_causes = []
+            seen_concepts = set()
+            for w in wrong_answers:
+                fln = w.get("fln_level")
+                topic = w.get("topic") or "Arithmetic"
+                cid = w.get("concept_id")
+                ctitle = w.get("concept_title")
+                key = (cid or topic, fln)
+                if key in seen_concepts:
+                    continue
+                seen_concepts.add(key)
+                fallback_root_causes.append({
+                    "fln_level": fln,
+                    "topic": topic,
+                    "concept_id": cid,
+                    "concept_title": ctitle,
+                    "error_type": "conceptual",
+                    "analysis": "student has gaps in foundational topics"
+                })
+            if not fallback_root_causes:
+                fallback_root_causes = [{"error_type": "conceptual", "analysis": "student has gaps in foundational topics"}]
+
             ai_eval = {
-                "root_causes": [{"error_type": "conceptual", "analysis": "student has gaps in foundational topics"}],
+                "root_causes": fallback_root_causes,
                 "topics_to_focus": list(set([w.get("topic", "Arithmetic") for w in wrong_answers if w.get("topic")])),
                 "prerequisites_to_check": [],
                 "recommendation": "Focused practice and worksheet drills on weak topics.",
@@ -184,6 +221,7 @@ class ChildEvaluator:
                 "assigned_level": demonstrated_level,
                 "confidence_score": 0.8,
                 "levels_failed": list(set(failed_levels)),
+                "fln_levels_failed": list(set(failed_fln_levels)),
                 "assign_reason": "Deterministic fallback based on wrong answers"
             }
         else:

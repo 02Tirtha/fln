@@ -385,7 +385,8 @@ export async function generateAIDiagnostic(studentName: string, classGroup: stri
 export async function evaluateAIDiagnostic(
   studentName: string,
   questions: Question[],
-  submittedAnswers: { [questionId: string]: string }
+  submittedAnswers: { [questionId: string]: string },
+  classNumber: number = 2
 ): Promise<{ score: number; recommendedLevel: number; narrative: string }> {
   try {
     const prompt = `Student Name: ${studentName}
@@ -452,15 +453,22 @@ Provide a clean narrative feedback summary.`;
   if (failedLevels.length > 0) {
     recommendedLevel = Math.min(...failedLevels);
   } else {
-    // If they got all questions correct, place them at highest level + 1 (capped at 93)
-    const maxLevel = Math.max(...questions.map(q => q.source_level), 0);
-    recommendedLevel = Math.min(93, maxLevel + 1);
+    recommendedLevel = (classNumber - 1) * 10 + 1;
+  }
+
+  let narrative: string;
+  if (score === questions.length && questions.length > 0) {
+    narrative = `Determined deterministically: student solved ${score}/${questions.length} questions correctly. Mastery demonstrated across all assessed competencies. No prerequisite remediation is required. Ready to progress toward the next milestone.`;
+  } else if (failedLevels.length === 0 && score > 0) {
+    narrative = `Determined deterministically: student solved ${score}/${questions.length} questions correctly. Placed at Level ${recommendedLevel} using Weakest-Level Mapping. Some questions were answered correctly.`;
+  } else {
+    narrative = `Determined deterministically: student solved ${score}/${questions.length} questions correctly. Placed at Level ${recommendedLevel} using Weakest-Level Mapping based on incorrect responses.`;
   }
 
   return {
     score,
     recommendedLevel,
-    narrative: `Determined deterministically: student solved ${score}/${questions.length} questions correctly. Placed at Level ${recommendedLevel} using Weakest-Level Mapping based on incorrect responses.`
+    narrative
   };
 }
 
