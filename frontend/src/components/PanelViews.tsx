@@ -23,6 +23,9 @@ import { TeachersPanel } from './panels/TeachersPanel';
 import { SchoolsPanel } from './panels/SchoolsPanel';
 import { UsersPanel } from './panels/UsersPanel';
 import { ContentPanel } from './panels/ContentPanel';
+import { DistrictsPanel } from './panels/DistrictsPanel';
+import { BlocksPanel } from './panels/BlocksPanel';
+import { AnalyticsPanel } from './panels/AnalyticsPanel';
 
 interface PanelViewsProps {
   activePanel: string;
@@ -49,7 +52,6 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   const [showDropdown, setShowDropdown] = useState(false);
   const [activityFilter, setActivityFilter] = useState<'all' | 'assessment' | 'level_change'>('all');
   const [expandedDistRpt, setExpandedDistRpt] = useState<string | null>(null);
-  const [expandedDist, setExpandedDist] = useState<string | null>(null);
 
   const {
     students, schools, usersList, reportsList, worksheetsList, teachersList,
@@ -740,105 +742,9 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   // ===================== BLOCK/DISTRICT/STATE ADMIN + SUPERADMIN SHARED PANELS =====================
   if (panel === 'schools') return <SchoolsPanel schools={schools} />;
 
-  if (panel === 'districts') {
-    const userState = currentUser.stateCode || 'PB';
-    const stateDistricts = getDistrictStats(userState);
-    const distSchools = expandedDist ? schools.filter(s => s.districtCode === expandedDist) : [];
-    return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <MetricCard title="State Districts" value={stateDistricts.length} subtext={`${userState} jurisdiction`} icon={MapPin} />
-          <MetricCard title="Total Schools" value={stateDistricts.reduce((a, d) => a + d.schools, 0)} subtext="Registered facilities" icon={SchoolIcon} />
-          <MetricCard title="Total Students" value={stateDistricts.reduce((a, d) => a + d.students, 0)} subtext="Across all districts" icon={Users} />
-          <MetricCard title="Avg Certification" value={stateDistricts.length > 0 ? `${Math.round(stateDistricts.reduce((a, d) => a + d.certifiedRate, 0) / stateDistricts.length)}%` : '—'} subtext="State weighted average" icon={Award} />
-        </div>
+  if (panel === 'districts') return <DistrictsPanel currentUser={currentUser} schools={schools} students={students} getDistrictStats={getDistrictStats} />;
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* District list */}
-          <div className={`${expandedDist ? 'lg:col-span-1' : 'lg:col-span-3'} bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm`}>
-            <PageHeader title="District Overview" desc={`${userState} — Performance metrics by district`} icon={<MapPin className="h-5 w-5" />} />
-            <div className="space-y-2 mt-4">{stateDistricts.map(d => {
-              const isExpanded = expandedDist === d.code;
-              const schoolList = schools.filter(s => s.districtCode === d.code);
-              const studentCount = schoolList.reduce((a, s) => a + (students.filter(st => st.schoolId === s.id).length), 0);
-              return (
-                <div key={d.code}>
-                  <button onClick={() => setExpandedDist(isExpanded ? null : d.code)} className={`w-full flex items-center gap-4 p-3 border rounded-lg text-left hover:bg-slate-50 dark:hover:bg-slate-800 transition-all ${isExpanded ? 'border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950' : 'border-slate-100 dark:border-slate-700'}`}>
-                    <div className="w-16"><span className="font-bold text-sm">{d.code}</span><span className="text-[10px] text-slate-400 dark:text-slate-500 ml-1">({d.state})</span></div>
-                    <div className="flex-1"><span className="text-sm font-semibold">{d.name}</span></div>
-                    <div className="flex gap-4 text-xs text-slate-500 dark:text-slate-400">
-                      <span><strong className="text-slate-800 dark:text-slate-100">{studentCount}</strong> students</span>
-                      <span><strong className="text-slate-800 dark:text-slate-100">{schoolList.length}</strong> schools</span>
-                    </div>
-                    <div className="w-24"><div className="h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden"><div className="h-full bg-emerald-500 rounded-full" style={{ width: `${d.certifiedRate}%` }} /></div><div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 text-right">{d.certifiedRate}% certified</div></div>
-                    <ChevronDown className={`w-4 h-4 text-slate-400 dark:text-slate-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                  </button>
-                </div>
-              );
-            })}</div>
-          </div>
-
-          {/* Schools in selected district */}
-          {expandedDist && (
-            <div className="lg:col-span-2 space-y-4">
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">Schools in {expandedDist}</h3>
-                  <button onClick={() => setExpandedDist(null)} className="text-xs text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 font-mono">Close</button>
-                </div>
-                <div className="grid grid-cols-1 gap-4">{distSchools.map(sch => {
-                  const schStudents = students.filter(st => st.schoolId === sch.id);
-                  const certified = schStudents.filter(st => st.currentLevel >= 5).length;
-                  const avgLevel = schStudents.length > 0 ? Math.round(schStudents.reduce((a, st) => a + st.currentLevel, 0) / schStudents.length) : 0;
-                  return (
-                    <div key={sch.id} className="border border-slate-200 dark:border-slate-700 rounded-xl p-5 hover:border-slate-400 dark:hover:border-slate-600 transition-all">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h4 className="font-bold text-slate-900 dark:text-white">{sch.name}</h4>
-                          <p className="text-xs text-slate-400 dark:text-slate-500">{sch.id} · {sch.blockCode} · {sch.stateCode}/{sch.districtCode}</p>
-                        </div>
-                        <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${sch.strength === 'high' ? 'text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800' : 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800'}`}>{sch.strength}</span>
-                      </div>
-                      <div className="grid grid-cols-4 gap-4 mt-4 pt-3 border-t border-slate-100 dark:border-slate-700">
-                        <div className="text-center"><div className="text-lg font-bold text-slate-900 dark:text-white">{schStudents.length}</div><div className="text-[10px] text-slate-400 dark:text-slate-500">Students</div></div>
-                        <div className="text-center"><div className="text-lg font-bold text-slate-900 dark:text-white">{sch.teachersCount}</div><div className="text-[10px] text-slate-400 dark:text-slate-500">Teachers</div></div>
-                        <div className="text-center"><div className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{certified}</div><div className="text-[10px] text-slate-400 dark:text-slate-500">Certified</div></div>
-                        <div className="text-center"><div className="text-lg font-bold text-slate-900 dark:text-white">L{avgLevel}</div><div className="text-[10px] text-slate-400 dark:text-slate-500">Avg Level</div></div>
-                      </div>
-                      <div className="mt-3">
-                        <div className="flex justify-between text-[10px] text-slate-500 dark:text-slate-400 mb-1"><span>Certification Rate</span><span>{schStudents.length > 0 ? Math.round(certified / schStudents.length * 100) : 0}%</span></div>
-                        <div className="h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden"><div className="h-full bg-emerald-500 rounded-full" style={{ width: `${schStudents.length > 0 ? (certified / schStudents.length) * 100 : 0}%` }} /></div>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-1.5">{schStudents.map(st => (
-                        <span key={st.id} className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border ${st.levelHistory.length > 0 ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800' : 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'}`}>{st.name.split(' ')[0]} L{st.currentLevel}</span>
-                      ))}</div>
-                    </div>
-                  );
-                })}</div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  if (panel === 'blocks') {
-    const userDistrict = currentUser.districtCode || '';
-    const districtBlocks = getBlockStats(userDistrict);
-    return (
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm space-y-4">
-        <PageHeader title="Block Administration" desc="All blocks under your district jurisdiction" icon={<MapPin className="h-5 w-5" />} />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">{districtBlocks.map(b => (
-          <div key={b.code} className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-2">
-            <div className="flex justify-between"><span className="font-bold text-sm">{b.name}</span><span className="text-xs text-slate-400 dark:text-slate-500">Dist: {DISTRICT_NAMES[b.district] || b.district}</span></div>
-            <div className="flex gap-4 text-xs"><span>🏫 {b.schools} schools</span><span>👨‍🎓 {b.students} students</span></div>
-            <div><div className="flex justify-between text-[10px] mb-0.5"><span>Certification</span><span>{b.certifiedRate}%</span></div><div className="h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden"><div className="h-full bg-emerald-500 rounded-full" style={{ width: `${b.certifiedRate}%` }} /></div></div>
-          </div>
-        ))}</div>
-      </div>
-    );
-  }
+  if (panel === 'blocks') return <BlocksPanel currentUser={currentUser} getBlockStats={getBlockStats} />;
 
   // ===================== SUPERADMIN PANELS =====================
   if (panel === 'users') return <UsersPanel usersList={usersList} />;
@@ -848,36 +754,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
 
   if (panel === 'content') return <ContentPanel />;
 
-  if (panel === 'analytics') {
-    const isAdmin = [UserRole.ADMIN, UserRole.DISTRICT_ADMIN, UserRole.BLOCK_ADMIN].includes(currentUser.role);
-    let data: any[] = schools;
-    if (currentUser.role === UserRole.ADMIN) data = getDistrictStats(currentUser.stateCode || '');
-    else if (currentUser.role === UserRole.DISTRICT_ADMIN) data = getBlockStats(currentUser.districtCode || '');
-    else if (currentUser.role === UserRole.BLOCK_ADMIN) data = schools.filter(s => s.blockCode === currentUser.blockCode);
-    const title = isAdmin ? 'Geographical Analytics' : 'Performance Analytics';
-    const desc = isAdmin ? 'Cross-regional performance metrics and benchmarking' : 'School-level performance data and trends';
-    return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <MetricCard title="Total Schools" value={schools.length} subtext="All facilities" icon={SchoolIcon} />
-          <MetricCard title="Total Students" value={students.length} subtext="Active roster" icon={Users} />
-          <MetricCard title="Avg FLN Level" value={students.length > 0 ? `L${Math.round(students.reduce((a, s) => a + s.currentLevel, 0) / students.length)}` : 'L0'} subtext="System average" icon={BarChart3} />
-          <MetricCard title="Certification Rate" value={students.length > 0 ? `${Math.round(students.filter(s => s.currentLevel >= 5).length / students.length * 100)}%` : '0%'} subtext="Level 5+ benchmark" icon={Award} />
-        </div>
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm">
-          <PageHeader title={title} desc={desc} icon={<BarChart3 className="h-5 w-5" />} />
-          <div className="space-y-3 mt-4">{data.map((d: any) => (
-            <div key={d.code || d.id} className="flex items-center gap-4 p-3 border border-slate-100 dark:border-slate-700 rounded-lg">
-              <span className="font-bold text-sm w-20">{d.code || d.id}</span>
-              <span className="text-sm flex-1">{d.name || d.districtCode}</span>
-              <span className="text-xs text-slate-400 dark:text-slate-500 w-24">{d.schools || '—'} schools</span>
-              <div className="w-32"><div className="flex justify-between text-[10px] mb-0.5"><span>{d.certifiedRate || 0}%</span></div><div className="h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden"><div className="h-full bg-emerald-500 rounded-full" style={{ width: `${d.certifiedRate || 0}%` }} /></div></div>
-            </div>
-          ))}</div>
-        </div>
-      </div>
-    );
-  }
+  if (panel === 'analytics') return <AnalyticsPanel currentUser={currentUser} schools={schools} students={students} getDistrictStats={getDistrictStats} getBlockStats={getBlockStats} />;
 
   if (panel === 'system_settings') return <SystemSettingsPanel />;
 
