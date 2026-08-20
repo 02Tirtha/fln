@@ -989,7 +989,7 @@ const students = await dbStore.getStudents();
       console.error('Python evaluation pipeline failed, falling back to Gemini AI:', pipelineErr);
       pipelineFailed = true;
       // Fallback to Gemini AI if Python pipeline fails
-      const evaluation = await evaluateAIDiagnostic(student.name, questions, answers, classNumber);
+      const evaluation = await evaluateAIDiagnostic(student.name, questions, answers);
       score = evaluation.score;
       recommendedLevel = evaluation.recommendedLevel;
       narrative = evaluation.narrative;

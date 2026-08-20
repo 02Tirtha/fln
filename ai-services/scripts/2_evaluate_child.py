@@ -95,6 +95,37 @@ class ChildEvaluator:
             self._save_evaluation()
             return self.result
 
+        # Short-circuit PASS when the student got every question right but
+        # the difficulty-distribution thresholds did not fire (e.g. the paper
+        # has zero easy or zero hard questions, so easy_pct/hard_pct are 0%
+        # even though the student demonstrated full mastery). The threshold
+        # check above only makes sense when each difficulty bucket actually
+        # contains questions; for diagnostics that only span one difficulty
+        # band we must not drop a perfect score into the LLM/fallback path,
+        # where it would otherwise be assigned fabricated failure content.
+        if len(wrong_answers) == 0 and len(all_comparisons) > 0:
+            print("[OK] FLN PASS - all answers correct (mastery across assessed competencies)")
+            self.result = {
+                "student_id": comparison['student_id'],
+                "student_name": comparison.get('student_name', 'Unknown'),
+                "test_date": comparison['test_date'],
+                "enrolled_class": comparison['enrolled_class'],
+                "decision": "PASS",
+                "fln_status": "pass",
+                "demonstrated_level": f"Class {enrolled}",
+                "boundary_level": f"Class {enrolled + 1}",
+                "confidence_score": 0.95,
+                "wrong_count": 0,
+                "total_questions": len(all_comparisons),
+                "wrong_percentage": 0.0,
+                "performance_by_difficulty": perf_by_diff,
+                "reason": f"All {len(all_comparisons)} assessed questions answered correctly. Mastery demonstrated across all assessed competencies.",
+                "recommendation": f"Child has mastered foundational concepts for Class {enrolled}. Ready to continue with Class {enrolled} curriculum.",
+                "next_level_assignment": f"Class {enrolled}"
+            }
+            self._save_evaluation()
+            return self.result
+
         print(f"  Easy: {easy_pct:.0f}% (need >=90%), Medium: {medium_pct:.0f}% (need >=50%), Hard: {hard_pct:.0f}% (need >=40%)")
         print("[*] Calling AI model for evaluation...\n")
         wrong_percentage = comparison['stats']['wrong_percentage']
