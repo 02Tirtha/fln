@@ -13,7 +13,7 @@ import { BaselineUpload } from '../BaselineUpload';
 import { SkillGraphPanel } from '../SkillGraphPanel';
 import { Table, Column } from '../Table';
 import { Layers as BulkIcon } from 'lucide-react';
-import { FLNLevelReferenceModal } from '../RoleDashboards';
+import { FLNLevelReferenceModal, LevelBadge } from '../RoleDashboards';
 
 
 export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) => {
@@ -454,11 +454,7 @@ export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) =>
                   { header: 'Student Name', accessor: 'name', sortKey: 'name', className: 'font-medium text-slate-900 dark:text-slate-100' },
                   {
                     header: 'Current Level',
-                    accessor: (s) => (
-                      <span className="font-mono font-bold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 text-xs">
-                        L{s.currentLevel}.{s.currentSubLevel ?? 0}
-                      </span>
-                    )
+                    accessor: (s) => <LevelBadge level={s.currentLevel} subLevel={s.currentSubLevel} />
                   },
                   {
                     header: 'Target Level',

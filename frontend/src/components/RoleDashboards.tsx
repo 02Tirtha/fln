@@ -1326,7 +1326,7 @@ export const SchoolDashboard: React.FC<DashboardProps> = ({ user, token }) => {
 
 
 /** Renders either a crisp level chip or an animated "Awaiting Diagnostic" badge */
-function LevelBadge({ level, subLevel, variant = 'compact' }: {
+export function LevelBadge({ level, subLevel, variant = 'compact' }: {
   level: number | null | undefined;
   subLevel?: number | null;
   variant?: 'compact' | 'full';

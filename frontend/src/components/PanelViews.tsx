@@ -5,7 +5,7 @@ import { Users, BookOpen, Calendar, ArrowRight, SlidersHorizontal, Layers, Award
 import { Table, Column } from './Table';
 import { MetricCard } from './Card';
 import { STATE_NAMES, DISTRICT_NAMES, BLOCK_NAMES } from '../constants';
-import { FLN_LEVELS_LIST, parseCSVText } from './RoleDashboards';
+import { FLN_LEVELS_LIST, parseCSVText, LevelBadge } from './RoleDashboards';
 import { usePanelData } from './panels/usePanelData';
 import { AdaptiveTestPanel } from './panels/AdaptiveTestPanel';
 import { TestHistoryPanel } from './panels/TestHistoryPanel';

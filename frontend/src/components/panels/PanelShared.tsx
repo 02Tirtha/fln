@@ -6,6 +6,7 @@
 import React from 'react';
 import { Student } from '../../types';
 import { Table, Column } from '../Table';
+import { LevelBadge } from '../RoleDashboards';
 
 export function PageHeader({ title, desc, icon }: { title: string; desc: string; icon?: React.ReactNode }) {
   return (
@@ -24,7 +25,7 @@ export function EmptyStudents({ students }: { students: Student[] }) {
     { header: 'ID', accessor: 'id', className: 'font-mono text-xs text-slate-400 dark:text-slate-500' },
     { header: 'Name', accessor: 'name', sortKey: 'name', className: 'font-semibold text-slate-800 dark:text-slate-100' },
     { header: 'Class', accessor: 'classGroup', className: '' },
-    { header: 'Level', accessor: (s) => `L${s.currentLevel}.${s.currentSubLevel ?? 0}`, className: 'font-mono' },
+    { header: 'Level', accessor: (s) => <LevelBadge level={s.currentLevel} subLevel={s.currentSubLevel} />, className: 'font-mono' },
   ];
   return <Table data={students} columns={cols} searchPlaceholder="Search students..." searchKey="name" />;
 }
