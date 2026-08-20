@@ -9,29 +9,16 @@ import { FLN_LEVELS_LIST } from './RoleDashboards';
 import { usePanelData } from './panels/usePanelData';
 import { PageHeader, EmptyStudents } from './panels/PanelShared';
 import { handleDownloadPDF } from './panels/pdfReportGenerator';
+import { AdaptiveTestPanel } from './panels/AdaptiveTestPanel';
+import { TestHistoryPanel } from './panels/TestHistoryPanel';
+import { WorksheetTemplatesPanel } from './panels/WorksheetTemplatesPanel';
+import { SystemSettingsPanel } from './panels/SystemSettingsPanel';
 
 interface PanelViewsProps {
   activePanel: string;
   currentUser: User;
   token: string;
 }
-
-const WS_TEMPLATES = [
-  { id: 'WST-001', name: 'Baseline Assessment L1-L5', grade: 'Preschool 1-2', questions: 8, duration: '30 min', status: 'Published' },
-  { id: 'WST-002', name: 'Number Sense L6-L11', grade: 'Class 1', questions: 10, duration: '45 min', status: 'Published' },
-  { id: 'WST-003', name: 'Operations L12-L23', grade: 'Class 2', questions: 12, duration: '45 min', status: 'Draft' },
-  { id: 'WST-004', name: 'Adv. Operations L24-L35', grade: 'Class 2 Review', questions: 10, duration: '60 min', status: 'Published' },
-  { id: 'WST-005', name: 'Multiplication & Division L36-L48', grade: 'Class 3-4', questions: 15, duration: '60 min', status: 'Draft' },
-  { id: 'WST-006', name: 'Fractions & Decimals L76-L93', grade: 'Class 4+', questions: 12, duration: '60 min', status: 'Review' },
-];
-
-const DIAGNOSTIC_HISTORY = [
-  { id: 'dh1', student: 'Amanpreet Singh', date: '2026-03-15', score: 8, total: 10, placedLevel: 12, evaluator: 'Ritu Sharma' },
-  { id: 'dh2', student: 'Rohit Kumar', date: '2026-01-10', score: 9, total: 10, placedLevel: 36, evaluator: 'Ritu Sharma' },
-  { id: 'dh3', student: 'Arjun Verma', date: '2026-04-01', score: 6, total: 10, placedLevel: 6, evaluator: 'Amit Kumar' },
-  { id: 'dh4', student: 'Neha Gupta', date: '2026-03-01', score: 7, total: 10, placedLevel: 38, evaluator: 'Ritu Sharma' },
-  { id: 'dh5', student: 'Jasmine Kaur', date: '2026-02-20', score: 5, total: 10, placedLevel: 8, evaluator: 'Amit Kumar' },
-];
 
 const CONTENT_ITEMS = [
   { id: 'c1', title: 'Number Line 1-10', type: 'Visual Aid', level: 'L1-L4', language: 'English, Punjabi', status: 'Approved' },
@@ -40,15 +27,6 @@ const CONTENT_ITEMS = [
   { id: 'c4', title: 'Multiplication Tables Song', type: 'Audio', level: 'L36-L41', language: 'English', status: 'Review' },
   { id: 'c5', title: 'Fraction Pizza Activity', type: 'Worksheet', level: 'L45-L48', language: 'English, Hindi', status: 'Approved' },
   { id: 'c6', title: 'Money Math Games', type: 'Activity', level: 'L46-L48', language: 'English', status: 'Draft' },
-];
-
-const SYSTEM_LOGS_MOCK = [
-  { action: 'Database Backup', status: 'Success', timestamp: '2026-07-07 02:00', details: 'Full backup completed (1.2 GB)' },
-  { action: 'User Sync', status: 'Success', timestamp: '2026-07-07 01:00', details: 'Synced 142 users from state databases' },
-  { action: 'SSL Certificate Renewal', status: 'Success', timestamp: '2026-07-06 12:00', details: 'Wildcard cert renewed, expires 2027-07' },
-  { action: 'API Rate Limit Check', status: 'Warning', timestamp: '2026-07-06 10:30', details: '3 endpoints nearing threshold' },
-  { action: 'Email Service', status: 'Failed', timestamp: '2026-07-06 08:15', details: 'SMTP relay timeout, retry queued' },
-  { action: 'Cache Invalidation', status: 'Success', timestamp: '2026-07-06 06:00', details: 'CDN cache purged for /api/analytics' },
 ];
 
 export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser, token }) => {
@@ -668,40 +646,9 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
     );
   }
 
-  if (panel === 'adaptive_test') {
-    return (
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm space-y-6">
-        <PageHeader title="Adaptive Assessment" desc="Computer-adaptive testing that adjusts to student ability" icon={<SlidersHorizontal className="h-5 w-5" />} />
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <MetricCard title="Active Sessions" value="3" subtext="Students currently testing" icon={Users} />
-          <MetricCard title="Avg Adaptive Score" value="72%" subtext="Across all levels" icon={BarChart3} />
-          <MetricCard title="Completion Rate" value="85%" subtext="Tests finished on time" icon={CheckCircle2} />
-        </div>
-        <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-5 bg-slate-50 dark:bg-slate-800 space-y-3">
-          <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-100">How Adaptive Testing Works</h4>
-          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">The system selects questions dynamically based on the student's previous answers. Correct answers lead to harder questions; incorrect answers adjust to easier ones. This pinpoints the exact FLN level.</p>
-          <div className="flex gap-4 pt-2">
-            <button className="bg-slate-900 text-white text-xs font-medium px-4 py-2 rounded-lg hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200">Start New Adaptive Test</button>
-            <button className="border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-medium px-4 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700">View Session Logs</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  if (panel === 'adaptive_test') return <AdaptiveTestPanel />;
 
-  if (panel === 'test_history') {
-    return (
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm space-y-4">
-        <PageHeader title="Test History" desc="Complete record of all diagnostic and worksheet evaluations" icon={<FileText className="h-5 w-5" />} />
-        <div className="space-y-3">{DIAGNOSTIC_HISTORY.map(h => (
-          <div key={h.id} className="flex justify-between items-center p-4 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800">
-            <div><div className="font-semibold text-sm">{h.student}</div><div className="text-xs text-slate-400 dark:text-slate-500">{h.date} · Evaluated by {h.evaluator}</div></div>
-            <div className="text-right"><div className="font-mono font-bold">{h.score}/{h.total}</div><div className="text-xs text-slate-400 dark:text-slate-500">Placed L{h.placedLevel}</div></div>
-          </div>
-        ))}</div>
-      </div>
-    );
-  }
+  if (panel === 'test_history') return <TestHistoryPanel />;
 
   if (panel === 'worksheets') {
     // Real data: each row is a real Worksheet generation record (created
@@ -1199,20 +1146,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   }
 
 
-  if (panel === 'worksheet_templates') {
-    return (
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm space-y-4">
-        <PageHeader title="Worksheet Templates" desc="Pre-designed assessment templates for each grade and cycle" icon={<ClipboardList className="h-5 w-5" />} />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">{WS_TEMPLATES.map(t => (
-          <div key={t.id} className="border border-slate-200 dark:border-slate-700 rounded-lg p-4 space-y-2">
-            <div className="flex justify-between"><span className="font-bold text-sm">{t.name}</span><span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${t.status === 'Published' ? 'text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800' : t.status === 'Draft' ? 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800' : 'text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800'}`}>{t.status}</span></div>
-            <div className="text-xs text-slate-400 dark:text-slate-500">{t.id} · Grade: {t.grade}</div>
-            <div className="flex gap-3 text-xs text-slate-500 dark:text-slate-400"><span>📝 {t.questions} questions</span><span>⏱ {t.duration}</span></div>
-          </div>
-        ))}</div>
-      </div>
-    );
-  }
+  if (panel === 'worksheet_templates') return <WorksheetTemplatesPanel />;
 
   if (panel === 'content') {
     // Render the full 93-level FLN framework as cards, grouped by class
@@ -1364,39 +1298,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
     );
   }
 
-  if (panel === 'system_settings') {
-    return (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm space-y-4">
-          <PageHeader title="System Configuration" desc="Core platform settings and infrastructure" icon={<Settings className="h-5 w-5" />} />
-          <div className="space-y-3">{[
-            { label: 'Platform Name', value: 'National FLN Assessment Portal' },
-            { label: 'Version', value: 'v2.4.1 (Build 2026.07)' },
-            { label: 'Environment', value: 'Production' },
-            { label: 'Database', value: 'PostgreSQL 15.2 / Redis 7.0' },
-            { label: 'API Rate Limit', value: '1000 req/min per user' },
-            { label: 'Session Timeout', value: '120 minutes' },
-            { label: 'Auth Provider', value: 'Email + Password (SLA §3.2)' },
-            { label: 'AI Model', value: 'Gemini 1.5 Pro (Fine-tuned FLN)' },
-          ].map(c => (
-            <div key={c.label} className="flex justify-between text-sm py-2 border-b border-slate-50 dark:border-slate-800"><span className="text-slate-500 dark:text-slate-400">{c.label}</span><span className="font-medium text-slate-800 dark:text-slate-100 font-mono text-xs">{c.value}</span></div>
-          ))}</div>
-        </div>
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm space-y-4">
-          <PageHeader title="System Health" desc="Recent operational logs and status" icon={<Database className="h-5 w-5" />} />
-          <div className="space-y-2">{SYSTEM_LOGS_MOCK.map(l => (
-            <div key={l.action} className="flex items-center gap-3 p-2 border border-slate-100 dark:border-slate-700 rounded text-xs">
-              <span className={`w-2 h-2 rounded-full shrink-0 ${l.status === 'Success' ? 'bg-green-500' : l.status === 'Warning' ? 'bg-amber-500' : 'bg-red-500'}`} />
-              <span className="font-medium w-32">{l.action}</span>
-              <span className="text-slate-400 dark:text-slate-500 flex-1">{l.details}</span>
-              <span className="text-slate-400 dark:text-slate-500 font-mono">{l.timestamp}</span>
-            </div>
-          ))}</div>
-          <button className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 mt-2"><RefreshCw className="w-3 h-3" /> Refresh Status</button>
-        </div>
-      </div>
-    );
-  }
+  if (panel === 'system_settings') return <SystemSettingsPanel />;
 
   // Fallback for any unmatched panel — renders the roles workspace (dashboard) as the content
   return null;
