@@ -1,11 +1,10 @@
 import { apiFetch } from '../services/apiClient';
 import React, { useState, useEffect } from 'react';
 import { User, UserRole, Student, ClassGroup, School, Worksheet, LogEntry, Ticket } from '../types';
-import { Users, BookOpen, Calendar, ArrowRight, SlidersHorizontal, Layers, Award, MapPin, School as SchoolIcon, BarChart3, FileText, Building2, BookMarked, Globe, Settings, Database, RefreshCw, Search, ChevronDown } from 'lucide-react';
+import { Users, BookOpen, Calendar, ArrowRight, SlidersHorizontal, Layers, Award, MapPin, School as SchoolIcon, BarChart3, FileText, Building2, Globe, Settings, Database, RefreshCw, Search, ChevronDown } from 'lucide-react';
 import { Table, Column } from './Table';
 import { MetricCard } from './Card';
-import { STATE_NAMES, DISTRICT_NAMES, BLOCK_NAMES } from '../constants';
-import { FLN_LEVELS_LIST } from './RoleDashboards';
+import { DISTRICT_NAMES } from '../constants';
 import { usePanelData } from './panels/usePanelData';
 import { PageHeader, EmptyStudents } from './panels/PanelShared';
 import { handleDownloadPDF } from './panels/pdfReportGenerator';
@@ -21,6 +20,9 @@ import { AssignedSchoolsPanel } from './panels/AssignedSchoolsPanel';
 import { StudentProgressPanel } from './panels/StudentProgressPanel';
 import { AttendancePanel } from './panels/AttendancePanel';
 import { TeachersPanel } from './panels/TeachersPanel';
+import { SchoolsPanel } from './panels/SchoolsPanel';
+import { UsersPanel } from './panels/UsersPanel';
+import { ContentPanel } from './panels/ContentPanel';
 
 interface PanelViewsProps {
   activePanel: string;
@@ -38,10 +40,6 @@ const CONTENT_ITEMS = [
 ];
 
 export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser, token }) => {
-  const [search, setSearch] = useState('');
-  const [stateFilter, setStateFilter] = useState('all');
-  const [distFilter, setDistFilter] = useState('all');
-  const [blockFilter, setBlockFilter] = useState('all');
   const [sel, setSel] = useState('');
   const [profileTab, setProfileTab] = useState<'overview' | 'academic' | 'personal' | 'activity'>('overview');
   const [editingProfile, setEditingProfile] = useState(false);
@@ -52,8 +50,6 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   const [activityFilter, setActivityFilter] = useState<'all' | 'assessment' | 'level_change'>('all');
   const [expandedDistRpt, setExpandedDistRpt] = useState<string | null>(null);
   const [expandedDist, setExpandedDist] = useState<string | null>(null);
-  const [userRoleFilter, setUserRoleFilter] = useState('superadmin');
-  const [userSearch, setUserSearch] = useState('');
 
   const {
     students, schools, usersList, reportsList, worksheetsList, teachersList,
@@ -65,13 +61,6 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
       setSel(students[0].id);
     }
   }, [students, sel]);
-
-  const filteredSchools = schools.filter(s => {
-    if (stateFilter !== 'all' && s.stateCode !== stateFilter) return false;
-    if (distFilter !== 'all' && s.districtCode !== distFilter) return false;
-    if (blockFilter !== 'all' && s.blockCode !== blockFilter) return false;
-    return true;
-  });
 
   const panel = activePanel;
 
@@ -749,33 +738,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   if (panel === 'teachers' && (currentUser.role === UserRole.SCHOOL || currentUser.role === UserRole.BLOCK_ADMIN)) return <TeachersPanel schools={schools} teachersList={teachersList} currentUser={currentUser} />;
 
   // ===================== BLOCK/DISTRICT/STATE ADMIN + SUPERADMIN SHARED PANELS =====================
-  if (panel === 'schools') {
-    const uniqueStateCodes = Array.from(new Set(schools.map(s => s.stateCode))) as string[];
-    const stateOpts = uniqueStateCodes.sort().map(c => ({ code: c, name: STATE_NAMES[c] || c }));
-    const filteredByState = schools.filter(s => stateFilter === 'all' || s.stateCode === stateFilter);
-    const uniqueDistCodes = Array.from(new Set(filteredByState.map(s => s.districtCode))) as string[];
-    const distOpts = uniqueDistCodes.sort().map(c => ({ code: c, name: DISTRICT_NAMES[c] || c }));
-    const filteredByDist = filteredByState.filter(s => distFilter === 'all' || s.districtCode === distFilter);
-    const uniqueBlockCodes = Array.from(new Set(filteredByDist.map(s => s.blockCode))) as string[];
-    const blockOpts = uniqueBlockCodes.sort().map(c => ({ code: c, name: BLOCK_NAMES[c] || c }));
-    return (
-      <div className="space-y-6">
-        <div className="flex flex-wrap gap-3 items-end">
-          <div><label className="block text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">State</label><select value={stateFilter} onChange={e => { setStateFilter(e.target.value); setDistFilter('all'); setBlockFilter('all'); }} className="text-sm border border-slate-200 dark:border-slate-700 rounded-lg p-2 outline-none bg-white dark:bg-slate-800 text-slate-900 dark:text-white min-w-[180px]">{stateOpts.map(s => <option key={s.code} value={s.code}>{s.name} ({s.code})</option>)}<option value="all">All States</option></select></div>
-          <div><label className="block text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">District</label><select value={distFilter} onChange={e => { setDistFilter(e.target.value); setBlockFilter('all'); }} className="text-sm border border-slate-200 dark:border-slate-700 rounded-lg p-2 outline-none bg-white dark:bg-slate-800 text-slate-900 dark:text-white min-w-[180px]"><option value="all">All Districts</option>{distOpts.map(d => <option key={d.code} value={d.code}>{d.name} ({d.code})</option>)}</select></div>
-          <div><label className="block text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">Block</label><select value={blockFilter} onChange={e => setBlockFilter(e.target.value)} className="text-sm border border-slate-200 dark:border-slate-700 rounded-lg p-2 outline-none bg-white dark:bg-slate-800 text-slate-900 dark:text-white min-w-[180px]"><option value="all">All Blocks</option>{blockOpts.map(b => <option key={b.code} value={b.code}>{b.name} ({b.code})</option>)}</select></div>
-          <div className="text-xs text-slate-400 dark:text-slate-500 pb-1">Showing {filteredSchools.length} of {schools.length} schools</div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">{filteredSchools.map(s => (
-          <div key={s.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm space-y-2">
-            <div className="flex justify-between"><h4 className="font-bold text-slate-900 dark:text-white text-sm">{s.name}</h4><span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${s.strength === 'high' ? 'text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800' : 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800'}`}>{s.strength}</span></div>
-            <div className="text-xs text-slate-400 dark:text-slate-500">{STATE_NAMES[s.stateCode] || s.stateCode} &rsaquo; {DISTRICT_NAMES[s.districtCode] || s.districtCode} &rsaquo; {BLOCK_NAMES[s.blockCode] || s.blockCode}</div>
-            <div className="flex gap-4 text-xs pt-1 border-t border-slate-100 dark:border-slate-700"><span>👨‍🏫 {s.teachersCount} teachers</span><span className={s.isAccessLocked ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}>{s.isAccessLocked ? '🔒 Locked' : '🔓 Active'}</span></div>
-          </div>
-        ))}</div>
-      </div>
-    );
-  }
+  if (panel === 'schools') return <SchoolsPanel schools={schools} />;
 
   if (panel === 'districts') {
     const userState = currentUser.stateCode || 'PB';
@@ -878,196 +841,12 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
   }
 
   // ===================== SUPERADMIN PANELS =====================
-  if (panel === 'users') {
-    const roleLabel = (r: string) => r === 'superadmin' ? 'Super Admin' : r === 'admin' ? 'State Admin' : r === 'district_admin' ? 'District Admin' : r === 'block_admin' ? 'Block Admin' : r === 'school' ? 'Principal' : r === 'teacher' ? 'Teacher' : r === 'volunteer' ? 'Volunteer' : r;
-    const scopeLabel = (u: any) => u.stateCode ? [STATE_NAMES[u.stateCode] || u.stateCode, DISTRICT_NAMES[u.districtCode] || u.districtCode, BLOCK_NAMES[u.blockCode] || u.blockCode, u.schoolId].filter(Boolean).join(' › ') : 'National';
-
-    const userDisplayName = (u: any) => {
-      if (u.role === 'superadmin') return u.name;
-      if (u.role === 'admin') return `${STATE_NAMES[u.stateCode] || u.stateCode} State Admin`;
-      if (u.role === 'district_admin') return `${DISTRICT_NAMES[u.districtCode] || u.districtCode} District Admin`;
-      if (u.role === 'block_admin') return `${BLOCK_NAMES[u.blockCode] || u.blockCode} Block Admin`;
-      if (u.role === 'school') return `${u.name}`;
-      if (u.role === 'teacher') return `${u.name}`;
-      if (u.role === 'volunteer') return `${u.name}`;
-      return u.name;
-    };
-
-    const roleOrder = ['superadmin', 'admin', 'district_admin', 'block_admin', 'school', 'teacher', 'volunteer'];
-    const roleCounts = roleOrder.reduce((acc, r) => { acc[r] = usersList.filter((u: any) => u.role === r).length; return acc; }, {} as Record<string, number>);
-
-    const filteredUsers = usersList.filter((u: any) => {
-      if (userRoleFilter !== 'all' && u.role !== userRoleFilter) return false;
-      if (userSearch) {
-        const q = userSearch.toLowerCase();
-        const name = userDisplayName(u).toLowerCase();
-        const email = (u.email || '').toLowerCase();
-        if (!name.includes(q) && !email.includes(q)) return false;
-      }
-      return true;
-    });
-
-    const roleFilterLabel = (r: string) => {
-      if (r === 'superadmin') return 'Super Admin';
-      if (r === 'admin') return 'State Admin';
-      if (r === 'district_admin') return 'District Admin';
-      if (r === 'block_admin') return 'Block Admin';
-      if (r === 'school') return 'Principal';
-      if (r === 'teacher') return 'Teacher';
-      if (r === 'volunteer') return 'Volunteer';
-      return r;
-    };
-
-    return (
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm space-y-4">
-        <PageHeader title="User Management" desc={`All registered users across the FLN system (${usersList.length} total)`} icon={<Users className="h-5 w-5" />} />
-        <div className="flex flex-wrap gap-3 items-end">
-          <div>
-            <label className="block text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">Role</label>
-            <select value={userRoleFilter} onChange={e => setUserRoleFilter(e.target.value)} className="text-sm border border-slate-200 dark:border-slate-700 rounded-lg p-2 outline-none bg-white dark:bg-slate-800 text-slate-900 dark:text-white min-w-[160px]">
-              <option value="all">All Roles</option>
-              {roleOrder.filter(r => roleCounts[r] > 0).map(r => (
-                <option key={r} value={r}>{roleFilterLabel(r)} ({roleCounts[r]})</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 uppercase mb-1">Search</label>
-            <input type="text" value={userSearch} onChange={e => setUserSearch(e.target.value)} placeholder="Name or email..." className="text-sm border border-slate-200 dark:border-slate-700 rounded-lg p-2 outline-none bg-white dark:bg-slate-800 text-slate-900 dark:text-white min-w-[200px]" />
-          </div>
-          <div className="text-xs text-slate-400 dark:text-slate-500 pb-1">Showing {filteredUsers.length} of {usersList.length} users</div>
-        </div>
-        <div className="space-y-2">{filteredUsers.map((u: any) => (
-          <div key={u.email} className="flex justify-between items-center p-3 border border-slate-100 dark:border-slate-700 rounded-lg">
-            <div><div className="font-medium text-sm">{userDisplayName(u)}</div><div className="text-xs text-slate-400 dark:text-slate-500 font-mono">{u.email}</div></div>
-            <div className="flex items-center gap-3"><span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">{roleLabel(u.role)}</span><span className="text-xs text-slate-400 dark:text-slate-500">{scopeLabel(u)}</span><span className="text-[10px] font-mono font-bold text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-950 px-2 py-0.5 rounded border border-green-200 dark:border-green-800">Active</span></div>
-          </div>
-        ))}</div>
-      </div>
-    );
-  }
+  if (panel === 'users') return <UsersPanel usersList={usersList} />;
 
 
   if (panel === 'worksheet_templates') return <WorksheetTemplatesPanel />;
 
-  if (panel === 'content') {
-    // Render the full 93-level FLN framework as cards, grouped by class
-    // (Preschool 1/2/3 + Class 1/2/3/4). All data comes from
-    // FLN_LEVELS_LIST in RoleDashboards — no backend fetch needed since
-    // the worksheet HTML is generated on demand by the worksheet engine
-    // when the user clicks "Open" / "Print".
-    const [search, setSearch] = useState('');
-    const [classFilter, setClassFilter] = useState<string>('ALL');
-
-    const classOrder = ['Preschool 1', 'Preschool 2', 'Preschool 3', 'Class 1', 'Class 2', 'Class 3', 'Class 4'];
-    const classesPresent = Array.from(new Set(FLN_LEVELS_LIST.map(l => l.class)))
-      .sort((a, b) => classOrder.indexOf(a) - classOrder.indexOf(b));
-
-    const filtered = FLN_LEVELS_LIST.filter(l => {
-      if (classFilter !== 'ALL' && l.class !== classFilter) return false;
-      if (search) {
-        const q = search.toLowerCase();
-        return l.name.toLowerCase().includes(q) ||
-               l.strand.toLowerCase().includes(q) ||
-               String(l.id).includes(q);
-      }
-      return true;
-    });
-
-    return (
-      <div className="space-y-6">
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <BookMarked className="h-5 w-5" />
-                FLN Level Content Library
-              </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                All {FLN_LEVELS_LIST.length} FLN levels across {classesPresent.length} class groups.
-                Click a card to open the level's worksheet template.
-              </p>
-            </div>
-            <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search level name or strand..."
-                className="border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-lg px-3 py-2 text-xs w-full sm:w-64 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-              <select
-                value={classFilter}
-                onChange={(e) => setClassFilter(e.target.value)}
-                className="border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="ALL">All Classes ({FLN_LEVELS_LIST.length})</option>
-                {classesPresent.map(c => (
-                  <option key={c} value={c}>
-                    {c} ({FLN_LEVELS_LIST.filter(l => l.class === c).length})
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-1 text-[10px] font-mono">
-            {classOrder.filter(c => classesPresent.includes(c)).map(c => (
-              <button
-                key={c}
-                onClick={() => setClassFilter(c)}
-                className={`px-2.5 py-1 rounded-full border transition-colors ${
-                  classFilter === c
-                    ? 'bg-indigo-600 text-white border-indigo-600'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-400'
-                }`}
-              >
-                {c} · {FLN_LEVELS_LIST.filter(l => l.class === c).length}
-              </button>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 mt-6">
-            {filtered.map(level => (
-              <div
-                key={level.id}
-                className="text-left border border-slate-200 dark:border-slate-700 rounded-xl p-4 bg-gradient-to-br from-white to-slate-50 dark:from-slate-900 dark:to-slate-800"
-              >
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <span className="inline-block text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
-                    Level {level.id}
-                  </span>
-                  <span className="text-[9px] font-mono font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
-                    {level.class}
-                  </span>
-                </div>
-                <div className="text-sm font-semibold text-slate-800 dark:text-slate-100 leading-snug min-h-[2.5rem]">
-                  {level.name}
-                </div>
-                <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-700">
-                  <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate">
-                    {level.strand}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {filtered.length === 0 && (
-            <div className="text-center text-xs text-slate-400 dark:text-slate-500 py-12">
-              No levels match your search.
-            </div>
-          )}
-
-          {filtered.length > 0 && (
-            <div className="mt-4 text-[10px] font-mono text-slate-400 dark:text-slate-500 text-right">
-              Showing {filtered.length} of {FLN_LEVELS_LIST.length} levels
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
+  if (panel === 'content') return <ContentPanel />;
 
   if (panel === 'analytics') {
     const isAdmin = [UserRole.ADMIN, UserRole.DISTRICT_ADMIN, UserRole.BLOCK_ADMIN].includes(currentUser.role);
