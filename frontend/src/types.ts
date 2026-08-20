@@ -224,3 +224,9 @@ export interface BestPractice {
   viewCount: number;
   createdAt: string;
 }
+
+export interface DashboardProps {
+  user: User;
+  token: string;
+}
+

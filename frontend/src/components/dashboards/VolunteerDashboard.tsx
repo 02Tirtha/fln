@@ -4,7 +4,7 @@
 //this directory has been splitted from frontend/src/components/RoleDashboards.tsx for easy deployment
 import React, { useState, useEffect } from 'react';
 import { apiFetch, withBase } from '../../services/apiClient';
-import { User, Student, ClassGroup } from '../../types';
+import { User, Student, ClassGroup, DashboardProps } from '../../types';
 import { DiagnosticWorkflow } from '../DiagnosticWorkflow';
 import { BulkDiagnosticWorkflow } from '../BulkDiagnosticWorkflow';
 import { WorksheetWorkflow } from '../WorksheetWorkflow';
@@ -15,10 +15,6 @@ import { Table, Column } from '../Table';
 import { Layers as BulkIcon } from 'lucide-react';
 import { FLNLevelReferenceModal } from '../RoleDashboards';
 
-interface DashboardProps {
-  user: User;
-  token: string;
-}
 
 export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) => {
   const [classes, setClasses] = useState<ClassGroup[]>([]);
