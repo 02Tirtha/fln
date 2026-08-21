@@ -194,3 +194,39 @@ This corrects an earlier recommendation in this log to anchor on age. Two distin
 FLN certification is `actual ≥ benchmark for the enrolled grade`. The gap between the two is the platform's entire reason to exist, so the mapping must carry both rather than collapsing them.
 
 **OPEN 15 — do state FLN targets differ from the national Lakshya?** Established: states define state-level Lakshya and run their own branded missions (Mission Prerna in UP, Mission Ankur in MP, Utkarsh in Odisha, NIPUN Gujarat, NIPUN Meghalaya, Nipun Tripura), and at least the **timeline** varies — the Meghalaya document targets 2025 where the national mission targets 2026-27. **Not established:** whether the numeracy *competency targets* themselves differ numerically. State Lakshya documents were not accessible. Until resolved, build to the national Lakshya as the baseline and make the grade→level mapping **configurable per state** — states demonstrably localise, and retrofitting that later is far more expensive than allowing for it now.
+
+---
+
+## Entry: 2026-08-21c — L ↔ S crosswalk built; the two graphs disagree
+
+**Discovered while verifying that the shareable level-graph document contained nothing absent from the repo.** It does not — but the check surfaced that the repo already carries a **second, independent level graph, implemented in code**: `frontend/src/data/skillProgressionMap.ts` (713 lines, committed as "full 93-level mapping SK01–SK24 + dashboard panel"), backed by `docs/skill-graph/FLN_93_Level_Skill_Graph_Specification.md`. That file also explains the previously untraceable "27-level skill mapping" — its header states it *replaces the previous 27-level-only layer*.
+
+Full mapping in **`fln_L_to_S_crosswalk.md`** (+ `.json` for code use).
+
+**The node mapping is deterministic.** L-notation is the sequential flattening of S-notation: stage sizes match exactly (7/10/10/15/19/14/18 = 93) and the code's own `stageFor()` uses identical boundaries. `L(n)` is the n-th S-code in stage-then-index order. No judgement required.
+
+**The edge sets do not agree.** Translating the code's prerequisites into S-space:
+
+| | Count |
+|---|---|
+| Research documents | 104 |
+| Code (translated) | 124 |
+| **Agree the edge exists** | **58** |
+| Only in research docs | 46 |
+| Only in code | 66 |
+| Type disagreements among the 58 shared | 28 |
+
+**The two graphs would not produce the same diagnostic paper.**
+
+**Most consequential single disagreement:** `S3.3 → S4.1` (object-mediated → fully abstract numeral comparison). The research documents type it a **hard prerequisite** — it is the most load-bearing cross-chain edge in the graph and the one the Level-10 finding turned on. **The code types it `often_precedes`.** Under the code's typing, passing S4.1 would not license inferring S3.3, and apex selection returns a larger test set. A contradiction in the other direction: `S1.4 → S1.5` is co-occurring in the documents and `required_for_procedure` in the code.
+
+**A structural cause worth fixing on the code side:** the code stores one `relationshipType` per *level*, applied to all that level's prerequisites. A level with two prerequisites of genuinely different strength cannot currently be expressed.
+
+**Seven content divergences** (not wording) are listed in the crosswalk §2 — several move a concept a full year, e.g. the code puts tally marks and skip-counting-by-10 at Class 2 where the framework has them at Class 3, and names L32 "Tens and Ones" where the framework's S4.5 is deliberately face-value-only pre-conceptual.
+
+### OPEN — added by this round
+
+16. **Which notation survives.** These IDs will carry response data indefinitely; renaming later orphans the history. The mapping is deterministic either way, so this is a naming decision, not a research one.
+17. **Reconcile the two edge sets before the diagnostic ships.** 58 of ~150 agreement is not a detail — the apex set, and therefore the printed paper, depends on which graph is right.
+18. **Settle the seven content divergences** in the crosswalk §2.
+19. **Record the apex computation in the repo.** The per-grade minimum test sets (Bal Vatika 12, Class 1 18, Class 2 25, Class 3 26, Class 4 33 — roughly a 60% reduction) were computed from the edge data but exist nowhere in the repo. They are also invalidated by whichever edge reconciliation lands, so recompute after #17.
