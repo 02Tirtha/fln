@@ -115,9 +115,32 @@ The Foundational Stage document contradicts itself: Development Goal 1 heads its
 
 The mathematics section agrees with this framework (Stage 3 = Preschool 3 = Balvatika = age 5–6). **This must be pinned down explicitly in the grade-mapping work**, because reading Balvatika as Class 1 shifts every stage by a year.
 
-### Counting difficulty is language-dependent
+### Language: two separate problems, not one
 
-Miller et al. show teen-number irregularity is a real obstacle, and NIPUN Bharat mandates mother-tongue instruction. Hindi number names are considerably more irregular than English — most numbers to 100 are close to distinct words rather than compositional. The difficulty curve on the counting nodes (S2.5, S4.3) will therefore differ by language of instruction. Nothing in the framework currently accounts for this.
+**Problem 1 — literacy load on the page.** A child who cannot read the question cannot answer it, however good their numeracy. Foundational literacy and numeracy are coupled, and a text-heavy paper measures reading as much as arithmetic.
+
+**This is already handled by design decision:** papers are to be built with the least text possible, carrying meaning through objects and layout rather than sentences. That decision has independent support — the visual-worksheet evidence in the team's own research notes found that visuals help precisely because they reduce dependence on reading, and most strongly on the *harder* problem types.
+
+**Problem 2 — number naming, which minimal text does not solve.** Miller et al.'s finding is about **verbal counting**, not reading. A child counting seventeen objects sub-vocalises the count sequence in their own language regardless of how little text is printed. Removing text from the page does not remove the naming effect, because the effect operates on the child's internal count sequence.
+
+Two consequences for this framework:
+
+- **The teen-confusion examples in `Child_psychology.md` §8.3 are English-specific.** "13 vs 30, 15 vs 50" are confusable in English; तेरह and तीस are not confusable the same way. That difficulty note must not be applied universally across languages of instruction.
+- **Transparent number naming assists place value, and Hindi is opaque.** Chinese "ten-one" makes base-ten structure audible; Hindi "gyarah" does not. The place-value nodes (S4.5, S5.2, S6.1) may therefore be relatively harder for children in some mother tongues than the framework's uniform sequencing assumes.
+
+### Vernacular-medium assessment — a missing product requirement
+
+Separate from both of the above, and more consequential than either.
+
+NIPUN Bharat mandates mother-tongue instruction, and **FLS 2022 was administered in 20 languages** — that is the national benchmark for how a foundational assessment is conducted in India. An English-only paper administered to a mother-tongue-medium child measures English comprehension alongside numeracy, which is a **validity** problem, not only an equity one.
+
+Staged requirement, in the order it should be built:
+
+1. **Now** — minimise text on every paper; carry meaning through objects, layout and worked examples so that what is being asked is understood without reading a sentence.
+2. **Now** — instructions in English, since the alternative delays everything, but explicitly recorded as an interim position and not a final one.
+3. **Planned** — vernacular-medium instruction sets, with FLS 2022's 20 languages as the benchmark to work toward. This should be in the platform's roadmap, not discovered later during a field deployment.
+
+Nothing in the framework, the SRS or the PRD currently records this requirement.
 
 ---
 

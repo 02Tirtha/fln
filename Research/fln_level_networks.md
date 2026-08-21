@@ -55,7 +55,7 @@ Getting this typing right matters: running the inference logic over a sequence-o
 
 *Terminal hand-off:* S3.4/S3.5 don't get Class-1+ successors of their own — Class 1 onward absorbs comparison/classification into Chain B and Chain J rather than continuing as a standalone strand. Worth checking during the repo comparison whether the repo's levels make this same hand-off.
 
-### Chain B — Number Sense (the backbone; 28 nodes)
+### Chain B — Number Sense (the backbone; 29 nodes — grown from 28, see S7.15 below)
 
 The number-line nodes (S4.14, S5.18) are sequence-typed side branches with no prereq edge into or out of the main trunk — the number line supports and reinforces the surrounding counting/place-value work, but isn't itself a gate on it.
 
@@ -307,6 +307,49 @@ This cuts against the intuitive assumption that a stage with more levels (like S
 2. Build the placement core first: 1 item per non-backbone node, 2 items per backbone-chain (Chain B) node at that stage.
 3. If backward/forward checks and the difficulty-mix pass fit within the ceiling after the placement core, add them in this priority order — **backward checks on Chain B are cut last; forward checks are cut first** (missing a genuinely advanced child is lower-stakes than missing the ASER-documented reality that most children are behind, and the platform can catch acceleration at the *next* cycle instead): forward checks → difficulty-mix/misconception items → non-backbone backward checks → Chain-B backward checks.
 4. **Structural relief for the tight later-stage budget:** SRS's own 3-cycle design (Baseline = previous class's full syllabus, Mid-Year = previous + partial current, End-Year = previous + full current — SRS §1.4) already performs a full-coverage backward check once a year, at whatever stage a class's Baseline targets. A within-cycle diagnostic doesn't need to re-derive backward coverage from a handful of sampled items — Stage 6's own Baseline exam already **is** a complete backward check on Stage 5. This is what actually resolves the tight Class 3–4 budget: those stages' diagnostics can spend nearly their whole item ceiling on at-level anchors and forward checks, leaning on the Baseline cycle itself for backward coverage instead of squeezing it into the same sitting.
+
+---
+
+## Part 5 — Building the Sub-Skill Layer (method, added 2026-08-21)
+
+The 104 edges in Part 2 connect **levels**. The 179 sub-skills beneath them currently carry no edges at all. This was previously listed as a "gap"; it is not one. It is unstarted work with a known method, and **most of it needs no literature whatsoever.**
+
+Sub-skill edges fall into three kinds, and they should be built in this order.
+
+### Type 1 — Entailment edges (no literature, no judgement)
+
+Where one sub-skill's task set is a **strict subset** of another's, the edge is deductive. A child who reads four-digit numerals can read two-digit ones; passing the larger proves the smaller. These are not empirical claims and require no source:
+
+- `SK05.03 → SK05.04 → SK05.05 → SK05.06 → SK05.07` (count to 5 / 10 / 20 / 50 / 100)
+- `SK08.01 → SK08.06 → SK08.07 → SK08.08` (numerals 1–10 → to 99 → three-digit → four-digit)
+- `SK09.06 → SK09.07` (compare two-digit → three-digit)
+- `SK13.03 → SK13.06 → SK13.08 → SK13.09` (single-digit → two-digit → three-digit → multi-digit addition), and the parallel `SK14` subtraction ladder
+- `SK15.04 → SK15.05` (tables 2,3,4,5,10 → tables 2–10 — a literal superset)
+
+**These are also the strongest possible surmise relations**, which is exactly what apex selection needs. Magnitude and range ladders of this kind run through SK05, SK08–SK16, SK20 and SK21 and account for the majority of the 179.
+
+### Type 2 — Inherited edges (mechanical, no new research)
+
+Where two sub-skills map to **levels already joined by a verified edge in Part 2**, that edge projects downward. The justification has already been done at level granularity; nothing new is being claimed.
+
+This needs exactly one piece of work: a **sub-skill → level mapping table**. That is authoring, not research.
+
+### Type 3 — Genuinely empirical (needs evidence — from literature *or* from response data)
+
+The residue: orderings where neither entailment nor inheritance applies. Typically same-tier or cross-strand questions, e.g. does subitizing (SK07) precede cardinality (SK06)? Is "identify the odd object" (SK02.03) harder than "classify by multiple properties" (SK02.04)?
+
+Two routes, and **the second is the important one**:
+
+1. Existing literature — Clements & Sarama's trajectories already settle a number of the early-number cases.
+2. **The platform's own response data.** If children who pass X reliably also pass Y, but not the reverse, that *is* a surmise relation, discovered empirically. This is precisely what Knowledge Space Theory's own empirical validation does (the Basic Local Independence Model, `fln_source_verification_2026-08-21.md` §1).
+
+So Type 3 edges should be recorded as **hypotheses with a confidence flag**, and adjudicated by the level-revision feedback loop rather than argued about in advance.
+
+### Why this matters, and to what
+
+The **diagnostic does not need the sub-skill layer** — apex selection works on the 93-node graph as it stands.
+
+The **worksheet bundle does.** Without sub-skill edges, an evaluation can say "addition is weak" but not "regrouping is weak, two-digit addition is fine." Under a *teacher-absent* design the bundle has to start at the right rung and climb in steps a child can cross unaided, and that needs the finer resolution. The sub-skill layer is what blocks the teaching ladder, not the assessment ladder.
 
 ---
 
