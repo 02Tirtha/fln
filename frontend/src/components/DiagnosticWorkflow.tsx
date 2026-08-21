@@ -1,9 +1,10 @@
-import { apiFetch } from '../services/apiClient';
+import { apiFetch, withBase } from '../services/apiClient';
 import React, { useState } from 'react';
 import { Student, Question, EvaluationReport } from '../types';
 import { SvgLibraryResolver } from './SvgLibraryResolver';
 import { ChildErrorSignature } from './MisconceptionFingerprint';
 import { simulateWrongAnswer } from '../services/simulatedAnswers';
+import { ReasoningSection } from './EducationalReasoning';
 
 interface DiagnosticWorkflowProps {
   student: Student;
@@ -137,7 +138,7 @@ export const DiagnosticWorkflow: React.FC<DiagnosticWorkflowProps> = ({ student,
           <div className="lg:col-span-2 space-y-4">
             {pdfUrl && (
               <a
-                href={pdfUrl}
+                href={withBase(pdfUrl)}
                 target="_blank"
                 rel="noreferrer"
                 className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-medium text-sm py-3 px-6 rounded-xl shadow-md transition-all duration-200 border border-emerald-500/20 active:scale-[0.98]"
@@ -317,6 +318,12 @@ export const DiagnosticWorkflow: React.FC<DiagnosticWorkflowProps> = ({ student,
             <h4 className="text-xs font-mono font-bold uppercase text-zinc-400 dark:text-zinc-500">AI Narrative Feedback Summary</h4>
             <p className="text-zinc-700 dark:text-zinc-200 text-sm leading-relaxed">{report.narrative}</p>
           </div>
+
+          {/* Educational Reasoning, including the Prerequisite Learning Path.
+              Rendered straight from the backend-generated EvaluationReport that
+              /api/students/:id/diagnostic/submit already returned — no second
+              request and no prerequisite computation in the browser. */}
+          {report.reasoning && <ReasoningSection report={report} />}
 
           {/*
             The other half of the same submission: the narrative above says what

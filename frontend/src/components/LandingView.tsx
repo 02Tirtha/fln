@@ -234,25 +234,28 @@ export const LandingView: React.FC<LandingViewProps> = ({ onNavigateToLogin, isL
                 Curriculum Integration
               </h3>
               <p className="mt-3 text-sm leading-relaxed text-gray-500 dark:text-slate-300">
-                Our unified model defines 93 cumulative proficiency levels mapped precisely to Class 1, 2, 3, and 4 standards across foundational numeracy strands. Utilizing a specialized evaluation system, we generate diagnostic assessments on demand to pinpoint students' exact gaps.
+                Our model places every student on a proficiency ladder that reflects the real difficulty of each topic, mapped to Class 1, 2, 3, and 4 standards across foundational numeracy strands. Utilizing a specialized evaluation system, we generate diagnostic assessments on demand to pinpoint students' exact gaps.
               </p>
             </div>
           </div>
         </div>
 
-        {/* NCERT / ASER quotes */}
+        {/* Assessment cycle order */}
         <div className="mt-12 grid grid-cols-1 gap-6 sm:grid-cols-3">
           <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-5 text-center shadow-sm dark:shadow-slate-950/50">
-            <p className="italic text-gray-500 dark:text-slate-400">"The standard ASER parameters highlight the importance of assessing child learning based on true competency milestones."</p>
-            <p className="mt-3 text-xs font-bold text-indigo-600 dark:text-indigo-400">— ASER Center</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">Cycle 1</p>
+            <p className="mt-2 font-semibold text-gray-900 dark:text-white">Baseline</p>
+            <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">Initial placement to identify each student's starting level.</p>
           </div>
           <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-5 text-center shadow-sm dark:shadow-slate-950/50">
-            <p className="italic text-gray-500 dark:text-slate-400">"Universal acquisition of foundational numeracy is a prerequisite for any meaningful learning journey."</p>
-            <p className="mt-3 text-xs font-bold text-emerald-600 dark:text-emerald-400">— Foundational Learning Framework</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Cycle 2</p>
+            <p className="mt-2 font-semibold text-gray-900 dark:text-white">Mid-year</p>
+            <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">Progress check to track growth and adjust remediation.</p>
           </div>
           <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-5 text-center shadow-sm dark:shadow-slate-950/50">
-            <p className="italic text-gray-500 dark:text-slate-400">"Adaptive worksheet pacing allows teachers to deliver remediation targeted directly to the child's true sub-level (.0/.1/.2)."</p>
-            <p className="mt-3 text-xs font-bold text-amber-600 dark:text-amber-400">— FLN National Guidelines</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">Cycle 3</p>
+            <p className="mt-2 font-semibold text-gray-900 dark:text-white">End-of-year</p>
+            <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">Final assessment to confirm outcomes for the year.</p>
           </div>
         </div>
       </main>
@@ -263,14 +266,6 @@ export const LandingView: React.FC<LandingViewProps> = ({ onNavigateToLogin, isL
           <div className="text-left">
             <p>© 2026 FLN Assessment Platform. Handcrafted for educational diagnostics.</p>
             <p className="mt-1 text-slate-500 dark:text-slate-500">Technical Support & Platform Host: Secure Education Services.</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="rounded bg-gray-800 dark:bg-slate-800 text-amber-400 dark:text-amber-400 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider">
-              Digital Initiative
-            </span>
-            <span className="rounded bg-gray-800 dark:bg-slate-800 text-emerald-400 dark:text-emerald-400 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider">
-              Hosted
-            </span>
           </div>
         </div>
       </footer>

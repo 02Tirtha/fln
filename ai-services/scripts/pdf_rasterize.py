@@ -34,7 +34,11 @@ def main():
     output = Path(args.output)
 
     try:
-        import fitz  # PyMuPDF
+        # Import under the `pymupdf` name rather than the legacy `fitz` alias —
+        # importing as `fitz` prints a deprecation warning to stdout, and this
+        # script's stdout is strictly JSON-parsed by the Node caller, so any
+        # extra stdout line breaks that parse.
+        import pymupdf as fitz
     except ImportError as e:
         print(json.dumps({
             "success": False,
