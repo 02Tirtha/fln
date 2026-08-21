@@ -106,4 +106,26 @@ export function registerTeacherRoutes(app: express.Express) {
       data: { teacherId, firstName, lastName, email: newTeacher.email },
     });
   });
+
+  // Issue #182: a teacher's own bulk-request history — what type of test/
+  // worksheet she's requested, when, and for how many students. A teacher
+  // can always see her own history; admin-tier roles can look up any
+  // teacher's for oversight.
+  app.get('/api/teachers/:id/test-history', async (req, res) => {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+    const targetId = req.params.id;
+    const isSelf = user.id === targetId;
+    const isOversight = [
+      UserRole.SUPERADMIN, UserRole.ADMIN, UserRole.DISTRICT_ADMIN,
+      UserRole.BLOCK_ADMIN, UserRole.SCHOOL,
+    ].includes(user.role);
+    if (!isSelf && !isOversight) {
+      return res.status(403).json({ error: 'Forbidden.' });
+    }
+
+    const history = await dbStore.getTestHistory(targetId);
+    res.json(history);
+  });
 }
