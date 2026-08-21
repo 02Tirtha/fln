@@ -450,7 +450,7 @@ export const VolunteerDashboard: React.FC<DashboardProps> = ({ user, token }) =>
             <div className="p-4">
               {(() => {
                 const studentColumns: Column<Student>[] = [
-                  { header: 'ID', accessor: 'id', sortKey: 'id', className: 'font-mono text-xs text-slate-400 dark:text-slate-500' },
+                  { header: 'ID', accessor: (s) => s.displayId || s.id, sortKey: 'id', className: 'font-mono text-xs text-slate-400 dark:text-slate-500' },
                   { header: 'Student Name', accessor: 'name', sortKey: 'name', className: 'font-medium text-slate-900 dark:text-slate-100' },
                   {
                     header: 'Current Level',

@@ -53,6 +53,11 @@ export interface Student {
   currentSubLevel?: number | null;
   targetLevel: number | null;
   aadharMasked: string;
+  // Clean numeric ID for teacher-facing display — use this instead of `id`
+  // anywhere a teacher/principal/admin sees a student ID (roster, profile,
+  // printed worksheets). Falls back to `id` only for older records that
+  // predate this field.
+  displayId?: string;
   levelHistory: { level: number; subLevel?: number; date: string; reason: string }[];
   streak: number;
   gender?: 'Male' | 'Female' | 'Other';

@@ -9,6 +9,7 @@ import { evaluateAIDiagnostic } from '../gemini';
 import { AI_SERVICES_DIR, PYTHON_BIN } from '../config';
 import { resolvePrerequisites, describeConcept } from '../competencyPrerequisites';
 import { CURRICULUM_MAPPING } from '../config/curriculumMap';
+import { computeStudentDisplayId } from '../displayId';
 
 export function registerStudentRoutes(app: express.Express) {
   // Students
@@ -188,12 +189,36 @@ export function registerStudentRoutes(app: express.Express) {
       return { error: 'A student with this Aadhar / ID number is already registered.' };
     }
 
+    // Derive the clean numeric display ID (#184) from the school's geo hierarchy
+    // and this student's sequence within their class at this school. Falls back
+    // to zeroed segments if the school record can't be found — should not
+    // happen given schoolId was already required above, but a missing display
+    // ID must never block student creation.
+    const trimmedClassGroup = String(classGroup).trim();
+    const trimmedSection = String(section).trim();
+    let displayId: string | undefined;
+    const school = (await dbStore.getSchools()).find(sc => sc.id === schoolId);
+    if (school) {
+      const classmates = (await dbStore.getStudents({ schoolId })).filter(
+        s => s.classGroup === trimmedClassGroup && s.section === trimmedSection
+      );
+      displayId = computeStudentDisplayId({
+        stateCode: school.stateCode,
+        districtCode: school.districtCode,
+        blockCode: school.blockCode,
+        schoolId: school.id,
+        classGroup: trimmedClassGroup,
+        sequenceInClass: classmates.length + 1,
+      });
+    }
+
     const newStudent: Student = {
       id: 'STD_' + Math.floor(10000 + Math.random() * 90000),
+      displayId,
       name: String(name).trim(),
       age,
-      classGroup: String(classGroup).trim(),
-      section: String(section).trim(),
+      classGroup: trimmedClassGroup,
+      section: trimmedSection,
       schoolId,
       currentLevel: null,
       currentSubLevel: null,
