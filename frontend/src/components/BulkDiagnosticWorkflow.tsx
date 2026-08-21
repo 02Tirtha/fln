@@ -7,7 +7,10 @@ interface BulkDiagnosticWorkflowProps {
   user: any;
   token: string;
   userRole: UserRole;
-  onBack: () => void;
+  // Optional so this can be embedded inline (e.g. issue #175's Diagnostic
+  // Test panel) without the standalone "Back to Dashboard" header — pass it
+  // only when this is used as its own full-screen step.
+  onBack?: () => void;
 }
 
 interface JobStatus {
@@ -150,12 +153,14 @@ export const BulkDiagnosticWorkflow: React.FC<BulkDiagnosticWorkflowProps> = ({ 
             Specify the class level and the number of students to generate and print baseline diagnostic papers
           </p>
         </div>
-        <button
-          onClick={onBack}
-          className="text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 font-medium text-sm border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
-        >
-          Back to Dashboard
-        </button>
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 font-medium text-sm border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800 px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+          >
+            Back to Dashboard
+          </button>
+        )}
       </div>
 
       {error && (

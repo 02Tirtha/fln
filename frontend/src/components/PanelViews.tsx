@@ -65,7 +65,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
 
   if (panel === 'student_profile') return <StudentProfilePanel students={students} schools={schools} reportsList={reportsList} currentUser={currentUser} token={token} updateStudentLocally={updateStudentLocally} />;
 
-  if (panel === 'diagnostic_test') return <DiagnosticTestPanel students={students} />;
+  if (panel === 'diagnostic_test') return <DiagnosticTestPanel students={students} currentUser={currentUser} token={token} refreshStudents={refreshStudents} />;
 
   if (panel === 'adaptive_test') return <AdaptiveTestPanel />;
 
