@@ -21,6 +21,25 @@ export const StudentListPanel: React.FC<StudentListPanelProps> = ({
 }) => {
   const isTeacherOrVolunteer = currentUser.role === UserRole.TEACHER || currentUser.role === UserRole.VOLUNTEER;
 
+  // Issue #173: class-wise subtabs instead of one flat mixed list. Derived
+  // directly from the students already loaded (already scoped to this
+  // teacher/volunteer's own roster server-side) rather than a separate
+  // classes fetch — same source of truth, one less request.
+  const classTabs = React.useMemo(() => {
+    const seen = new Map<string, { classGroup: string; section: string }>();
+    students.forEach(s => {
+      const key = `${s.classGroup}|${s.section}`;
+      if (!seen.has(key)) seen.set(key, { classGroup: s.classGroup, section: s.section });
+    });
+    return Array.from(seen.values()).sort((a, b) =>
+      a.classGroup === b.classGroup ? a.section.localeCompare(b.section) : a.classGroup.localeCompare(b.classGroup)
+    );
+  }, [students]);
+  const [activeTab, setActiveTab] = useState<string>('all');
+  const visibleStudents = activeTab === 'all'
+    ? students
+    : students.filter(s => `${s.classGroup}|${s.section}` === activeTab);
+
   // Student registration states
   const [showAddForm, setShowAddForm] = useState(false);
   const [showCsvImport, setShowCsvImport] = useState(false);
@@ -356,7 +375,35 @@ export const StudentListPanel: React.FC<StudentListPanelProps> = ({
           </div>
         )}
 
-        <EmptyStudents students={students} />
+        {classTabs.length > 1 && (
+          <div className="flex gap-2 border-b border-slate-200 dark:border-slate-700 pb-px overflow-x-auto">
+            <button
+              onClick={() => setActiveTab('all')}
+              className={`px-4 py-2 text-sm font-display font-medium border-b-2 whitespace-nowrap transition-all ${
+                activeTab === 'all' ? 'border-slate-900 dark:border-white text-slate-900 dark:text-white font-semibold' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+              }`}
+            >
+              All Students ({students.length})
+            </button>
+            {classTabs.map(c => {
+              const key = `${c.classGroup}|${c.section}`;
+              const count = students.filter(s => s.classGroup === c.classGroup && s.section === c.section).length;
+              return (
+                <button
+                  key={key}
+                  onClick={() => setActiveTab(key)}
+                  className={`px-4 py-2 text-sm font-display font-medium border-b-2 whitespace-nowrap transition-all ${
+                    activeTab === key ? 'border-slate-900 dark:border-white text-slate-900 dark:text-white font-semibold' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                  }`}
+                >
+                  {c.classGroup} - {c.section} ({count})
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        <EmptyStudents students={visibleStudents} />
       </div>
     </div>
   );
