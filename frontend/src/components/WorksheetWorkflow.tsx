@@ -291,7 +291,7 @@ export const WorksheetWorkflow: React.FC<WorksheetWorkflowProps> = ({ classGroup
                       <div className="flex justify-between items-center border-b border-zinc-200 dark:border-zinc-700 pb-3">
                         <div>
                           <h5 className="font-display font-bold text-zinc-900 dark:text-white uppercase text-sm tracking-tight">{student.name}</h5>
-                          <p className="text-[10px] font-mono text-zinc-400 dark:text-zinc-500">Student ID: {student.id} · Target Level: Level {student.targetLevel !== null && student.targetLevel !== undefined ? student.targetLevel : 'Not Assessed'}</p>
+                          <p className="text-[10px] font-mono text-zinc-400 dark:text-zinc-500">Student ID: {student.displayId || student.id} · Target Level: Level {student.targetLevel !== null && student.targetLevel !== undefined ? student.targetLevel : 'Not Assessed'}</p>
                         </div>
                         <div className="text-right">
                           <span className="text-xs font-mono font-bold uppercase bg-zinc-100 dark:bg-zinc-800 px-2.5 py-1 rounded border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300">

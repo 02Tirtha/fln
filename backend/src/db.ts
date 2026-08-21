@@ -109,6 +109,12 @@ export interface Student {
   currentSubLevel?: number | null;
   targetLevel: number | null;
   aadharMasked: string; // Mandatory, unique identifier masked (§13.2 R-6)
+  // Clean numeric ID for teacher-facing display (roster, profile, printed
+  // worksheets) — see backend/src/displayId.ts. Derived from the same
+  // non-sensitive state/district/block/school/class/sequence hierarchy
+  // already encoded in `id`, just reformatted to be readable/printable.
+  // Never used as a lookup key — `id` remains the only internal identifier.
+  displayId?: string;
   levelHistory: { level: number; subLevel?: number; date: string; reason: string }[];
   assignedDiagnosticQuestions?: Question[];
   // Extended profile — optional, filled in by the student's own school/teacher.

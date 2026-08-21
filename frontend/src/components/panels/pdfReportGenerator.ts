@@ -58,7 +58,7 @@ export const handleDownloadPDF = (student: Student, r: EvaluationReport) => {
 
         <div class="student-info">
           <div class="info-item">Student Name: <strong>${student.name}</strong></div>
-          <div class="info-item">Student ID: <strong>${student.id}</strong></div>
+          <div class="info-item">Student ID: <strong>${student.displayId || student.id}</strong></div>
           <div class="info-item">Class / Section: <strong>${student.classGroup} - ${student.section}</strong></div>
           <div class="info-item">Report Date: <strong>${new Date(r.timestamp).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</strong></div>
         </div>
