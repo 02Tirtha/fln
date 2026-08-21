@@ -2,6 +2,7 @@ import { apiFetch, withBase } from '../services/apiClient';
 import React, { useState } from 'react';
 import { Student, Question, EvaluationReport } from '../types';
 import { SvgLibraryResolver } from './SvgLibraryResolver';
+import { ReasoningSection } from './EducationalReasoning';
 
 interface DiagnosticWorkflowProps {
   student: Student;
@@ -302,6 +303,12 @@ export const DiagnosticWorkflow: React.FC<DiagnosticWorkflowProps> = ({ student,
             <h4 className="text-xs font-mono font-bold uppercase text-zinc-400 dark:text-zinc-500">AI Narrative Feedback Summary</h4>
             <p className="text-zinc-700 dark:text-zinc-200 text-sm leading-relaxed">{report.narrative}</p>
           </div>
+
+          {/* Educational Reasoning, including the Prerequisite Learning Path.
+              Rendered straight from the backend-generated EvaluationReport that
+              /api/students/:id/diagnostic/submit already returned — no second
+              request and no prerequisite computation in the browser. */}
+          {report.reasoning && <ReasoningSection report={report} />}
 
           <button
             onClick={onComplete}

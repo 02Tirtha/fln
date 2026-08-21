@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import bcrypt from 'bcrypt';
 import { MongoClient, Db } from 'mongodb';
+import { CURRICULUM_MAPPING } from './config/curriculumMap';
 
 const DB_DIR = path.resolve(process.cwd(), 'data');
 const DB_FILE = path.resolve(DB_DIR, 'db.json');
@@ -252,17 +253,105 @@ export interface AnswerSubmission {
   answers: { [questionId: string]: string }; // Q1 -> A, Q2 -> 5, etc.
 }
 
+export type ConfidenceLevel = 'Very High' | 'High' | 'Moderate' | 'Low';
+
+export interface TeacherActionPlanStep {
+  week: number;
+  title: string;
+  topics: string[];
+}
+
+export interface PrerequisitePath {
+  weakConcepts: string[];
+  highPriorityFoundations: string[];
+  supportingSkills: string[];
+  actionPlan: TeacherActionPlanStep[];
+}
+
+export interface EvaluationReasoning {
+  explanation: {
+    headline: string;
+    narrative: string;
+  };
+  conceptMastery: { [topic: string]: 'Strong' | 'Needs Practice' | 'Satisfactory' };
+  confidence?: {
+    score: number;
+    level: ConfidenceLevel;
+    explanation: string;
+  };
+  learningProgression: {
+    currentLevel: number;
+    currentLevelName: string;
+    currentStrand: string;
+    nextMilestone: { level: number; name: string; strand: string } | null;
+    blockers: { topic: string; questionId?: string; errorType?: string }[];
+    recommendations: string[];
+  };
+  // Phase 5: Prerequisite Learning Path. Built from the same questionResults
+  // array that powers the rest of the reasoning payload, so the only source
+  // of truth is the submitted paper's correctness.
+  prerequisitePath?: PrerequisitePath;
+  prerequisiteLearningPath?: {
+    highPriorityFoundations: string[];
+    supportingSkills: string[];
+    affectedCompetencies: string[];
+    remediationSequence: string[];
+  };
+  evidence?: {
+    assessedTopics: string[];
+    strongestConcepts: string[];
+    weakestConcepts: string[];
+    failedQuestionSummary: {
+      total: number;
+      byLevel: { level: number; name: string | null; count: number; pipelineReported?: boolean }[];
+      byTopic: { topic: string; count: number }[];
+    };
+    difficultyBreakdown?: {
+      easy: { correct: number; attempted: number };
+      medium: { correct: number; attempted: number };
+      hard: { correct: number; attempted: number };
+    };
+    conceptMastery: { [topic: string]: 'Strong' | 'Needs Practice' | 'Satisfactory' };
+  };
+  remediation?: {
+    reusedFailedQuestions: number;
+    newlyIntroducedCurriculum: number;
+    remediationReason: string;
+    targetClass: number | null;
+    targetPhrase: string | null;
+  };
+  curriculumSummary?: {
+    currentLevelName: string;
+    currentObjective: string;
+    currentLearningOutcome: string[];
+    currentTopics: string[];
+    nextLevelName: string | null;
+    nextObjective: string | null;
+    transitionReason: string;
+  };
+  personalized?: {
+    failedQuestionsReused: number;
+    newLevelQuestionsAdded: number;
+    targetPhrase: string | null;
+    targetClass: number | null;
+    rationale: string;
+  };
+}
+
 export interface EvaluationReport {
   id: string;
   studentId: string;
   worksheetId: string;
   score: number;
   totalQuestions: number;
+  totalCorrect?: number;
+  wrongCount?: number;
   conceptMastery: { [topic: string]: 'Strong' | 'Needs Practice' | 'Satisfactory' };
   narrative: string; // Narrative summary for parent/teacher
   recommendedLevel: number;
   recommendedSubLevel?: number;
   timestamp: string;
+  reasoning?: EvaluationReasoning;
 }
 
 export interface Ticket {
@@ -829,6 +918,42 @@ export class DBStore {
           });
         }
       }
+
+      if (qDoc) {
+        questions.push({
+          question_id: `Q_L${lvl}_${qDoc.questionNumber || (lvl - minLevel + 1)}`,
+          question: qDoc.questionText || qDoc.question || `Level ${lvl} Problem`,
+          answer: String(qDoc.answer || '').trim(),
+          answer_type: 'number',
+          topic: qDoc.levelTitle || `Level ${lvl}`,
+          subtopic: qDoc.section || `Section ${lvl}.0`,
+          difficulty: 'medium',
+          source_level: lvl,
+          // Authoritative concept identity for this curriculum level. Metadata
+          // only — it does not affect the question, its answer or its level.
+          conceptId: CURRICULUM_MAPPING[lvl]?.conceptId
+        });
+      } else {
+        const a = lvl * 2;
+        const b = lvl;
+        questions.push({
+          question_id: `Q_L${lvl}_1`,
+          question: `Level ${lvl}: Calculate ${a} + ${b} = ?`,
+          answer: String(a + b),
+          answer_type: 'number',
+          // Mirror the qDoc branch above: derive the topic string from the
+          // canonical CURRICULUM_MAPPING entry (e.g. "Flexible
+          // Classification" for level 22). Without this, the offline
+          // fallback produced a misleading placeholder ("Level 22 Number
+          // Operations") that the Python pipeline rendered verbatim,
+          // making the narrative disagree with the paper's conceptId.
+          topic: CURRICULUM_MAPPING[lvl]?.levelTitle || `Level ${lvl}`,
+          subtopic: `Addition`,
+          difficulty: 'medium',
+          source_level: lvl,
+          // Same authoritative concept identity on the offline fallback item.
+          conceptId: CURRICULUM_MAPPING[lvl]?.conceptId
+        });
       if (studentId && questions.length > 0) {
         await this.assignDiagnosticPaperToStudent(studentId, questions);
       }
@@ -875,39 +1000,16 @@ export class DBStore {
       return await this.generateClassPaperFromAtlas(studentId, classNumber);
     }
 
-    /**
-     * Three-tier lookup for ICR grading:
-     *   1. if jobId provided  → diagnostic_answer_keys collection  (most accurate: the printed paper)
-     *   2. else               → students.assignedDiagnosticQuestions (the teacher's most recent assignment)
-     *   3. else               → class-correct generator (L28-L42 / L43-L61 / L62-L75 / L76-L93)
-     *
-     * Returns { questions, source } where source tells the caller which tier answered.
-     */
-    async getStudentPaperForGrading(
-      studentId: string,
-      classNumber: number,
-      jobId?: string
-    ): Promise<{ questions: Question[]; source: 'answer_key' | 'assigned' | 'generated' }> {
-      if (jobId) {
-        const answerKeyDoc = await this.getStudentDiagnosticAnswerKey(studentId, jobId);
-        if (answerKeyDoc && Array.isArray(answerKeyDoc.questions) && answerKeyDoc.questions.length > 0) {
-          return { questions: answerKeyDoc.questions as Question[], source: 'answer_key' };
-        }
-      }
-      // Tier 2: student.assignedDiagnosticQuestions
-      let student: Student | null = null;
-      if (this.mongoDb) {
-        student = await this.mongoDb.collection<Student>('students').findOne({ id: studentId });
-      }
-      if (!student && this.data && this.data.students) {
-        student = this.data.students.find(s => s.id === studentId) || null;
-      }
-      if (student && Array.isArray(student.assignedDiagnosticQuestions) && student.assignedDiagnosticQuestions.length > 0) {
-        return { questions: student.assignedDiagnosticQuestions, source: 'assigned' };
-      }
-      // Tier 3: class-correct generator
-      const generated = await this.generateClassPaperFromAtlas(studentId, classNumber);
-      return { questions: generated, source: 'generated' };
+    // Only reuse a cached paper that still carries the curriculum identity
+    // (conceptId on every question). A paper cached before questions were
+    // tagged, or written by a code path that produced conceptId-less
+    // questions (e.g. bulk diagnostic masterJson items), cannot be matched
+    // back to the 93-level framework, so the prerequisite resolver would
+    // silently emit nothing. Treating such a paper as absent makes
+    // generateClass2PaperFromAtlas regenerate it on demand.
+    const cached = student?.assignedDiagnosticQuestions;
+    if (cached && cached.length > 0 && cached.every(q => q.conceptId)) {
+      return cached;
     }
   async getAnswerSubmissions() {
     if (this.mongoDb) return await this.mongoDb.collection<AnswerSubmission>('answerSubmissions').find({}).toArray();
