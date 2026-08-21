@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
 import { dbStore, EvaluationReport, Student, AnswerSubmission, UserRole, CYCLE_NAMES } from '../db';
-import { getAuthUser } from '../auth';
+import { getAuthUser, canAccessStudent } from '../auth';
 import { evaluateAIWorksheet } from '../gemini';
 import { PYTHON_BIN, AI_SERVICES_DIR } from '../config';
 
@@ -382,6 +382,7 @@ export function registerEvaluationRoutes(app: express.Express) {
         const diagQuestions = await dbStore.getStudentAssignedQuestions(student.id, classNumber);
         const totalQ = (diagQuestions && diagQuestions.length > 0) ? diagQuestions.length : 10;
         const extractedAnswers: Record<string, string> = {};
+        const extractedCorrectness: Record<string, boolean> = {};
         let score = 0;
 
         if (diagQuestions.length === 0) {
@@ -391,6 +392,7 @@ export function registerEvaluationRoutes(app: express.Express) {
             const digitIndex = (sIdx * 10) + (i - 1);
             const val = realDigits[digitIndex] !== undefined ? String(realDigits[digitIndex]) : String(i * 2);
             extractedAnswers[qId] = val;
+            extractedCorrectness[qId] = true;
             score++;
           }
         } else {
@@ -403,13 +405,14 @@ export function registerEvaluationRoutes(app: express.Express) {
 
             if (extractedDigit !== null) {
               extractedAnswers[q.question_id] = extractedDigit;
-              if (extractedDigit === String(q.answer).trim()) {
-                score++;
-              }
+              const isCorrect = extractedDigit === String(q.answer).trim();
+              extractedCorrectness[q.question_id] = isCorrect;
+              if (isCorrect) score++;
             } else {
               // Fallback match check against raw OCR text
               const textMatch = rawOcrText.includes(String(q.answer).trim());
               extractedAnswers[q.question_id] = textMatch ? String(q.answer).trim() : String(q.answer).trim();
+              extractedCorrectness[q.question_id] = textMatch;
               if (textMatch) score++;
             }
           });
@@ -447,7 +450,16 @@ export function registerEvaluationRoutes(app: express.Express) {
           narrative: `ICR EasyOCR Answer Sheet Evaluation complete for ${student.name}. Score: ${score}/${diagQuestions.length} (${percentage}%). Assessed at Level ${recommendedLevel}.${subLevel}. Raw OCR: "${rawOcrText.slice(0, 60)}"`,
           recommendedLevel,
           recommendedSubLevel: subLevel,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          // Issue #180: per-question breakdown so a teacher can later correct
+          // individual mis-scanned answers via the override endpoint.
+          questionResults: diagQuestions.length > 0
+            ? diagQuestions.map(q => ({
+                questionId: q.question_id,
+                submittedAnswer: extractedAnswers[q.question_id] ?? '',
+                isCorrect: extractedCorrectness[q.question_id] ?? false,
+              }))
+            : undefined,
         };
 
         await dbStore.addEvaluationReport(report);
@@ -1151,7 +1163,14 @@ export function registerEvaluationRoutes(app: express.Express) {
       narrative: evaluation.narrative,
       recommendedLevel: evaluation.recommendedLevel,
       recommendedSubLevel: newSubLevel,
-      timestamp: now.toISOString()
+      timestamp: now.toISOString(),
+      // Issue #180: per-question breakdown so a teacher can later correct
+      // individual mis-scanned answers via the override endpoint.
+      questionResults: studentQuestions.map(q => ({
+        questionId: q.question_id,
+        submittedAnswer: answers[q.question_id] || '',
+        isCorrect: (answers[q.question_id] || '').trim().toLowerCase() === q.answer.trim().toLowerCase(),
+      })),
     };
 
     await dbStore.addEvaluationReport(report);
@@ -1297,5 +1316,97 @@ export function registerEvaluationRoutes(app: express.Express) {
     const reps = await dbStore.getEvaluationReports();
     const filtered = reps.filter(r => r.studentId === req.params.studentId);
     res.json(filtered);
+  });
+
+  // Issue #180: teacher-override/confirm endpoint for post-ICR answer
+  // correction. Lets a teacher submit corrections to a scanned-and-graded
+  // answer sheet before it's treated as final, and recalculates the
+  // downstream data (score, recommended level, the student's current
+  // placement) that was originally derived from the wrong verdict.
+  app.patch('/api/evaluation/:reportId/override', async (req, res) => {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+    const report = await dbStore.getEvaluationReportById(req.params.reportId);
+    if (!report) return res.status(404).json({ error: 'Evaluation report not found.' });
+
+    const student = await dbStore.getStudentById(report.studentId);
+    if (!student) return res.status(404).json({ error: 'Student not found.' });
+    if (!canAccessStudent(user, student)) return res.status(403).json({ error: 'Forbidden.' });
+
+    if (!report.questionResults || report.questionResults.length === 0) {
+      return res.status(400).json({
+        error: 'This report has no per-question breakdown to correct — it predates the override feature or came from a path that doesn\'t record one.',
+      });
+    }
+
+    const { corrections } = req.body as {
+      corrections: { questionId: string; isCorrect: boolean; correctedAnswer?: string }[];
+    };
+    if (!Array.isArray(corrections) || corrections.length === 0) {
+      return res.status(400).json({ error: '`corrections` must be a non-empty array.' });
+    }
+
+    const knownIds = new Set(report.questionResults.map(q => q.questionId));
+    const unknownIds = corrections.filter(c => !knownIds.has(c.questionId)).map(c => c.questionId);
+    if (unknownIds.length > 0) {
+      return res.status(400).json({ error: `Unknown questionId(s) for this report: ${unknownIds.join(', ')}` });
+    }
+
+    const correctionMap = new Map(corrections.map(c => [c.questionId, c]));
+    const updatedQuestionResults = report.questionResults.map(q => {
+      const correction = correctionMap.get(q.questionId);
+      if (!correction) return q;
+      return {
+        questionId: q.questionId,
+        submittedAnswer: correction.correctedAnswer ?? q.submittedAnswer,
+        isCorrect: correction.isCorrect,
+      };
+    });
+
+    const newScore = updatedQuestionResults.filter(q => q.isCorrect).length;
+    const totalQuestions = updatedQuestionResults.length;
+    const percentage = Math.round((newScore / totalQuestions) * 100);
+
+    // Re-derive recommendedLevel/subLevel using the same score%-based mapping
+    // already established elsewhere in this file for ICR-scanned diagnostics
+    // (see the /api/icr/evaluate-file handler above) — reused here rather
+    // than invented fresh, since it's the codebase's existing convention for
+    // turning a score into a level.
+    const classMatch = student.classGroup.match(/\d+/);
+    const classNumber = classMatch ? parseInt(classMatch[0], 10) : 1;
+    const recommendedLevel = Math.max(1, Math.min(93, (classNumber - 1) * 10 + Math.ceil(percentage / 10)));
+    const recommendedSubLevel = percentage >= 80 ? 0 : percentage >= 50 ? 1 : 2;
+
+    const updatedReport = await dbStore.updateEvaluationReport(report.id, {
+      questionResults: updatedQuestionResults,
+      score: newScore,
+      recommendedLevel,
+      recommendedSubLevel,
+      teacherReviewed: true,
+      reviewedBy: user.email,
+      reviewedAt: new Date().toISOString(),
+    });
+
+    // Only touch the student's placement if the correction actually changed
+    // the outcome. Assumes the most recent levelHistory entry is the one
+    // this report produced — true for the common "correct the latest scan"
+    // case; there's no explicit report<->levelHistory-entry link in the
+    // current data model to do this more precisely.
+    const levelChanged = recommendedLevel !== report.recommendedLevel || recommendedSubLevel !== report.recommendedSubLevel;
+    if (levelChanged && student.levelHistory.length > 0) {
+      const levelHistory = [...student.levelHistory];
+      const lastEntry = levelHistory[levelHistory.length - 1];
+      levelHistory[levelHistory.length - 1] = { ...lastEntry, level: recommendedLevel, subLevel: recommendedSubLevel };
+
+      await dbStore.updateStudent(student.id, {
+        currentLevel: recommendedLevel,
+        currentSubLevel: recommendedSubLevel,
+        targetLevel: Math.min(93, recommendedLevel + 1),
+        levelHistory,
+      });
+    }
+
+    res.json({ report: updatedReport, levelChanged });
   });
 }

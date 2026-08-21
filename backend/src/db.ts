@@ -374,6 +374,16 @@ export interface EvaluationReport {
   recommendedSubLevel?: number;
   timestamp: string;
   reasoning?: EvaluationReasoning;
+  // Issue #180: per-question breakdown, populated at creation time wherever
+  // the grading logic already has this data. Optional because older reports
+  // (and any evaluation path that doesn't yet populate it) predate this —
+  // the teacher-override endpoint requires it to exist on the report it's
+  // correcting, since a correction is meaningless without knowing which
+  // question is being corrected.
+  questionResults?: { questionId: string; submittedAnswer: string; isCorrect: boolean }[];
+  teacherReviewed?: boolean;
+  reviewedBy?: string; // reviewing teacher's email
+  reviewedAt?: string;
 }
 
 export interface Ticket {
@@ -1321,6 +1331,26 @@ export class DBStore {
     await this.mongoDb!.collection('evaluationReports').insertOne(rep);
     if (this.data) this.data.evaluationReports.push(rep);
     return rep;
+  }
+
+  async getEvaluationReportById(id: string) {
+    if (this.mongoDb) return await this.mongoDb.collection<EvaluationReport>('evaluationReports').findOne({ id });
+    return (this.data?.evaluationReports || []).find(r => r.id === id);
+  }
+
+  async updateEvaluationReport(id: string, updates: Partial<EvaluationReport>) {
+    if (this.mongoDb) {
+      await this.mongoDb.collection('evaluationReports').updateOne({ id }, { $set: updates });
+      return await this.mongoDb.collection<EvaluationReport>('evaluationReports').findOne({ id });
+    }
+    if (this.data) {
+      const idx = this.data.evaluationReports.findIndex(r => r.id === id);
+      if (idx !== -1) {
+        this.data.evaluationReports[idx] = { ...this.data.evaluationReports[idx], ...updates };
+        return this.data.evaluationReports[idx];
+      }
+    }
+    return undefined;
   }
 
   async addTicket(t: Ticket) {
