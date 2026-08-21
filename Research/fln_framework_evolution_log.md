@@ -115,4 +115,61 @@ Pavani's explicit instruction after the research round above: this framework is 
 6. ~~Whether to add Factors & Multiples, Decimals, Angles, and Symmetry as new Stage-7 framework nodes~~ — **done 2026-07-19**, added as S7.14–S7.17 (plus S7.18 Perimeter & Area, resolving a separate pre-existing flagged gap) across all three documents. Total node count is now 93, not 89 as originally estimated (the Perimeter/Area resolution added a 5th new Stage-7 node beyond the four originally scoped).
 7. **Still open:** whether Maps & Directions belongs in a "Mathematics only" platform at all, given it's confirmed standard Social Studies/Geography content, not Math, in the CBSE curriculum — genuinely a product-scope question, not something this framework should resolve unilaterally either way.
 8. **New, from applying the above:** Part 3's worked Stage-3 diagnostic blueprint in `fln_level_networks.md` (24 items, tier counts 12/8/4) predates the S2.10/S3.10 additions and needs recomputation — flagged inline in that document, listed here so it isn't lost.
-9. **New:** the newly-added nodes (S2.10, S3.10, S4.15, S7.14–S7.18) have not yet been checked against the repo the way the original 85 were in the earlier comparison pass — `fln_proposed_levels.md` notes this per-node, but the actual file-verification work (matching the Phase 1–4 rigor from the first comparison) hasn't been done for these 8 nodes yet.
+9. ~~The newly-added nodes (S2.10, S3.10, S4.15, S7.14–S7.18) have not yet been checked against the repo the way the original 85 were~~ — **done 2026-07-20**, see the entry below.
+
+---
+
+## Entry: 2026-07-20 — File-verification pass on the 8 nodes added 2026-07-19
+
+Resolves OPEN item 9 above. Note: PR #73 (carrying all three documents through the 85→93 growth) merged into `vicharanashala/fln` main this same day, before this pass started — this verification is against the now-upstream version of the documents, not a pre-merge draft.
+
+### CONFIRMED — S7.14–S7.18 (the five Stage-7 nodes) genuinely match their claimed repo levels, with one exception
+
+Opened every file (main + all sub-levels) for repo Levels 53, 55, 56, 57, 58 — not just the level titles the proposed-levels doc's "Sourced, and matches the repo well" annotations were resting on.
+
+- **S7.15 (Decimals) ↔ L55, S7.16 (Angles) ↔ L57, S7.17 (Symmetry) ↔ L58, S7.18 (Perimeter & Area) ↔ L56 — all four are strong, genuine matches.** Objectives, Learning Outcomes, and actual worksheet sections (checked across all 3 sub-levels of each) line up with the node's stated scope in every case. No discrepancies found.
+- **S7.14 (Factors & Multiples) ↔ L53 — partial match, one real gap.** The node's stated Topics Covered include "prime/composite distinction," and its Common Misconception line is specifically about factor/multiple confusion (which L53 *does* test well — Sections A–C across all 3 sub-levels cover factors, multiples, factor pairs, common factors/multiples). But prime/composite numbers do not appear anywhere in L53's main file or any of its 3 sub-levels (53.0–53.2) — checked directly, not inferred. The "matches the repo well" annotation overstates the match on this one point; the repo doesn't yet test the prime/composite half of what the node claims.
+
+### CONFIRMED — S2.10, S3.10, S4.15 (the shape-composition sub-strand) genuinely have zero repo coverage, checked two ways
+
+The original 2026-07-19 pass established this via `rg -il "shape"` (hits: Levels 2, 3, 9, 14, plus incidental use in 45/56/58). Re-verified now with two additional checks, since a keyword search for "shape" alone could miss composition activities described without that word:
+1. Re-ran `rg -il "shape"` — same result, unchanged.
+2. Broadened the search to composition-adjacent vocabulary that wouldn't necessarily contain "shape" — `tangram|pattern block|combine.*picture|assemble|puzzle|composing|decompos`. Only hit: Level 25 (Place Value), which uses "compose/decompose" for *numbers*, not shapes — a false positive, not a real match.
+3. Read the actual shape-related passages inside Levels 2, 3, 9, 14 in context (not just the keyword hit) — all four are identification/matching/recognition/tracing ("recognizing a different shape," "shape recognition," "trace shapes"). None involve combining shapes into a new picture or shape.
+
+No repo content anywhere tests piece-assembly, picture-making, or shape composition/decomposition. The "not yet cross-referenced... unlikely to have a match" language on S2.10/S3.10/S4.15 in `fln_proposed_levels.md` is now confirmed, not just predicted — this is a genuine, verified gap, not an assumption.
+
+### Applied
+
+Updated the three "Not yet cross-referenced" notes on S2.10/S3.10/S4.15 in `fln_proposed_levels.md` to state the gap as confirmed. Updated S7.14's citation note to flag the prime/composite gap explicitly rather than letting the blanket "matches the repo well" line stand uncorrected.
+
+---
+
+## Entry: 2026-08-21 — Source verification of the whole `Research/` folder
+
+**Trigger.** The `ALEKS_case_studies.md` file was found to be built from McGraw Hill's product website rather than research. That prompted a standing instruction: **nothing in `Research/` counts as a standard unless it points to external research.** All 12 files were then checked against the primary literature.
+
+**Starting condition:** 12 files, ~4,000 lines, **zero URLs**. Not one citable link anywhere in the folder.
+
+Full results are in **`fln_source_verification_2026-08-21.md`**. Summary:
+
+- **One claim is outright contradicted** by the literature — the learning-styles/modality claim in `Child_psychology.md` §5 (Pashler et al., 2008). Corrected in place, with an explicit instruction not to build modality classification into the platform.
+- **Most of the rest was simply never sourced rather than wrong.** Where files are right, they are right because Brown & Burton (1978), Miller et al., NIPUN Bharat and FLS 2022 are right. Those citations have now been added in place.
+- **Three unsupported-but-retained conventions** are now labelled as conventions: the 50/35/15 difficulty ratio, the rubric weightages, and the ALEKS "20–25 questions" figure (which additionally **must not** be used for paper length — it depends on within-session adaptivity that printed papers cannot do).
+- `Assessment_paper_rubric.md` line 3 literally read `**Resources:** link_1, link_2` — placeholder text never replaced. Now filled in.
+- `FLN_Assessment_Framework.md`'s "critical data gap" argument is **stale**: PARAKH 2024 (July 2025) closed part of it. Flagged.
+
+### Changes to the framework itself
+
+1. **The counting spine is externally corroborated.** Chain B matches the officially specified per-year progression at all six stages. This was arrived at by backward construction — it landing on the official sequence is the strongest external validation the framework has.
+2. **The Preschool 1/2 caveat in `fln_framework_from_scratch.md` was too strong and has been softened.** The Foundational Stage competencies document does specify all three preschool years separately.
+3. **The four "orphan" chains split two ways, not four.** Money (G) and Fractions (I) are **not** Foundational Stage domains — their late start is defensible. Data Handling (J) and Calendar & Time (H) **are** named domains, so their late start with three nodes each is a **genuine gap**.
+4. **`FLN_foundation.md` narrowed the official definition** of foundational numeracy from four components to two, dropping Measurement and Data Handling — the same two chains that are thin. Corrected.
+5. **"Balvatika" is ambiguous in official sources** — headed `Class 1 (BALVATIKA)` in one section and `PRESCHOOL 3 (BALVATIKA)` in another of the same document. The maths section agrees with this framework. **Must be pinned down in the grade-mapping work**; read the other way, every stage shifts by a year.
+6. **Counting difficulty is language-dependent.** NIPUN Bharat mandates mother-tongue instruction, and Hindi number names are more irregular than English. The framework does not currently account for this.
+
+### OPEN — added by this round
+
+10. The detailed per-stage NIPUN Bharat targets beyond the headline Lakshya remain unverified — `education.gov.in` returns HTTP 403 for the national guidelines PDF. The state document corroborates the shape of the progression but is not the national standard.
+11. Data Handling (Chain J) and Calendar & Time (Chain H) need precursor nodes below Stage 5, now that both are confirmed as named Foundational Stage domains.
+12. Whether the counting chain should branch by language of instruction.
