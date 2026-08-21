@@ -1,12 +1,14 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
-import { dbStore, UserRole, Student, Question, EvaluationReport, CYCLE_NAMES } from '../db';
+import { dbStore, UserRole, Student, Question, EvaluationReport, EvaluationReasoning, CYCLE_NAMES } from '../db';
 import { getAuthUser, canAccessStudent } from '../auth';
 import { generateDiagnosticPaper } from '../paperGenerator';
 import { generateQuestionsForLevel } from '../levelGenerator';
 import { evaluateAIDiagnostic } from '../gemini';
 import { AI_SERVICES_DIR, PYTHON_BIN } from '../config';
+import { resolvePrerequisites, describeConcept } from '../competencyPrerequisites';
+import { CURRICULUM_MAPPING } from '../config/curriculumMap';
 
 export function registerStudentRoutes(app: express.Express) {
   // Students
@@ -386,15 +388,42 @@ export function registerStudentRoutes(app: express.Express) {
     const responseDir = path.join(pipelineDir, 'student_responses', `class_${classNumber}`, 'phrase_1');
     fs.mkdirSync(responseDir, { recursive: true });
 
-    // Map answers sequentially (diag_q_X_Y to Q1, Q2, Q3...)
+    // Map answers for the Python pipeline. The pipeline's `1_compare_answers.py`
+    // looks each answer key up in `ai-services/questions/class_2/phrase_1/
+    // class_2_exam_phrase_1.json` (the static question bank). When the paper
+    // was generated dynamically by `generateClass2PaperFromAtlas` — because
+    // the live `questionBank` collection is empty (verified) — the paper's
+    // `question_id`s (e.g. `Q_L22_1`) are NOT in that static bank. So we
+    // (a) key the answers by the paper's *actual* `question_id` (not by an
+    // index-based Q1..Q10 that would alias the wrong static bank question),
+    // and (b) embed the paper's per-question metadata in `studentResponse.questions`
+    // so the comparator can fall back to it without a DB lookup.
     const pipelineAnswers: { [qId: string]: { answer: string, confidence: number } } = {};
-    questions.forEach((q, idx) => {
-      const qNum = idx + 1;
-      const pipelineQId = `Q${qNum}`;
+    const paperQuestions: { [qId: string]: {
+      answer: string;
+      topic: string;
+      subtopic: string;
+      difficulty: string;
+      class_level: number;
+      source_level: number;
+      conceptId?: string;
+      conceptTitle?: string;
+    } } = {};
+    questions.forEach((q) => {
       const submitted = (answers[q.question_id] || '').trim();
-      pipelineAnswers[pipelineQId] = {
+      pipelineAnswers[q.question_id] = {
         answer: String(submitted),
         confidence: 0.95
+      };
+      paperQuestions[q.question_id] = {
+        answer: String(q.answer || '').trim(),
+        topic: q.topic || '',
+        subtopic: q.subtopic || '',
+        difficulty: q.difficulty || 'medium',
+        class_level: classNumber,
+        source_level: q.source_level || classNumber,
+        conceptId: q.conceptId,
+        conceptTitle: CURRICULUM_MAPPING[q.source_level || 0]?.levelTitle,
       };
     });
 
@@ -405,6 +434,10 @@ export function registerStudentRoutes(app: express.Express) {
       test_date: dateStr,
       phrase: 'phrase_1',
       exam_id: `C${classNumber}_WORKSHEET_PHRASE_1`,
+      // Embedded paper question metadata so the Python comparator can grade
+      // against the actual paper questions when the static question bank
+      // does not contain them.
+      questions: paperQuestions,
       answers: pipelineAnswers
     };
 
@@ -414,6 +447,7 @@ export function registerStudentRoutes(app: express.Express) {
     let score = 0;
     let recommendedLevel = 1;
     let narrative = '';
+    let pipelineFailed = false;
 
     try {
       const { execFileSync } = await import('child_process');
@@ -464,6 +498,7 @@ export function registerStudentRoutes(app: express.Express) {
       }
     } catch (pipelineErr) {
       console.error('Python evaluation pipeline failed, falling back to Gemini AI:', pipelineErr);
+      pipelineFailed = true;
       // Fallback to Gemini AI if Python pipeline fails
       const evaluation = await evaluateAIDiagnostic(student.name, questions, answers);
       score = evaluation.score;
@@ -491,6 +526,17 @@ export function registerStudentRoutes(app: express.Express) {
       } else {
         subLevel = 0; // Mastery
       }
+    }
+
+    const questionResults = questions.map((q) => {
+      const submitted = String(answers[q.question_id] ?? '').trim().toLowerCase();
+      const correct = q.answer.trim().toLowerCase();
+      return { q, isCorrect: submitted === correct };
+    });
+    const allCorrect = questionResults.every((r) => r.isCorrect);
+
+    if (allCorrect && pipelineFailed) {
+      recommendedLevel = (classNumber - 1) * 10 + 1;
     }
 
     // Update Student placing levels
@@ -530,6 +576,244 @@ export function registerStudentRoutes(app: express.Express) {
       console.warn('Failed to parse dynamic concept mastery:', e);
     }
 
+    // For the PASS case (10/10), the Python pipeline's deterministic fallback
+    // narrative is unreliable — it emits a generic "Deterministic fallback
+    // based on wrong answers" narrative with fabricated root causes even
+    // when there are no wrong answers. Generate a success narrative locally
+    // so the report reflects the actual demonstrated mastery.
+    if (allCorrect) {
+      const masteredTitles = Array.from(new Set(
+        questionResults
+          .map((r) => describeConcept(r.q.conceptId)?.levelTitle)
+          .filter((t): t is string => Boolean(t))
+      ));
+
+      narrative = [
+        '='.repeat(60),
+        '            FLN ASSESSMENT REPORT CARD',
+        '='.repeat(60),
+        '',
+        `Student Name: ${student.name}`,
+        `Student ID: ${student.id}`,
+        `Enrolled Class: ${classNumber}`,
+        `Test Date: ${dateStr}`,
+        '',
+        ' PLACEMENT',
+        '-'.repeat(60),
+        `Assigned Level: Level ${recommendedLevel}`,
+        'Reason: Mastery demonstrated across all assessed competencies.',
+        'Confidence: 95%',
+        '',
+        ' COMPETENCIES DEMONSTRATED',
+        '-'.repeat(60),
+        ...masteredTitles.map((t) => `  [OK] ${t}`),
+        '',
+        ' NEXT STEPS FOR TEACHER',
+        '-'.repeat(60),
+        'SHORT-TERM (Next 1-2 weeks):',
+        '1. Reinforce demonstrated competencies through daily practice.',
+        `2. Introduce next-level concepts to extend the student's growth.`,
+        '3. Continue routine class participation and worksheet drills.',
+        '',
+        'MEDIUM-TERM (Next month):',
+        `- Target next milestone: Level ${Math.min(93, recommendedLevel + 1)}.`,
+        '',
+        'The student demonstrated mastery in this attempt. No prerequisite remediation is required.',
+        '',
+        '='.repeat(60),
+      ].join('\n');
+    }
+
+    // Aggregate outcomes per concept, in first-seen order so the result is
+    // deterministic for a given paper.
+    const conceptOutcomes = new Map<string, { correct: number; total: number }>();
+    for (const r of questionResults) {
+      const conceptId = r.q.conceptId;
+      if (!conceptId) continue;
+      const o = conceptOutcomes.get(conceptId) ?? { correct: 0, total: 0 };
+      o.total += 1;
+      if (r.isCorrect) o.correct += 1;
+      conceptOutcomes.set(conceptId, o);
+    }
+
+    // A concept counts as failed only when the student got none of its
+    // questions right. Per-question correctness is the only source of truth
+    // here — deliberately NOT the heuristic conceptMastery above, which is
+    // derived from recommendedLevel thresholds and can flag a concept as weak
+    // even when every question was answered correctly.
+    const failedConceptIds: string[] = [];
+    for (const [conceptId, { correct }] of conceptOutcomes) {
+      if (correct === 0) failedConceptIds.push(conceptId);
+    }
+
+    // Override conceptMastery for the PASS case. The level-threshold heuristic
+    // above would otherwise mark every strand as "Needs Practice" because the
+    // student is placed at Level 2 — which directly contradicts the
+    // demonstrated mastery.
+    if (allCorrect) {
+      for (const r of questionResults) {
+        const cfg = CURRICULUM_MAPPING[r.q.source_level || 0];
+        if (cfg?.strand) {
+          conceptMastery[cfg.strand] = 'Strong';
+        }
+      }
+    }
+
+    // Prerequisite Learning Path.
+    //
+    // Identity comes from ONE authoritative field: Question.conceptId — the
+    // immutable S1.1-S7.18 tag of the 93-level framework that the concept
+    // question generator already stamps on every question it produces, and the
+    // key CURRICULUM_MAPPING is built around.
+    //
+    //   question result (correct / incorrect, from the submitted answers)
+    //     -> q.conceptId          (skip the question when absent)
+    //     -> CONCEPT_PREREQUISITES (Research/fln_level_networks.md, prereq edges only)
+    //     -> prerequisiteLearningPath
+    //
+    // There is no level-number arithmetic, no topic/subtopic string matching and
+    // no translation table. A question whose conceptId is missing, or a concept
+    // with no prerequisite edge, contributes nothing — the path is omitted
+    // rather than guessed at.
+    let prerequisiteLearningPath: EvaluationReasoning['prerequisiteLearningPath'];
+    if (failedConceptIds.length > 0) {
+      // Walk each failed concept's transitive prerequisites. `mergedPrereqs`
+      // keeps first-seen order (deepest foundation first); `prereqCount` records
+      // how many distinct failed concepts each prerequisite blocks.
+      const mergedPrereqs: string[] = [];
+      const prereqCount = new Map<string, number>();
+      for (const conceptId of failedConceptIds) {
+        const chain = resolvePrerequisites(conceptId);
+        for (const p of chain) {
+          if (!mergedPrereqs.includes(p)) mergedPrereqs.push(p);
+          prereqCount.set(p, (prereqCount.get(p) ?? 0) + 1);
+        }
+      }
+
+      if (mergedPrereqs.length > 0) {
+        // Render ids as curriculum titles via CURRICULUM_MAPPING; an id the
+        // curriculum does not know is dropped rather than shown raw.
+        const titleOf = (conceptId: string): string | undefined =>
+          describeConcept(conceptId)?.levelTitle;
+        const titles = (ids: string[]): string[] =>
+          ids.map(titleOf).filter((t): t is string => Boolean(t));
+
+        // A prerequisite blocking two or more failed concepts is a shared
+        // foundation; the rest are supporting skills.
+        const highPriorityFoundations = titles(
+          mergedPrereqs.filter((p) => (prereqCount.get(p) ?? 0) >= 2)
+        );
+        const supportingSkills = titles(
+          mergedPrereqs.filter((p) => (prereqCount.get(p) ?? 0) < 2)
+        );
+        const affectedCompetencies = titles(failedConceptIds);
+
+        prerequisiteLearningPath = {
+          highPriorityFoundations,
+          supportingSkills,
+          affectedCompetencies,
+          remediationSequence: [
+            ...highPriorityFoundations,
+            ...supportingSkills,
+            ...affectedCompetencies,
+          ],
+        };
+      }
+    }
+
+    // Assemble the full EvaluationReasoning payload. Two branches:
+    //
+    //   FAIL: existing behavior — emitted when prerequisiteLearningPath exists
+    //   PASS: emitted when allCorrect (no failed concepts) — communicates
+    //         mastery, progression toward the next milestone, no remediation.
+    //
+    // Every field is filled from a value this handler has already computed —
+    // the narrative string, the conceptMastery object, the
+    // recommendedLevel/subLevel placement, and the existing 93-level
+    // CURRICULUM_MAPPING. Nothing is inferred or invented: where this handler
+    // holds no real data (blockers, recommendations) the arrays are left
+    // empty and the UI hides those sections.
+    let reasoning: EvaluationReasoning | undefined;
+    if (prerequisiteLearningPath) {
+      // FAIL branch — derive the demonstrated level from the actual failed
+      // concepts' source_levels (via CURRICULUM_MAPPING), NOT from
+      // recommendedLevel. recommendedLevel is the *placement* (administrative,
+      // set by the Python pipeline); the failed concepts live at the level
+      // the student is actually working on. If multiple concepts failed, use
+      // the minimum level (the most foundational gap). When no failed concept
+      // could be resolved to a level, fall back to recommendedLevel.
+      let demonstratedLevel = recommendedLevel;
+      let nextDemonstratedLevel: number | null = recommendedLevel + 1;
+      if (failedConceptIds.length > 0) {
+        const failedFlnLevels: number[] = [];
+        for (const cid of failedConceptIds) {
+          const cfg = Object.values(CURRICULUM_MAPPING).find((c) => c.conceptId === cid);
+          if (cfg) failedFlnLevels.push(cfg.levelNumber);
+        }
+        if (failedFlnLevels.length > 0) {
+          demonstratedLevel = Math.min(...failedFlnLevels);
+          nextDemonstratedLevel = Math.min(93, demonstratedLevel + 1);
+        }
+      }
+      const currentCfg = CURRICULUM_MAPPING[demonstratedLevel];
+      const nextCfg = nextDemonstratedLevel != null ? CURRICULUM_MAPPING[nextDemonstratedLevel] : undefined;
+      reasoning = {
+        explanation: {
+          // Restatement of the already-computed score and placement; it
+          // asserts nothing the report does not already say.
+          headline: `Scored ${score}/${questions.length}. Placed at Level ${recommendedLevel}.${subLevel}.`,
+          // The pipeline (or Gemini fallback) narrative, reused verbatim.
+          narrative,
+        },
+        conceptMastery,
+        learningProgression: {
+          currentLevel: demonstratedLevel,
+          currentLevelName: currentCfg?.levelTitle ?? '',
+          currentStrand: currentCfg?.strand ?? '',
+          nextMilestone: nextCfg
+            ? { level: nextCfg.levelNumber, name: nextCfg.levelTitle, strand: nextCfg.strand }
+            : null,
+          // No blocker or recommendation data is produced anywhere in this
+          // handler. Empty is the honest value; the UI renders neither.
+          blockers: [],
+          recommendations: [],
+        },
+        prerequisiteLearningPath,
+      };
+    } else if (allCorrect) {
+      // PASS branch — student demonstrated mastery of all assessed
+      // competencies. Communicate progression toward the next milestone;
+      // no remediation needed.
+      const currentCfg = CURRICULUM_MAPPING[recommendedLevel];
+      const nextCfg = CURRICULUM_MAPPING[recommendedLevel + 1];
+      reasoning = {
+        explanation: {
+          headline: `Scored ${score}/${questions.length}. Mastery demonstrated.`,
+          // The locally-built success narrative (overrode Python's fallback
+          // narrative above), or a generic PASS summary if Python somehow
+          // produced an empty string.
+          narrative: narrative || `All ${questions.length} assessed competencies demonstrated.`,
+        },
+        conceptMastery,
+        learningProgression: {
+          currentLevel: recommendedLevel,
+          currentLevelName: currentCfg?.levelTitle ?? '',
+          currentStrand: currentCfg?.strand ?? '',
+          nextMilestone: nextCfg
+            ? { level: nextCfg.levelNumber, name: nextCfg.levelTitle, strand: nextCfg.strand }
+            : null,
+          // Empty arrays — honest absence of remediation data; the UI hides
+          // sections that would render only with blockers / recommendations.
+          blockers: [],
+          recommendations: [],
+        },
+        // prerequisiteLearningPath is OMITTED — there are no failed
+        // competencies, so no remediation path. The frontend's
+        // `{r.prerequisiteLearningPath && ...}` guard correctly hides the
+        // Prerequisite Learning Path section when undefined.
+      };
+    }
+
     const report: EvaluationReport = {
       id: 'rep_diag_' + Date.now(),
       studentId: student.id,
@@ -540,7 +824,8 @@ export function registerStudentRoutes(app: express.Express) {
       narrative,
       recommendedLevel,
       recommendedSubLevel: subLevel,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      ...(reasoning ? { reasoning } : {}),
     };
 
     await dbStore.addEvaluationReport(report);
