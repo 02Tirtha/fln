@@ -596,7 +596,7 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
                     ) : (
                       <div className="flex items-center gap-2">
                         <span className="text-green-700 dark:text-green-400 font-mono text-[9px] font-bold uppercase bg-green-50 dark:bg-green-950/40 px-2 py-0.5 rounded border border-green-200 dark:border-green-800">
-                          Placed
+                          {s.levelHistory[s.levelHistory.length - 1].reason} Done · {new Date(s.levelHistory[s.levelHistory.length - 1].date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
                         </span>
                         <button
                           onClick={() => handlePrintLevelWorksheet(s)}
