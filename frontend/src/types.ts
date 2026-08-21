@@ -227,6 +227,12 @@ export interface EvaluationReport {
   recommendedSubLevel?: number;
   timestamp: string;
   reasoning?: EvaluationReasoning;
+  // Issue #180: per-question breakdown, present on reports created after
+  // that feature landed. Optional — older reports predate it.
+  questionResults?: { questionId: string; question?: string; correctAnswer?: string; submittedAnswer: string; isCorrect: boolean }[];
+  teacherReviewed?: boolean;
+  reviewedBy?: string;
+  reviewedAt?: string;
 }
 
 export interface Ticket {
