@@ -21,14 +21,14 @@ import { SuperAdminExecutiveDashboard } from './SuperAdminExecutiveDashboard';
 
 export { FLN_LEVELS_LIST, FLNLevelReferenceModal } from './dashboards/FLNLevelReference';
 
-const STATE_NAMES: Record<string, string> = {
+export const STATE_NAMES: Record<string, string> = {
   'PB': 'Punjab',
   'HR': 'Haryana',
   'RJ': 'Rajasthan',
   'UP': 'Uttar Pradesh'
 };
 
-const DISTRICT_NAMES: Record<string, string> = {
+export const DISTRICT_NAMES: Record<string, string> = {
   'LDH': 'Ludhiana',
   'MOG': 'Moga',
   'AMB': 'Ambala',
