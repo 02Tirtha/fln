@@ -1,7 +1,7 @@
 import express from 'express';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
-import { dbStore, UserRole, Question, Worksheet } from '../db';
+import { dbStore, UserRole, Question, Worksheet, TestHistoryEntry } from '../db';
 import { getAuthUser } from '../auth';
 import { generateDiagnosticPaper } from '../paperGenerator';
 import { generateQuestionsForLevel } from '../levelGenerator';
@@ -195,6 +195,22 @@ export function registerDiagnosticBulkRoutes(app: express.Express) {
           delayLogs: { delayedAttemptsCount: 0, submittingTeachers: [] },
         };
         await dbStore.addWorksheet(worksheet);
+
+        // Issue #182: log this bulk request to Test History. Only the
+        // diagnostic bulk route exists today — practice/remedial equivalents
+        // (issue #183) will call the same dbStore method once they exist.
+        const testHistoryEntry: TestHistoryEntry = {
+          id: 'th_' + randomUUID(),
+          teacherId: user.id,
+          teacherEmail: user.email,
+          requestType: 'diagnostic',
+          timestamp: nowIso,
+          studentCount: realStudentIds.length,
+          classId: matchedClass?.id,
+          className: `Class ${classNumber}`,
+          schoolId: user.schoolId || matchedClass?.schoolId,
+        };
+        await dbStore.addTestHistoryEntry(testHistoryEntry);
 
         await dbStore.addLog({
           id: 'log_' + Date.now(),

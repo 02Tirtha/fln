@@ -248,6 +248,21 @@ export interface Worksheet {
   };
 }
 
+// Issue #182: one entry per bulk-generation request (diagnostic/practice/
+// remedial/midline/endline), written only from the existing bulk routes at
+// the point they already run — not a new trigger point of its own.
+export interface TestHistoryEntry {
+  id: string;
+  teacherId: string;
+  teacherEmail: string;
+  requestType: 'diagnostic' | 'practice' | 'remedial' | 'midline' | 'endline';
+  timestamp: string;
+  studentCount: number;
+  classId?: string;
+  className?: string;
+  schoolId?: string;
+}
+
 export interface AnswerSubmission {
   id: string;
   worksheetId: string;
@@ -465,6 +480,7 @@ interface DatabaseSchema {
   interventions: Intervention[];
   bestPractices: BestPractice[];
   diagnosticAnswerKeys: DiagnosticAnswerKey[];
+  testHistory: TestHistoryEntry[];
 }
 
 const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
@@ -485,6 +501,7 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
   interventions: 'interventions',
   bestPractices: 'best_practices',
   diagnosticAnswerKeys: 'diagnostic_answer_keys',
+  testHistory: 'testHistory',
 };
 
 export class DBStore {
@@ -870,6 +887,15 @@ export class DBStore {
   async getWorksheets() {
     if (this.mongoDb) return await this.mongoDb.collection<Worksheet>('worksheets').find({}).toArray();
     return this.data?.worksheets || [];
+  }
+  async getTestHistory(teacherId?: string) {
+    if (this.mongoDb) {
+      const filter = teacherId ? { teacherId } : {};
+      return await this.mongoDb.collection<TestHistoryEntry>('testHistory').find(filter).sort({ timestamp: -1 }).toArray();
+    }
+    const all = this.data?.testHistory || [];
+    const filtered = teacherId ? all.filter(t => t.teacherId === teacherId) : all;
+    return [...filtered].sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   }
   async getLevelWorksheets() {
     if (this.mongoDb) return await this.mongoDb.collection<LevelWorksheet>('levelWorksheets').find({}).toArray();
@@ -1259,6 +1285,14 @@ export class DBStore {
     await this.mongoDb!.collection('worksheets').insertOne(ws);
     if (this.data) this.data.worksheets.push(ws);
     return ws;
+  }
+
+  async addTestHistoryEntry(entry: TestHistoryEntry) {
+    if (this.mongoDb) {
+      await this.mongoDb.collection('testHistory').insertOne(entry);
+    }
+    if (this.data) this.data.testHistory.push(entry);
+    return entry;
   }
 
   async updateWorksheet(worksheetId: string, updates: Partial<Worksheet>) {
@@ -3283,7 +3317,8 @@ export class DBStore {
       announcements,
       interventions,
       bestPractices,
-      diagnosticAnswerKeys: []
+      diagnosticAnswerKeys: [],
+      testHistory: []
     };
   }
 }

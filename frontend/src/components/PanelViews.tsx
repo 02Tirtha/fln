@@ -69,7 +69,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
 
   if (panel === 'adaptive_test') return <AdaptiveTestPanel />;
 
-  if (panel === 'test_history') return <TestHistoryPanel />;
+  if (panel === 'test_history') return <TestHistoryPanel currentUser={currentUser} token={token} />;
 
   if (panel === 'worksheets') return <WorksheetsPanel reportsList={reportsList} worksheetsList={worksheetsList} />;
 
