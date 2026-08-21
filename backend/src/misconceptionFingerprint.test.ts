@@ -386,6 +386,106 @@ async function run() {
     assert.strictEqual(analysis.archetypes.length, 0);
   });
 
+  // A diagnostic is persisted as an EvaluationReport and nothing else. Before
+  // the fallback these children were counted as having made no submission, so
+  // a child who missed every question on their placement paper was reported as
+  // having no failure signature at all.
+  await test('a diagnostic-only child still gets a signature', async () => {
+    const child = student('s-diag');
+    const report = {
+      id: 'rep_diag_1',
+      studentId: 's-diag',
+      worksheetId: 'diagnostic',
+      score: 0,
+      totalQuestions: 10,
+      conceptMastery: { 'Number Sense': 'Needs Practice', Shapes: 'Strong' },
+      narrative: 'Placed at Level 22.',
+      recommendedLevel: 22,
+      recommendedSubLevel: 2,
+      timestamp: new Date().toISOString(),
+    } as any;
+
+    const analysis = await analyseCohort([child], [], [], { reports: [report] });
+    assert.strictEqual(analysis.noSubmissionCount, 0, 'must not be dropped as submission-less');
+    assert.strictEqual(analysis.analysedCount, 1);
+    const fp = analysis.fingerprints.find(f => f.studentId === 's-diag');
+    assert.ok(fp, 'a fingerprint must exist for the diagnostic-only child');
+    assert.strictEqual(fp!.totalIncorrect, 10, 'all ten wrong answers must be counted');
+  });
+
+  // A diagnostic and an ICR scan have no persisted Worksheet, so they carry the
+  // paper on the submission. Without this the answers are an unreadable map of
+  // ids to strings and the nine morphology rules have nothing to run against.
+  await test('a submission carrying its own paper yields full morphology', async () => {
+    const questions = [
+      q({ question_id: 'a', question: 'What is 27 + 15?', answer: '42' }),
+      q({ question_id: 'b', question: 'What is 34 + 28?', answer: '62' }),
+      q({ question_id: 'c', question: 'What is 46 + 19?', answer: '65' })
+    ];
+    const carried: AnswerSubmission = {
+      id: 'sub_diag_s1',
+      worksheetId: 'diagnostic', // no such Worksheet exists
+      studentId: 's1',
+      studentName: 'Child s1',
+      schoolId: 'sch1',
+      classId: 'Class 3',
+      submittedAt: new Date().toISOString(),
+      isDelayed: false,
+      answers: { a: '312', b: '512', c: '515' },
+      questions
+    };
+
+    // No worksheets at all — the only source of questions is the submission.
+    const analysis = await analyseCohort([student('s1')], [carried], []);
+    const fp = analysis.fingerprints.find(f => f.studentId === 's1');
+    assert.ok(fp, 'a fingerprint must be built with no worksheet on file');
+    assert.strictEqual(fp!.totalAnswered, 3);
+    assert.strictEqual(fp!.totalIncorrect, 3);
+    assert.strictEqual(
+      fp!.vector.digitConcatenation,
+      1,
+      'all three are column digits written side by side — morphology must be read, not zeroed'
+    );
+  });
+
+  await test('a submission with neither worksheet nor paper is skipped, not crashed on', async () => {
+    const orphan = submission('s1', { a: '3' });
+    const analysis = await analyseCohort([student('s1')], [orphan], []);
+    assert.strictEqual(analysis.fingerprints.length, 0);
+    assert.strictEqual(analysis.noSubmissionCount, 1);
+  });
+
+  await test('a submission still outranks a report when both exist', async () => {
+    const ws = worksheetWith([
+      q({ question_id: 'a', question: 'What is 27 + 15?', answer: '42' }),
+      q({ question_id: 'b', question: 'What is 34 + 28?', answer: '62' }),
+      q({ question_id: 'c', question: 'What is 46 + 19?', answer: '65' }),
+    ]);
+    const report = {
+      id: 'rep_diag_2',
+      studentId: 's1',
+      worksheetId: 'diagnostic',
+      score: 0,
+      totalQuestions: 30,
+      conceptMastery: {},
+      narrative: '',
+      recommendedLevel: 5,
+      recommendedSubLevel: 0,
+      timestamp: new Date().toISOString(),
+    } as any;
+
+    const analysis = await analyseCohort(
+      [student('s1')],
+      [submission('s1', { a: '312', b: '512', c: '415' })],
+      [ws],
+      { reports: [report] }
+    );
+    const fp = analysis.fingerprints.find(f => f.studentId === 's1');
+    assert.ok(fp);
+    // 3 from the submission, not 30 from the report: the written answers win.
+    assert.strictEqual(fp!.totalAnswered, 3, 'the submission must supply the signature');
+  });
+
   console.log('\nmisconceptionFingerprint — carelessness vs misconception');
 
   // A six-question sheet with three matched pairs: two easy carry-free, two

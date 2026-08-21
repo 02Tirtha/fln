@@ -659,9 +659,14 @@ export function buildFingerprint(
   let totalCorrect = 0;
 
   for (const sub of submissions) {
+    // The worksheet is the usual source of the questions, but a diagnostic and
+    // an ICR scan are generated per child and never stored as one — they carry
+    // their paper on the submission instead. Either way what is needed is the
+    // same: the questions these answers were written against.
     const ws = worksheetsById.get(sub.worksheetId);
-    if (!ws) continue;
-    const byId = new Map(ws.questions.map(q => [q.question_id, q]));
+    const questions = ws?.questions ?? sub.questions;
+    if (!questions || questions.length === 0) continue;
+    const byId = new Map(questions.map(q => [q.question_id, q]));
 
     for (const [qid, submitted] of Object.entries(sub.answers ?? {})) {
       const q = byId.get(qid);
@@ -1412,6 +1417,30 @@ function carelessNaming(): Pick<
  * model was unreachable. Mutates in place and sets `namedByFallback`, which is
  * how a caller tells a real name from a deterministic stand-in.
  */
+/**
+ * Is AI naming allowed to run at all?
+ *
+ * Naming is the only step in this feature that ever calls a model — membership
+ * is decided by distance, in `kmeans` here and by the same-pattern radius in
+ * `studentArchetypeService` — so turning this off makes the whole feature
+ * network-free without changing which children group together. Set
+ * `MISCONCEPTION_AI_NAMING=off` to name deterministically from the centroid.
+ *
+ * A missing key counts as off rather than on-and-broken: it produced an
+ * identical result via a failed call caught one frame below, but paid a network
+ * round trip and a stack trace for every archetype to get there.
+ *
+ * Lives here, beside the deterministic namer, because BOTH naming paths have to
+ * read the same switch. It was previously private to `studentArchetypeService`,
+ * so `MISCONCEPTION_AI_NAMING=off` silenced the per-submission path while the
+ * cohort pass below carried on calling Gemini — the flag appeared to work while
+ * half the feature ignored it.
+ */
+export function aiNamingEnabled(): boolean {
+  if ((process.env.MISCONCEPTION_AI_NAMING ?? "").trim().toLowerCase() === "off") return false;
+  return Boolean(process.env.GEMINI_API_KEY);
+}
+
 export async function nameArchetypes(allArchetypes: Archetype[], classGroup: string): Promise<void> {
   // Incoherent groups are settled here and excluded from everything below.
   for (const a of allArchetypes) {
@@ -1423,23 +1452,27 @@ export async function nameArchetypes(allArchetypes: Archetype[], classGroup: str
   const archetypes = allArchetypes.filter(a => !a.incoherent);
   if (archetypes.length === 0) return;
 
+  // Named from the centroid, by the same function the per-submission path uses.
+  //
+  // This deliberately does NOT read `distinctiveFeatures`: that list is filtered
+  // to components above 0.08 with lift over 1.1, so a real cluster whose members
+  // agree closely with the cohort average empties it and lands on the bare
+  // "Mixed profile" — no qualifier, no teacher action, no forward risk. A
+  // centroid always has a largest component. Sharing one namer also means an
+  // archetype cannot be called one thing by the cohort pass and another by the
+  // submit path.
   const applyFallback = () => {
     for (const a of archetypes) {
-      a.name = fallbackName(a.distinctiveFeatures);
-      a.forwardRisk = fallbackRisk(a.distinctiveFeatures);
-      a.description =
-        a.distinctiveFeatures.length > 0
-          ? `Defined by ${a.distinctiveFeatures
-              .slice(0, 3)
-              .map(f => f.label)
-              .join(", ")}.`
-          : "No dominant failure mode.";
-      a.teacherAction = "Review the evidence below and target the dominant error pattern.";
+      const named = deterministicArchetypeProfile(a.centroid);
+      a.name = named.name;
+      a.description = named.description;
+      a.teacherAction = named.teacherAction;
+      a.forwardRisk = named.forwardRisk;
       a.namedByFallback = true;
     }
   };
 
-  if (!process.env.GEMINI_API_KEY) {
+  if (!aiNamingEnabled()) {
     applyFallback();
     return;
   }
@@ -2043,7 +2076,7 @@ export async function analyseCohort(
   students: Student[],
   submissions: AnswerSubmission[],
   worksheets: Worksheet[],
-  options: { classGroup?: string } = {}
+  options: { classGroup?: string; reports?: EvaluationReport[] } = {}
 ): Promise<CohortAnalysis> {
   const worksheetsById = new Map(worksheets.map(w => [w.id, w]));
   const subsByStudent = new Map<string, AnswerSubmission[]>();
@@ -2052,16 +2085,44 @@ export async function analyseCohort(
     list.push(s);
     subsByStudent.set(s.studentId, list);
   }
+
+  // Latest report per child, for the diagnostic-only fallback below. A
+  // diagnostic is persisted as an EvaluationReport and nothing else, so these
+  // children have no `answers` to join against a worksheet.
+  const latestReportByStudent = new Map<string, EvaluationReport>();
+  for (const report of options.reports ?? []) {
+    const parsed = Date.parse(report.timestamp);
+    const at = Number.isFinite(parsed) ? parsed : 0;
+    const held = latestReportByStudent.get(report.studentId);
+    if (!held) {
+      latestReportByStudent.set(report.studentId, report);
+      continue;
+    }
+    const heldParsed = Date.parse(held.timestamp);
+    if (at >= (Number.isFinite(heldParsed) ? heldParsed : 0)) {
+      latestReportByStudent.set(report.studentId, report);
+    }
+  }
   const fingerprints: StudentFingerprint[] = [];
   let noErrorCount = 0;
   let noSubmissionCount = 0;
   for (const student of students) {
     const subs = subsByStudent.get(student.id) ?? [];
-    if (subs.length === 0) {
-      noSubmissionCount++;
-      continue;
+    // Submissions stay the primary source: they carry what the child actually
+    // wrote, which is the only input the nine morphology rules can read.
+    let fp = subs.length > 0 ? buildFingerprint(student, subs, worksheetsById) : null;
+
+    // A child assessed only by diagnostic has no submission at all. Their
+    // report still records how many they missed, where, and at which level, so
+    // read that rather than dropping them — this is the same precedence
+    // `studentArchetypeService` already applies when it assigns an archetype
+    // on submit. Without it a child could be a listed member of an archetype
+    // while the cohort pass reported no signature for them.
+    if (!fp) {
+      const report = latestReportByStudent.get(student.id);
+      if (report) fp = buildFingerprintFromEvaluationReport(student, report);
     }
-    const fp = buildFingerprint(student, subs, worksheetsById);
+
     if (!fp) {
       noSubmissionCount++;
       continue;

@@ -66,10 +66,14 @@ function getCohortAnalysis(classGroup?: string, schoolId?: string): Promise<Coho
   if (hit && Date.now() - hit.at < FINGERPRINT_TTL_MS) return hit.value;
 
   const pending = (async () => {
-    const [allStudents, submissions, worksheets] = await Promise.all([
+    // Reports are loaded alongside submissions because a diagnostic writes only
+    // a report: without them every diagnostic-only child is counted as having
+    // no submission and disappears from the cohort.
+    const [allStudents, submissions, worksheets, reports] = await Promise.all([
       dbStore.getStudents(),
       dbStore.getAnswerSubmissions(),
-      dbStore.getWorksheets()
+      dbStore.getWorksheets(),
+      dbStore.getEvaluationReports()
     ]);
 
     const students = allStudents.filter(s =>
@@ -81,7 +85,7 @@ function getCohortAnalysis(classGroup?: string, schoolId?: string): Promise<Coho
       students,
       submissions.filter(s => ids.has(s.studentId)),
       worksheets,
-      { classGroup }
+      { classGroup, reports: reports.filter(r => ids.has(r.studentId)) }
     );
   })();
 

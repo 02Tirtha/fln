@@ -8,6 +8,7 @@ import {
 	type MisconceptionCluster,
 } from './db';
 import {
+	aiNamingEnabled,
 	buildFingerprint,
 	buildFingerprintFromEvaluationReport,
 	deterministicArchetypeProfile,
@@ -86,22 +87,9 @@ function findSamePatternCluster(
 	return best && best.distance <= SAME_PATTERN_DISTANCE ? best : null;
 }
 
-/**
- * Is AI naming allowed to run at all?
- *
- * Naming is the only step that ever calls a model — membership is decided by
- * distance — so turning this off makes the whole feature network-free without
- * changing which children group together. Set `MISCONCEPTION_AI_NAMING=off` to
- * name deterministically from the centroid instead.
- *
- * A missing key counts as off rather than on-and-broken: it produced an
- * identical result via a thrown `NO_API_KEY` caught one frame below, but paid a
- * failed call and a stack trace for every new archetype to get there.
- */
-function aiNamingEnabled(): boolean {
-	if ((process.env.MISCONCEPTION_AI_NAMING ?? '').trim().toLowerCase() === 'off') return false;
-	return Boolean(process.env.GEMINI_API_KEY);
-}
+// `aiNamingEnabled` now lives in ./misconceptionFingerprint so this path and the
+// cohort naming pass read one switch. Two copies meant MISCONCEPTION_AI_NAMING
+// could silence one and not the other.
 
 /**
  * Legacy placeholder names, written by an earlier fallback that could produce no
@@ -214,16 +202,19 @@ export class StudentArchetypeService {
 			.pop();
 
 		if (latestReport) {
-			// Both records are required: an orphan submission whose worksheet is
-			// missing yields no questions to compare against.
-			if (worksheetsById.has(latestReport.worksheetId)) {
-				const reportSubmissions = studentSubmissions.filter(
-					s => s.worksheetId === latestReport.worksheetId
-				);
-				if (reportSubmissions.length > 0) {
-					const fromSubmission = buildFingerprint(student, reportSubmissions, worksheetsById);
-					if (fromSubmission) return fromSubmission;
-				}
+			// The questions have to come from somewhere: either a persisted
+			// worksheet, or the paper the submission carries itself (a diagnostic
+			// and an ICR scan have no worksheet, so they record their own).
+			// Without either there is nothing to compare the answers against.
+			const reportSubmissions = studentSubmissions.filter(
+				s => s.worksheetId === latestReport.worksheetId
+			);
+			const questionsResolvable =
+				worksheetsById.has(latestReport.worksheetId) ||
+				reportSubmissions.some(s => (s.questions?.length ?? 0) > 0);
+			if (questionsResolvable && reportSubmissions.length > 0) {
+				const fromSubmission = buildFingerprint(student, reportSubmissions, worksheetsById);
+				if (fromSubmission) return fromSubmission;
 			}
 
 			const fingerprint = buildFingerprintFromEvaluationReport(student, latestReport);

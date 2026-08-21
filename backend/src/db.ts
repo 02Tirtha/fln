@@ -175,6 +175,27 @@ export interface DiagnosticAnswerKey {
   questionPaperJson: any;
   questions: Question[];
   answerKey?: any;
+  /**
+   * One physical answer region per gradable question, keyed by the real
+   * question id, measured from the rendered worksheet at generation time.
+   *
+   * Distinct from `coords` above, which is keyed by layout name and cannot be
+   * joined to a question id. This is what a scan reads: crop the region for
+   * question X, recognise what is inside it, and the result is question X's
+   * answer — no inference from ordering.
+   */
+  answerRegions?: Array<{
+    question_id: string;
+    /** Section heading the offset is measured from; found in the PDF text layer. */
+    anchor?: string;
+    dx_mm?: number;
+    dy_mm?: number;
+    page: number;
+    x_mm: number;
+    y_mm: number;
+    w_mm: number;
+    h_mm: number;
+  }>;
   createdAt: string;
 }
 
@@ -245,6 +266,22 @@ export interface AnswerSubmission {
   submittedAt: string;
   isDelayed: boolean;
   answers: { [questionId: string]: string }; // Q1 -> A, Q2 -> 5, etc.
+  /**
+   * The paper this submission was written against, for assessments that have no
+   * persisted `Worksheet` to join to.
+   *
+   * A worksheet submission resolves its questions through `worksheetId`. A
+   * diagnostic and an ICR scan do not: both are generated per child and neither
+   * is stored as a `Worksheet`, so `answers` alone is an unreadable map of ids
+   * to strings — there is nothing to say what was asked or what the right answer
+   * was. Recording the paper here makes the submission self-describing rather
+   * than inventing synthetic `Worksheet` rows that would surface in the
+   * generation and lock screens.
+   *
+   * Optional: submissions written before this field existed, and worksheet
+   * submissions that do not need it, simply omit it.
+   */
+  questions?: Question[];
 }
 
 export interface EvaluationReport {
