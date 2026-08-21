@@ -1,5 +1,11 @@
-import React from 'react';
-import { User, UserRole } from '../types';
+import { apiFetch } from '../services/apiClient';
+import React, { useState, useEffect } from 'react';
+import { User, UserRole, Student, ClassGroup, School, Worksheet, LogEntry, Ticket } from '../types';
+import { Users, BookOpen, Calendar, ArrowRight, SlidersHorizontal, Layers, Award, MapPin, School as SchoolIcon, BarChart3, FileText, Building2, BookMarked, Globe, Settings, Database, RefreshCw, Search, ChevronDown } from 'lucide-react';
+import { Table, Column } from './Table';
+import { MetricCard } from './Card';
+import { STATE_NAMES, DISTRICT_NAMES, BLOCK_NAMES } from '../constants';
+import { FLN_LEVELS_LIST, parseCSVText, LevelBadge } from './RoleDashboards';
 import { usePanelData } from './panels/usePanelData';
 import { AdaptiveTestPanel } from './panels/AdaptiveTestPanel';
 import { TestHistoryPanel } from './panels/TestHistoryPanel';
@@ -40,13 +46,22 @@ const CONTENT_ITEMS = [
 export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser, token }) => {
   const {
     students, schools, usersList, reportsList, worksheetsList, teachersList,
-    getDistrictStats, getBlockStats, updateStudentLocally,
+    getDistrictStats, getBlockStats, updateStudentLocally, refreshStudents,
   } = usePanelData(token, currentUser, activePanel);
 
   const panel = activePanel;
 
   // ===================== TEACHER PANELS =====================
-  if (panel === 'student_list') return <StudentListPanel students={students} />;
+  if (panel === 'student_list') {
+    return (
+      <StudentListPanel
+        students={students}
+        currentUser={currentUser}
+        token={token}
+        refreshStudents={refreshStudents}
+      />
+    );
+  }
 
   if (panel === 'student_profile') return <StudentProfilePanel students={students} schools={schools} reportsList={reportsList} currentUser={currentUser} token={token} updateStudentLocally={updateStudentLocally} />;
 

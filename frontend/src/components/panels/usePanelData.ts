@@ -72,12 +72,12 @@ export function usePanelData(token: string, currentUser: User, activePanel: stri
 
   useEffect(() => {
     const headers = { 'Authorization': `Bearer ${token}` };
-    apiFetch('/api/schools', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiSchools(d); }).catch(() => {});
-    apiFetch('/api/admin/coordinators', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiUsers(d); }).catch(() => {});
-    apiFetch('/api/evaluation/reports', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiReports(d); }).catch(() => {});
-    apiFetch('/api/worksheets', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiWorksheets(d); }).catch(() => {});
+    apiFetch('/api/schools', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiSchools(d); }).catch(() => { });
+    apiFetch('/api/admin/coordinators', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiUsers(d); }).catch(() => { });
+    apiFetch('/api/evaluation/reports', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiReports(d); }).catch(() => { });
+    apiFetch('/api/worksheets', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiWorksheets(d); }).catch(() => { });
     if (currentUser.role === UserRole.SCHOOL || currentUser.role === UserRole.BLOCK_ADMIN) {
-      apiFetch('/api/teachers', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiTeachers(d); }).catch(() => {});
+      apiFetch('/api/teachers', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiTeachers(d); }).catch(() => { });
     }
   }, [token, currentUser.role]);
 
@@ -89,10 +89,10 @@ export function usePanelData(token: string, currentUser: User, activePanel: stri
     if (apiStudents.length > 0) return;
     if (STUDENTS_NOT_NEEDED_PANELS.has(activePanel)) return;
     const headers = { 'Authorization': `Bearer ${token}` };
-    apiFetch('/api/students', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiStudents(d); }).catch(() => {});
+    apiFetch('/api/students', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiStudents(d); }).catch(() => { });
   }, [token, activePanel, apiStudents.length]);
 
-const students = apiStudents.length > 0 ? apiStudents : STUDENTS_FALLBACK;
+  const students = apiStudents.length > 0 ? apiStudents : STUDENTS_FALLBACK;
   const schools = apiSchools.length > 0 ? apiSchools : SCHOOLS_FALLBACK;
   const usersList = apiUsers.length > 0 ? apiUsers : USERS_FALLBACK;
   // No mock fallback here (unlike students/schools/users): a fake report's
@@ -148,8 +148,13 @@ const students = apiStudents.length > 0 ? apiStudents : STUDENTS_FALLBACK;
     setApiStudents(prev => prev.map(st => st.id === studentId ? { ...st, ...patch } : st));
   };
 
+  const refreshStudents = () => {
+    const headers = { 'Authorization': `Bearer ${token}` };
+    apiFetch('/api/students', { headers }).then(r => r.json()).then(d => { if (Array.isArray(d)) setApiStudents(d); }).catch(() => { });
+  };
+
   return {
     students, schools, usersList, reportsList, worksheetsList, teachersList,
-    getDistrictStats, getBlockStats, updateStudentLocally,
+    getDistrictStats, getBlockStats, updateStudentLocally, refreshStudents,
   };
 }

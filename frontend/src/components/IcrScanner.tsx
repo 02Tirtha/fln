@@ -640,7 +640,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                   const cls = classes.find(c => c.id === selectedClassId);
                   return cls && (s.classGroup === cls.className || s.classGroup.includes(cls.className));
                 }).map(s => (
-                  <option key={s.id} value={s.id}>{s.name} (L{s.currentLevel}.{s.currentSubLevel ?? 0})</option>
+                  <option key={s.id} value={s.id}>{s.name} ({s.currentLevel !== null && s.currentLevel !== undefined ? `L${s.currentLevel}.${s.currentSubLevel ?? 0}` : 'Not Placed'})</option>
                 ))}
               </select>
             </div>
@@ -701,7 +701,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                       </div>
                       <div className="flex gap-1">
                         <div className={`h-1 flex-1 rounded ${scanStage !== 'reading' ? 'bg-blue-600' : 'bg-blue-600 animate-pulse'}`} />
-                        <div className={`h-1 flex-1 rounded ${scanStage === 'ocr' || scanStage === 'done' ? 'bg-blue-600' : scanStage === 'filtering' ? 'bg-blue-600 animate-pulse' : 'bg-zinc-200 dark:bg-zinc-700'}`} />
+                        <div className={`h-1 flex-1 rounded ${scanStage === 'ocr' ? 'bg-blue-600' : scanStage === 'filtering' ? 'bg-blue-600 animate-pulse' : 'bg-zinc-200 dark:bg-zinc-700'}`} />
                         <div className={`h-1 flex-1 rounded ${scanStage === 'ocr' ? 'bg-blue-600 animate-pulse' : 'bg-zinc-200 dark:bg-zinc-700'}`} />
                       </div>
                     </div>

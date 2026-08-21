@@ -18,140 +18,140 @@ export function registerEvaluationRoutes(app: express.Express) {
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
     const { imageDataUrl } = req.body || {};
-        if (!imageDataUrl || !imageDataUrl.startsWith('data:')) {
-          return res.status(400).json({ error: 'imageDataUrl is required and must be a data URL.' });
-        }
+    if (!imageDataUrl || !imageDataUrl.startsWith('data:')) {
+      return res.status(400).json({ error: 'imageDataUrl is required and must be a data URL.' });
+    }
 
-        // Accept raster images (PNG/JPEG/WebP) AND PDFs. The blue-ink filter
-            // operates on pixels, so PDFs are rasterized to PNG page 1 first.
-            // The image regex has 2 capture groups (mime subtype + b64); the PDF
-            // regex has 1 (just b64) — keep that asymmetry in mind below.
-            const imgMatch = /^data:image\/([a-zA-Z0-9+.-]+);base64,(.+)$/.exec(imageDataUrl);
-            const pdfMatch = /^data:application\/pdf;base64,(.+)$/.exec(imageDataUrl);
-            if (!imgMatch && !pdfMatch) {
-              return res.status(400).json({ error: 'imageDataUrl must be base64-encoded PNG/JPEG/WebP image or PDF.' });
-            }
-            let ext: string;
-                let b64: string;
-                const isPdf = !!pdfMatch;
-                if (isPdf) {
-                  ext = 'pdf';
-                  b64 = pdfMatch![1];
-                } else {
-                  ext = imgMatch![1] === 'jpeg' ? 'jpg' : imgMatch![1];
-                  b64 = imgMatch![2];
-                }
-                const buf = Buffer.from(b64, 'base64');
-        if (buf.length === 0) {
-          return res.status(400).json({ error: 'imageDataUrl decoded to zero bytes.' });
-        }
-        // Cap at 8 MB to match the evaluate-pdf endpoint's existing limit.
-        if (buf.length > 8 * 1024 * 1024) {
-          return res.status(413).json({ error: 'File too large (max 8 MB).' });
-        }
+    // Accept raster images (PNG/JPEG/WebP) AND PDFs. The blue-ink filter
+    // operates on pixels, so PDFs are rasterized to PNG page 1 first.
+    // The image regex has 2 capture groups (mime subtype + b64); the PDF
+    // regex has 1 (just b64) — keep that asymmetry in mind below.
+    const imgMatch = /^data:image\/([a-zA-Z0-9+.-]+);base64,(.+)$/.exec(imageDataUrl);
+    const pdfMatch = /^data:application\/pdf;base64,(.+)$/.exec(imageDataUrl);
+    if (!imgMatch && !pdfMatch) {
+      return res.status(400).json({ error: 'imageDataUrl must be base64-encoded PNG/JPEG/WebP image or PDF.' });
+    }
+    let ext: string;
+    let b64: string;
+    const isPdf = !!pdfMatch;
+    if (isPdf) {
+      ext = 'pdf';
+      b64 = pdfMatch![1];
+    } else {
+      ext = imgMatch![1] === 'jpeg' ? 'jpg' : imgMatch![1];
+      b64 = imgMatch![2];
+    }
+    const buf = Buffer.from(b64, 'base64');
+    if (buf.length === 0) {
+      return res.status(400).json({ error: 'imageDataUrl decoded to zero bytes.' });
+    }
+    // Cap at 8 MB to match the evaluate-pdf endpoint's existing limit.
+    if (buf.length > 8 * 1024 * 1024) {
+      return res.status(413).json({ error: 'File too large (max 8 MB).' });
+    }
 
-        const tempDir = path.join(AI_SERVICES_DIR, 'scratch');
-        fs.mkdirSync(tempDir, { recursive: true });
-        const stamp = Date.now();
-        const inputPath = path.join(tempDir, `filter_${stamp}_in.${ext}`);
-        const cleanupPaths: string[] = [inputPath];
+    const tempDir = path.join(AI_SERVICES_DIR, 'scratch');
+    fs.mkdirSync(tempDir, { recursive: true });
+    const stamp = Date.now();
+    const inputPath = path.join(tempDir, `filter_${stamp}_in.${ext}`);
+    const cleanupPaths: string[] = [inputPath];
 
+    try {
+      fs.writeFileSync(inputPath, buf);
+      const { execFileSync } = await import('child_process');
+      const filterScript = path.join(AI_SERVICES_DIR, 'scripts', 'bluepen_filter.py');
+
+      // Runs the blue-ink filter on a single already-rasterized image
+      // and returns {imageDataUrl, bluePixelRatio, bluePixelCount, imageSize}.
+      const filterOneImage = (imgPath: string, outPath: string) => {
+        cleanupPaths.push(outPath);
+        const stdout = execFileSync(
+          PYTHON_BIN,
+          [filterScript, imgPath, outPath],
+          { cwd: AI_SERVICES_DIR, timeout: 30000, encoding: 'utf8' }
+        );
+        const jsonLine = stdout.trim().split('\n').filter(Boolean).pop() || '{}';
+        const parsed = JSON.parse(jsonLine);
+        if (!parsed.success) throw new Error(parsed.error || 'Filter failed.');
+        const filteredBuf = fs.readFileSync(outPath);
+        return {
+          imageDataUrl: `data:image/jpeg;base64,${filteredBuf.toString('base64')}`,
+          bluePixelRatio: parsed.blue_pixel_ratio,
+          bluePixelCount: parsed.blue_pixel_count,
+          imageSize: parsed.image_size,
+        };
+      };
+
+      if (isPdf) {
+        // Rasterize EVERY page (not just page 1) so multi-page answer
+        // sheets — e.g. one PDF holding several students' scans — get
+        // filtered and OCR'd in full, not silently truncated.
+        const rasterScript = path.join(AI_SERVICES_DIR, 'scripts', 'pdf_rasterize.py');
+        const rasterDir = path.join(tempDir, `filter_${stamp}_pages`);
+        let pdfStdout: string;
         try {
-          fs.writeFileSync(inputPath, buf);
-          const { execFileSync } = await import('child_process');
-          const filterScript = path.join(AI_SERVICES_DIR, 'scripts', 'bluepen_filter.py');
-
-          // Runs the blue-ink filter on a single already-rasterized image
-          // and returns {imageDataUrl, bluePixelRatio, bluePixelCount, imageSize}.
-          const filterOneImage = (imgPath: string, outPath: string) => {
-            cleanupPaths.push(outPath);
-            const stdout = execFileSync(
-              PYTHON_BIN,
-              [filterScript, imgPath, outPath],
-              { cwd: AI_SERVICES_DIR, timeout: 30000, encoding: 'utf8' }
-            );
-            const jsonLine = stdout.trim().split('\n').filter(Boolean).pop() || '{}';
-            const parsed = JSON.parse(jsonLine);
-            if (!parsed.success) throw new Error(parsed.error || 'Filter failed.');
-            const filteredBuf = fs.readFileSync(outPath);
-            return {
-              imageDataUrl: `data:image/jpeg;base64,${filteredBuf.toString('base64')}`,
-              bluePixelRatio: parsed.blue_pixel_ratio,
-              bluePixelCount: parsed.blue_pixel_count,
-              imageSize: parsed.image_size,
-            };
-          };
-
-          if (isPdf) {
-            // Rasterize EVERY page (not just page 1) so multi-page answer
-            // sheets — e.g. one PDF holding several students' scans — get
-            // filtered and OCR'd in full, not silently truncated.
-            const rasterScript = path.join(AI_SERVICES_DIR, 'scripts', 'pdf_rasterize.py');
-            const rasterDir = path.join(tempDir, `filter_${stamp}_pages`);
-            let pdfStdout: string;
-            try {
-              pdfStdout = execFileSync(
-                PYTHON_BIN,
-                [rasterScript, inputPath, rasterDir, '--all-pages'],
-                { cwd: AI_SERVICES_DIR, timeout: 60000, encoding: 'utf8' }
-              );
-            } catch (e: any) {
-              return res.status(500).json({ success: false, error: `PDF rasterization failed: ${e?.message || e}` });
-            }
-            const pdfLine = pdfStdout.trim().split('\n').filter(Boolean).pop() || '{}';
-            let pdfResult: any = {};
-            try {
-              pdfResult = JSON.parse(pdfLine);
-            } catch {
-              return res.status(500).json({ success: false, error: `PDF rasterizer returned non-JSON: ${pdfStdout.slice(0, 300)}` });
-            }
-            if (!pdfResult.success) {
-              return res.status(500).json({ success: false, error: pdfResult.error || 'PDF rasterization failed.' });
-            }
-            const rasterPages: Array<{ page_number: number; output_path: string }> = pdfResult.pages || [];
-            cleanupPaths.push(rasterDir);
-            const pages = rasterPages
-              .sort((a, b) => a.page_number - b.page_number)
-              .map((p) => {
-                const outPath = path.join(tempDir, `filter_${stamp}_out_p${p.page_number}.jpg`);
-                const filtered = filterOneImage(p.output_path, outPath);
-                cleanupPaths.push(p.output_path);
-                return { pageNumber: p.page_number, ...filtered };
-              });
-            return res.json({
-              success: true,
-              sourceType: 'pdf',
-              pageCount: pages.length,
-              pages,
-              // Legacy fields (page 1) so any client not yet reading `pages[]` still works.
-              imageDataUrl: pages[0]?.imageDataUrl,
-              bluePixelRatio: pages[0]?.bluePixelRatio,
-              bluePixelCount: pages[0]?.bluePixelCount,
-              imageSize: pages[0]?.imageSize,
-            });
-          }
-
-          // Non-PDF (single image upload) — unchanged single-page behavior.
-          const outputPath = path.join(tempDir, `filter_${stamp}_out.jpg`);
-          const filtered = filterOneImage(inputPath, outputPath);
-          return res.json({
-            success: true,
-            sourceType: 'image',
-            ...filtered,
-          });
-        } catch (err: any) {
-          const msg = err?.message || String(err);
-          console.error('[icr-filter] failed:', msg);
-          return res.status(500).json({ success: false, error: msg });
-        } finally {
-          for (const p of cleanupPaths) {
-            try {
-              if (fs.existsSync(p) && fs.statSync(p).isDirectory()) fs.rmSync(p, { recursive: true, force: true });
-              else fs.unlinkSync(p);
-            } catch { /* noop */ }
-          }
+          pdfStdout = execFileSync(
+            PYTHON_BIN,
+            [rasterScript, inputPath, rasterDir, '--all-pages'],
+            { cwd: AI_SERVICES_DIR, timeout: 60000, encoding: 'utf8' }
+          );
+        } catch (e: any) {
+          return res.status(500).json({ success: false, error: `PDF rasterization failed: ${e?.message || e}` });
         }
+        const pdfLine = pdfStdout.trim().split('\n').filter(Boolean).pop() || '{}';
+        let pdfResult: any = {};
+        try {
+          pdfResult = JSON.parse(pdfLine);
+        } catch {
+          return res.status(500).json({ success: false, error: `PDF rasterizer returned non-JSON: ${pdfStdout.slice(0, 300)}` });
+        }
+        if (!pdfResult.success) {
+          return res.status(500).json({ success: false, error: pdfResult.error || 'PDF rasterization failed.' });
+        }
+        const rasterPages: Array<{ page_number: number; output_path: string }> = pdfResult.pages || [];
+        cleanupPaths.push(rasterDir);
+        const pages = rasterPages
+          .sort((a, b) => a.page_number - b.page_number)
+          .map((p) => {
+            const outPath = path.join(tempDir, `filter_${stamp}_out_p${p.page_number}.jpg`);
+            const filtered = filterOneImage(p.output_path, outPath);
+            cleanupPaths.push(p.output_path);
+            return { pageNumber: p.page_number, ...filtered };
+          });
+        return res.json({
+          success: true,
+          sourceType: 'pdf',
+          pageCount: pages.length,
+          pages,
+          // Legacy fields (page 1) so any client not yet reading `pages[]` still works.
+          imageDataUrl: pages[0]?.imageDataUrl,
+          bluePixelRatio: pages[0]?.bluePixelRatio,
+          bluePixelCount: pages[0]?.bluePixelCount,
+          imageSize: pages[0]?.imageSize,
+        });
+      }
+
+      // Non-PDF (single image upload) — unchanged single-page behavior.
+      const outputPath = path.join(tempDir, `filter_${stamp}_out.jpg`);
+      const filtered = filterOneImage(inputPath, outputPath);
+      return res.json({
+        success: true,
+        sourceType: 'image',
+        ...filtered,
       });
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      console.error('[icr-filter] failed:', msg);
+      return res.status(500).json({ success: false, error: msg });
+    } finally {
+      for (const p of cleanupPaths) {
+        try {
+          if (fs.existsSync(p) && fs.statSync(p).isDirectory()) fs.rmSync(p, { recursive: true, force: true });
+          else fs.unlinkSync(p);
+        } catch { /* noop */ }
+      }
+    }
+  });
 
   // ICR Answer Sheet Scanner (Single or Bulk Class Evaluation for PDF & Image uploads with EasyOCR)
   app.post('/api/icr/evaluate-pdf', async (req, res) => {
@@ -281,7 +281,7 @@ export function registerEvaluationRoutes(app: express.Express) {
       const allStudents = await dbStore.getStudents();
       let classStudents = allStudents.filter(
         s => (s.classGroup || '').toLowerCase().includes(targetClass!.className.toLowerCase()) ||
-             targetClass!.className.toLowerCase().includes((s.classGroup || '').toLowerCase())
+          targetClass!.className.toLowerCase().includes((s.classGroup || '').toLowerCase())
       );
 
       if (classStudents.length === 0) {
@@ -508,7 +508,7 @@ export function registerEvaluationRoutes(app: express.Express) {
     }
   });
 
-    // =========================================================================
+  // =========================================================================
   // ICR via external cloud OCR APIs (Google Vision / AWS Textract / Azure /
   // MiniMax / OCR.space)
   // =========================================================================
@@ -593,7 +593,7 @@ export function registerEvaluationRoutes(app: express.Express) {
     apiKey: string
   ): Promise<{ status: number; body: any }> => {
     if (!dataUrl || typeof dataUrl !== 'string' ||
-        (dataUrl.indexOf('data:image/') !== 0 && dataUrl.indexOf('data:application/') !== 0)) {
+      (dataUrl.indexOf('data:image/') !== 0 && dataUrl.indexOf('data:application/') !== 0)) {
       return { status: 400, body: { error: 'imageDataUrl (or fileBase64) is required (data URL).' } };
     }
 
@@ -659,14 +659,16 @@ export function registerEvaluationRoutes(app: express.Express) {
             }
           }
         }
-        return { status: 200, body: {
-          success: true,
-          provider: 'google',
-          ocrEngine: 'Google Cloud Vision (DOCUMENT_TEXT_DETECTION)',
-          rawOcrText: fullText,
-          extractedTokens: tokens,
-          processingTimeMs: Date.now() - t0,
-        }};
+        return {
+          status: 200, body: {
+            success: true,
+            provider: 'google',
+            ocrEngine: 'Google Cloud Vision (DOCUMENT_TEXT_DETECTION)',
+            rawOcrText: fullText,
+            extractedTokens: tokens,
+            processingTimeMs: Date.now() - t0,
+          }
+        };
       }
 
       // ===== MiniMax (vision-capable chat completion) =====
@@ -730,14 +732,16 @@ export function registerEvaluationRoutes(app: express.Express) {
           yPos += 30;
         }
         const rawText = tokens.map(function (t) { return t.text; }).join(' ');
-        return { status: 200, body: {
-          success: true,
-          provider: 'minimax',
-          ocrEngine: 'MiniMax minimax-m3 (vision)',
-          rawOcrText: rawText,
-          extractedTokens: tokens,
-          processingTimeMs: Date.now() - t0,
-        }};
+        return {
+          status: 200, body: {
+            success: true,
+            provider: 'minimax',
+            ocrEngine: 'MiniMax minimax-m3 (vision)',
+            rawOcrText: rawText,
+            extractedTokens: tokens,
+            processingTimeMs: Date.now() - t0,
+          }
+        };
       }
 
       // ===== OCR.space (free tier) =====
@@ -785,21 +789,25 @@ export function registerEvaluationRoutes(app: express.Express) {
           }
           yPos += 30;
         }
-        return { status: 200, body: {
-          success: true,
-          provider: 'ocrspace',
-          ocrEngine: 'OCR.space (Engine 2, free tier)',
-          rawOcrText: fullText,
-          extractedTokens: tokens,
-          processingTimeMs: Date.now() - t0,
-        }};
+        return {
+          status: 200, body: {
+            success: true,
+            provider: 'ocrspace',
+            ocrEngine: 'OCR.space (Engine 2, free tier)',
+            rawOcrText: fullText,
+            extractedTokens: tokens,
+            processingTimeMs: Date.now() - t0,
+          }
+        };
       }
 
       // ===== AWS Textract (stub) =====
       if (provider === 'aws') {
-        return { status: 501, body: {
-          error: 'AWS Textract integration is not yet implemented. Pick Google Cloud Vision, MiniMax, OCR.space or use the local OCR button.',
-        }};
+        return {
+          status: 501, body: {
+            error: 'AWS Textract integration is not yet implemented. Pick Google Cloud Vision, MiniMax, OCR.space or use the local OCR button.',
+          }
+        };
       }
 
       // ===== Ollama Cloud + Gemma 4 (vision) =====
@@ -833,20 +841,24 @@ export function registerEvaluationRoutes(app: express.Express) {
             });
             const pdfJson = JSON.parse(childOut.toString());
             if (!pdfJson.success) {
-              try { fs.unlinkSync(pdfPath); } catch {}
-              try { fs.unlinkSync(pngPath); } catch {}
-              return { status: 500, body: {
-                error: 'Cloud OCR (OLLAMA-GEMMA4) could not rasterize PDF: ' + (pdfJson.error || 'unknown'),
-              }};
+              try { fs.unlinkSync(pdfPath); } catch { }
+              try { fs.unlinkSync(pngPath); } catch { }
+              return {
+                status: 500, body: {
+                  error: 'Cloud OCR (OLLAMA-GEMMA4) could not rasterize PDF: ' + (pdfJson.error || 'unknown'),
+                }
+              };
             }
             imageBase64 = fs.readFileSync(pngPath).toString('base64');
             mimeUsed = 'image/png';
-            try { fs.unlinkSync(pdfPath); } catch {}
-            try { fs.unlinkSync(pngPath); } catch {}
+            try { fs.unlinkSync(pdfPath); } catch { }
+            try { fs.unlinkSync(pngPath); } catch { }
           } catch (e: any) {
-            return { status: 500, body: {
-              error: 'Cloud OCR (OLLAMA-GEMMA4) PDF rasterization failed: ' + (e?.message || String(e)),
-            }};
+            return {
+              status: 500, body: {
+                error: 'Cloud OCR (OLLAMA-GEMMA4) PDF rasterization failed: ' + (e?.message || String(e)),
+              }
+            };
           }
         }
 
@@ -939,32 +951,36 @@ export function registerEvaluationRoutes(app: express.Express) {
           .map(s => s.trim())
           .filter(Boolean)
           .map(text => ({ text, confidence: 0.7 }));
-        return { status: 200, body: {
-          success: true,
-          provider: 'ollama-gemma4',
-          model: modelName,
-          mimeUsed,
-          // The cleaned, flat answer list — exactly what the verify UI consumes.
-          answers: flatAnswers || [],
-          // Keep raw text + tokens for the OCR analysis preview pane.
-          extractedText: rawText,
-          extractedTokens: tokens,
-          rawOcrText: rawText,
-          // When JSON parsing fails we still want the UI to show the raw text
-          // and an explicit warning — the question-classifier flow can then
-          // try to parse it client-side as a fallback.
-          structured: flatAnswers != null,
-          structuredError: parseError,
-          processingTimeMs: Date.now() - t0,
-        }};
+        return {
+          status: 200, body: {
+            success: true,
+            provider: 'ollama-gemma4',
+            model: modelName,
+            mimeUsed,
+            // The cleaned, flat answer list — exactly what the verify UI consumes.
+            answers: flatAnswers || [],
+            // Keep raw text + tokens for the OCR analysis preview pane.
+            extractedText: rawText,
+            extractedTokens: tokens,
+            rawOcrText: rawText,
+            // When JSON parsing fails we still want the UI to show the raw text
+            // and an explicit warning — the question-classifier flow can then
+            // try to parse it client-side as a fallback.
+            structured: flatAnswers != null,
+            structuredError: parseError,
+            processingTimeMs: Date.now() - t0,
+          }
+        };
       }
 
 
       // ===== Azure Computer Vision (stub) =====
       if (provider === 'azure') {
-        return { status: 501, body: {
-          error: 'Azure Computer Vision integration is not yet implemented. Pick Google Cloud Vision, MiniMax, OCR.space or use the local OCR button.',
-        }};
+        return {
+          status: 501, body: {
+            error: 'Azure Computer Vision integration is not yet implemented. Pick Google Cloud Vision, MiniMax, OCR.space or use the local OCR button.',
+          }
+        };
       }
 
       return { status: 400, body: { error: 'Unknown provider: ' + provider } };
@@ -1039,7 +1055,7 @@ export function registerEvaluationRoutes(app: express.Express) {
     });
   });
 
-// Generate Personalized Class Worksheets
+  // Generate Personalized Class Worksheets
   app.post('/api/evaluation/submit', async (req, res) => {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
@@ -1245,35 +1261,35 @@ export function registerEvaluationRoutes(app: express.Express) {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const [reports, students, schools] = await Promise.all([
-      dbStore.getEvaluationReports(),
-      dbStore.getStudents(),
-      dbStore.getSchools(),
-    ]);
-
     if (user.role === UserRole.SUPERADMIN) {
+      const reports = await dbStore.getEvaluationReports();
       return res.json(reports);
     }
 
     let scopedStudentIds: Set<string>;
     if (user.role === UserRole.SCHOOL || user.role === UserRole.TEACHER) {
-      scopedStudentIds = new Set(students.filter(s => s.schoolId === user.schoolId).map(s => s.id));
+      const students = await dbStore.getStudents({ schoolId: user.schoolId });
+      scopedStudentIds = new Set(students.map(s => s.id));
     } else if (user.role === UserRole.VOLUNTEER) {
-      scopedStudentIds = new Set(students.filter(s => user.assignedSchools?.includes(s.schoolId)).map(s => s.id));
+      const students = await dbStore.getStudents({ schoolId: user.assignedSchools || [] });
+      scopedStudentIds = new Set(students.map(s => s.id));
     } else if (user.role === UserRole.ADMIN || user.role === UserRole.DISTRICT_ADMIN || user.role === UserRole.BLOCK_ADMIN) {
-      const schoolById = new Map(schools.map(sc => [sc.id, sc]));
-      scopedStudentIds = new Set(students.filter(s => {
-        const school = schoolById.get(s.schoolId);
-        if (!school) return false;
+      const schools = await dbStore.getSchools();
+      const filteredSchools = schools.filter(school => {
         if (user.role === UserRole.ADMIN) return school.stateCode === user.stateCode;
         if (user.role === UserRole.DISTRICT_ADMIN) return school.districtCode === user.districtCode;
         return school.blockCode === user.blockCode; // BLOCK_ADMIN
-      }).map(s => s.id));
+      });
+      const schoolIds = filteredSchools.map(s => s.id);
+      const students = await dbStore.getStudents({ schoolId: schoolIds });
+      scopedStudentIds = new Set(students.map(s => s.id));
     } else {
+      const students = await dbStore.getStudents();
       scopedStudentIds = new Set(students.map(s => s.id));
     }
 
-    res.json(reports.filter(r => scopedStudentIds.has(r.studentId)));
+    const reports = await dbStore.getEvaluationReports({ studentIds: Array.from(scopedStudentIds) });
+    res.json(reports);
   });
 
   // Evaluation History

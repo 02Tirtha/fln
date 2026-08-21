@@ -105,9 +105,9 @@ export interface Student {
   section: string;
   schoolId: string;
   teacherId?: string;
-  currentLevel: number;
-  currentSubLevel?: number;
-  targetLevel: number;
+  currentLevel: number | null;
+  currentSubLevel?: number | null;
+  targetLevel: number | null;
   aadharMasked: string; // Mandatory, unique identifier masked (§13.2 R-6)
   levelHistory: { level: number; subLevel?: number; date: string; reason: string }[];
   assignedDiagnosticQuestions?: Question[];
@@ -126,6 +126,7 @@ export interface Student {
   busRoute?: string;
   siblingsInSchool?: string;
   teacherNotes?: string;
+  streak?: number;
 }
 
 export interface Question {
@@ -536,6 +537,37 @@ export class DBStore {
           console.warn('Collection check info:', e.message);
         }
 
+        // Ensure indexes on students collection for performance
+        try {
+          const studentsColl = db.collection('students');
+          await studentsColl.createIndex({ id: 1 }, { unique: true });
+          await studentsColl.createIndex({ schoolId: 1 });
+          await studentsColl.createIndex({ teacherId: 1 });
+          await studentsColl.createIndex({ aadharMasked: 1 });
+          console.log('Successfully ensured indexes on "students" collection');
+        } catch (e: any) {
+          console.warn('Failed to ensure indexes on "students" collection:', e.message);
+        }
+
+        // Ensure indexes on users collection for performance
+        try {
+          const usersColl = db.collection('users');
+          await usersColl.createIndex({ id: 1 }, { unique: true });
+          await usersColl.createIndex({ email: 1 }, { unique: true });
+          console.log('Successfully ensured indexes on "users" collection');
+        } catch (e: any) {
+          console.warn('Failed to ensure indexes on "users" collection:', e.message);
+        }
+
+        // Ensure indexes on evaluationReports collection for performance
+        try {
+          const reportsColl = db.collection('evaluationReports');
+          await reportsColl.createIndex({ studentId: 1 });
+          console.log('Successfully ensured indexes on "evaluationReports" collection');
+        } catch (e: any) {
+          console.warn('Failed to ensure indexes on "evaluationReports" collection:', e.message);
+        }
+
         for (const [key, collName] of Object.entries(COLLECTION_NAMES)) {
           (this.data as any)[key] = [];
         }
@@ -580,6 +612,7 @@ export class DBStore {
   private async persistCollection(key: keyof DatabaseSchema) {
     if (!this.data || !mongoClient) return;
     const db = this.getDb();
+    if (!db) return;
     const collName = COLLECTION_NAMES[key];
     const items = (this.data as any)[key] || [];
     const coll = db.collection(collName);
@@ -593,6 +626,7 @@ export class DBStore {
     this.data = this.getSeedData();
     if (mongoClient) {
       const db = this.getDb();
+      if (!db) return;
       for (const [key, collName] of Object.entries(COLLECTION_NAMES)) {
         const items = (this.data as any)[key] || [];
         const coll = db.collection(collName);
@@ -631,7 +665,7 @@ export class DBStore {
           }
           return u;
         }
-      } catch (_) {}
+      } catch (_) { }
     }
     return this.getUserSync(cleanEmail);
   }
@@ -648,37 +682,43 @@ export class DBStore {
     if (this.mongoDb) return await this.mongoDb.collection<ClassGroup>('classes').find({}).toArray();
     return this.data?.classes || [];
   }
-  async getStudents(opts?: { limit?: number; offset?: number; schoolId?: string; teacherId?: string }) {
-      if (this.mongoDb) {
-        const filter: any = {};
-        if (opts?.schoolId) filter.schoolId = opts.schoolId;
-        if (opts?.teacherId) filter.teacherId = opts.teacherId;
-        const skip = opts?.offset || 0;
-        const limit = opts?.limit || 0;
-        const cursor = this.mongoDb.collection<Student>('students').find(filter);
-        if (skip) cursor.skip(skip);
-        if (limit) cursor.limit(limit);
-        return await cursor.toArray();
+  async getStudents(opts?: { limit?: number; offset?: number; schoolId?: string | string[]; teacherId?: string }) {
+    if (this.mongoDb) {
+      const filter: any = {};
+      if (opts?.schoolId) {
+        if (Array.isArray(opts.schoolId)) {
+          filter.schoolId = { $in: opts.schoolId };
+        } else {
+          filter.schoolId = opts.schoolId;
+        }
       }
-      let result = this.data?.students || [];
-      if (opts?.schoolId) result = result.filter(s => s.schoolId === opts.schoolId);
-      if (opts?.teacherId) result = result.filter(s => s.teacherId === opts.teacherId);
-      if (opts?.offset) result = result.slice(opts.offset);
-      if (opts?.limit) result = result.slice(0, opts.limit);
-      return result;
+      if (opts?.teacherId) filter.teacherId = opts.teacherId;
+      const skip = opts?.offset || 0;
+      const limit = opts?.limit || 0;
+      const cursor = this.mongoDb.collection<Student>('students').find(filter);
+      if (skip) cursor.skip(skip);
+      if (limit) cursor.limit(limit);
+      return await cursor.toArray();
     }
-    async countStudents(opts?: { schoolId?: string; teacherId?: string }) {
-      if (this.mongoDb) {
-        const filter: any = {};
-        if (opts?.schoolId) filter.schoolId = opts.schoolId;
-        if (opts?.teacherId) filter.teacherId = opts.teacherId;
-        return await this.mongoDb.collection('students').countDocuments(filter);
-      }
-      let result = this.data?.students || [];
-      if (opts?.schoolId) result = result.filter(s => s.schoolId === opts.schoolId);
-      if (opts?.teacherId) result = result.filter(s => s.teacherId === opts.teacherId);
-      return result.length;
+    let result = this.data?.students || [];
+    if (opts?.schoolId) result = result.filter(s => s.schoolId === opts.schoolId);
+    if (opts?.teacherId) result = result.filter(s => s.teacherId === opts.teacherId);
+    if (opts?.offset) result = result.slice(opts.offset);
+    if (opts?.limit) result = result.slice(0, opts.limit);
+    return result;
+  }
+  async countStudents(opts?: { schoolId?: string; teacherId?: string }) {
+    if (this.mongoDb) {
+      const filter: any = {};
+      if (opts?.schoolId) filter.schoolId = opts.schoolId;
+      if (opts?.teacherId) filter.teacherId = opts.teacherId;
+      return await this.mongoDb.collection('students').countDocuments(filter);
     }
+    let result = this.data?.students || [];
+    if (opts?.schoolId) result = result.filter(s => s.schoolId === opts.schoolId);
+    if (opts?.teacherId) result = result.filter(s => s.teacherId === opts.teacherId);
+    return result.length;
+  }
 
 
   /**
@@ -863,135 +903,285 @@ export class DBStore {
      *   Class 3:      62-75
      *   Class 4:      76-93
      */
-    static classLevelRange(classNumber: number): { min: number; max: number } {
-      if (classNumber <= 1)  return { min: 28, max: 42 }; // class 1
-      if (classNumber === 2) return { min: 43, max: 61 };
-      if (classNumber === 3) return { min: 62, max: 75 };
-      return { min: 76, max: 93 }; // class 4 (and any >4 default)
-    }
+  static classLevelRange(classNumber: number): { min: number; max: number } {
+    if (classNumber <= 1) return { min: 28, max: 42 }; // class 1
+    if (classNumber === 2) return { min: 43, max: 61 };
+    if (classNumber === 3) return { min: 62, max: 75 };
+    return { min: 76, max: 93 }; // class 4 (and any >4 default)
+  }
 
-    /**
-     * Generate a 10-question FLN paper for the given class using real MongoDB Atlas
-     * `questionBank` documents. Each question is sourced from one level in the class's band.
-     *
-     * Default for class 2 was 22-31 (legacy); now correctly 43-61.
-     */
-    async generateClassPaperFromAtlas(studentId: string | undefined, classNumber: number): Promise<Question[]> {
-      const { min: minLevel, max: maxLevel } = DBStore.classLevelRange(classNumber);
-      const questions: Question[] = [];
-      for (let lvl = minLevel; lvl <= maxLevel && questions.length < 10; lvl++) {
-        let qDoc: any = null;
-        if (this.mongoDb) {
-          try {
-            const docs = await this.mongoDb.collection('questionBank').aggregate([
-              { $match: { level: lvl } },
-              { $sample: { size: 1 } }
-            ]).toArray();
-            if (docs && docs.length > 0) qDoc = docs[0];
-          } catch (_) {}
-        }
-        if (qDoc) {
-          questions.push({
-            question_id: `Q_L${lvl}_${qDoc.questionNumber || (questions.length + 1)}`,
-            question: qDoc.questionText || qDoc.question || `Level ${lvl} Problem`,
-            answer: String(qDoc.answer || '').trim(),
-            answer_type: 'number',
-            topic: qDoc.levelTitle || `Level ${lvl}`,
-            subtopic: qDoc.section || `Section ${lvl}.0`,
-            difficulty: 'medium',
-            source_level: lvl,
-            // Authoritative concept identity for this curriculum level. Metadata
-            // only — it does not affect the question, its answer or its level.
-            conceptId: CURRICULUM_MAPPING[lvl]?.conceptId
-          });
-        } else {
-          // Deterministic fallback so the generated paper still has a valid answer key
-          // even when questionBank has no docs for this level.
-          const a = lvl;
-          const b = (lvl % 7) + 2;
-          questions.push({
-            question_id: `Q_L${lvl}_${questions.length + 1}`,
-            question: `Level ${lvl}: Calculate ${a} + ${b} = ?`,
-            answer: String(a + b),
-            answer_type: 'number',
-            // Mirror the qDoc branch above: derive the topic string from the
-            // canonical CURRICULUM_MAPPING entry (e.g. "Flexible
-            // Classification" for level 22). Without this, the offline
-            // fallback produced a misleading placeholder ("Level 22 Number
-            // Operations") that the Python pipeline rendered verbatim,
-            // making the narrative disagree with the paper's conceptId.
-            topic: CURRICULUM_MAPPING[lvl]?.levelTitle || `Level ${lvl}`,
-            subtopic: 'Addition',
-            difficulty: 'medium',
-            source_level: lvl,
-            // Same authoritative concept identity on the offline fallback item.
-            conceptId: CURRICULUM_MAPPING[lvl]?.conceptId
-          });
-        }
-      }
-
-      if (studentId && questions.length > 0) {
-        await this.assignDiagnosticPaperToStudent(studentId, questions);
-      }
-      return questions;
-    }
-
-    /**
-     * Back-compat: legacy callers (paperGenerator.ts line ~147) pass classNumber=2.
-     * Routes through the new class-aware generator.
-     */
-    async generateClass2PaperFromAtlas(studentId?: string): Promise<Question[]> {
-      return await this.generateClassPaperFromAtlas(studentId, 2);
-    }
-
-    async assignDiagnosticPaperToStudent(studentId: string, questions: Question[]) {
+  /**
+   * Generate a 10-question FLN paper for the given class using real MongoDB Atlas
+   * `questionBank` documents. Each question is sourced from one level in the class's band.
+   *
+   * Default for class 2 was 22-31 (legacy); now correctly 43-61.
+   */
+  async generateClassPaperFromAtlas(studentId: string | undefined, classNumber: number): Promise<Question[]> {
+    const { min: minLevel, max: maxLevel } = DBStore.classLevelRange(classNumber);
+    const questions: Question[] = [];
+    for (let lvl = minLevel; lvl <= maxLevel && questions.length < 10; lvl++) {
+      let qDoc: any = null;
       if (this.mongoDb) {
         try {
-          await this.mongoDb.collection('students').updateOne(
-            { id: studentId },
-            { $set: { assignedDiagnosticQuestions: questions } }
-          );
-        } catch (e) {
-          console.warn('Failed to persist assigned paper to MongoDB student:', e);
-        }
+          const docs = await this.mongoDb.collection('questionBank').aggregate([
+            { $match: { level: lvl } },
+            { $sample: { size: 1 } }
+          ]).toArray();
+          if (docs && docs.length > 0) qDoc = docs[0];
+        } catch (_) { }
       }
-      if (this.data && this.data.students) {
-        const st = this.data.students.find(s => s.id === studentId);
-        if (st) st.assignedDiagnosticQuestions = questions;
+      if (qDoc) {
+        questions.push({
+          question_id: `Q_L${lvl}_${qDoc.questionNumber || (questions.length + 1)}`,
+          question: qDoc.questionText || qDoc.question || `Level ${lvl} Problem`,
+          answer: String(qDoc.answer || '').trim(),
+          answer_type: 'number',
+          topic: qDoc.levelTitle || `Level ${lvl}`,
+          subtopic: qDoc.section || `Section ${lvl}.0`,
+          difficulty: 'medium',
+          source_level: lvl,
+          // Authoritative concept identity for this curriculum level. Metadata
+          // only — it does not affect the question, its answer or its level.
+          conceptId: CURRICULUM_MAPPING[lvl]?.conceptId
+        });
+      } else {
+        // Deterministic fallback so the generated paper still has a valid answer key
+        // even when questionBank has no docs for this level.
+        const a = lvl;
+        const b = (lvl % 7) + 2;
+        questions.push({
+          question_id: `Q_L${lvl}_${questions.length + 1}`,
+          question: `Level ${lvl}: Calculate ${a} + ${b} = ?`,
+          answer: String(a + b),
+          answer_type: 'number',
+          // Mirror the qDoc branch above: derive the topic string from the
+          // canonical CURRICULUM_MAPPING entry (e.g. "Flexible
+          // Classification" for level 22). Without this, the offline
+          // fallback produced a misleading placeholder ("Level 22 Number
+          // Operations") that the Python pipeline rendered verbatim,
+          // making the narrative disagree with the paper's conceptId.
+          topic: CURRICULUM_MAPPING[lvl]?.levelTitle || `Level ${lvl}`,
+          subtopic: 'Addition',
+          difficulty: 'medium',
+          source_level: lvl,
+          // Same authoritative concept identity on the offline fallback item.
+          conceptId: CURRICULUM_MAPPING[lvl]?.conceptId
+        });
       }
     }
 
-    async getStudentAssignedQuestions(studentId: string, classNumber: number = 2): Promise<Question[]> {
-      let student: Student | null = null;
-      if (this.mongoDb) {
-        student = await this.mongoDb.collection<Student>('students').findOne({ id: studentId });
-      }
-      if (!student && this.data && this.data.students) {
-        student = this.data.students.find(s => s.id === studentId) || null;
-      }
-      // Only reuse a cached paper that still carries the curriculum identity
-      // (conceptId on every question). A paper cached before questions were
-      // tagged, or written by a code path that produced conceptId-less
-      // questions (e.g. bulk diagnostic masterJson items), cannot be matched
-      // back to the 93-level framework, so the prerequisite resolver would
-      // silently emit nothing. Treating such a paper as absent makes
-      // generateClassPaperFromAtlas regenerate it on demand.
-      const cached = student?.assignedDiagnosticQuestions;
-      if (cached && cached.length > 0 && cached.every(q => q.conceptId)) {
-        return cached;
-      }
-      // Fall back to a class-correct generator (legacy = always L22-L31, wrong for all classes).
-      return await this.generateClassPaperFromAtlas(studentId, classNumber);
+    if (studentId && questions.length > 0) {
+      await this.assignDiagnosticPaperToStudent(studentId, questions);
     }
+    return questions;
+  }
 
-    async getAnswerSubmissions() {
+  /**
+   * Back-compat: legacy callers (paperGenerator.ts line ~147) pass classNumber=2.
+   * Routes through the new class-aware generator.
+   */
+  async generateClass2PaperFromAtlas(studentId?: string): Promise<Question[]> {
+    return await this.generateClassPaperFromAtlas(studentId, 2);
+  }
+  async assignDiagnosticPaperToStudent(studentId: string, questions: Question[]) {
+    if (this.mongoDb) {
+      try {
+        await this.mongoDb.collection('students').updateOne(
+          { id: studentId },
+          { $set: { assignedDiagnosticQuestions: questions } }
+        );
+      } catch (e) {
+        console.warn('Failed to persist assigned paper to MongoDB student:', e);
+      }
+    }
+    if (this.data && this.data.students) {
+      const st = this.data.students.find(s => s.id === studentId);
+      if (st) st.assignedDiagnosticQuestions = questions;
+    }
+  }
+
+  async getStudentAssignedQuestions(studentId: string, classNumber: number = 2): Promise<Question[]> {
+    let student: Student | null = null;
+    if (this.mongoDb) {
+      student = await this.mongoDb.collection<Student>('students').findOne({ id: studentId });
+    }
+    if (!student && this.data && this.data.students) {
+      student = this.data.students.find(s => s.id === studentId) || null;
+    }
+    // Only reuse a cached paper that still carries the curriculum identity
+    // (conceptId on every question). A paper cached before questions were
+    // tagged, or written by a code path that produced conceptId-less
+    // questions (e.g. bulk diagnostic masterJson items), cannot be matched
+    // back to the 93-level framework, so the prerequisite resolver would
+    // silently emit nothing. Treating such a paper as absent makes
+    // generateClassPaperFromAtlas regenerate it on demand.
+    const cached = student?.assignedDiagnosticQuestions;
+    if (cached && cached.length > 0 && cached.every(q => q.conceptId)) {
+      return cached;
+    }
+    // Fall back to a class-correct generator (legacy = always L22-L31, wrong for all classes).
+    return await this.generateClassPaperFromAtlas(studentId, classNumber);
+  }
+
+  async getAnswerSubmissions() {
     if (this.mongoDb) return await this.mongoDb.collection<AnswerSubmission>('answerSubmissions').find({}).toArray();
     return this.data?.answerSubmissions || [];
   }
-  async getEvaluationReports() {
-    if (this.mongoDb) return await this.mongoDb.collection<EvaluationReport>('evaluationReports').find({}).toArray();
-    return this.data?.evaluationReports || [];
+  async getEvaluationReports(opts?: { studentIds?: string[] }) {
+    if (this.mongoDb) {
+      const filter: any = {};
+      if (opts?.studentIds) filter.studentId = { $in: opts.studentIds };
+      return await this.mongoDb.collection<EvaluationReport>('evaluationReports').find(filter).toArray();
+    }
+    let result = this.data?.evaluationReports || [];
+    if (opts?.studentIds) result = result.filter(r => opts.studentIds!.includes(r.studentId));
+    return result;
   }
+
+  async getStudentsByIds(ids: string[]): Promise<Student[]> {
+    if (this.mongoDb) {
+      return await this.mongoDb.collection<Student>('students').find({ id: { $in: ids } }).toArray();
+    }
+    return (this.data?.students || []).filter(s => ids.includes(s.id));
+  }
+
+  async getAnalyticsForScope(schoolFilter?: any) {
+    if (this.mongoDb) {
+      let schoolIds: string[] | null = null;
+      if (schoolFilter && Object.keys(schoolFilter).length > 0) {
+        const schools = await this.mongoDb.collection('schools')
+          .find(schoolFilter, { projection: { id: 1 } })
+          .toArray();
+        schoolIds = schools.map(s => s.id);
+      }
+
+      const studentFilter: any = {};
+      if (schoolIds) {
+        studentFilter.schoolId = { $in: schoolIds };
+      }
+
+      const statsPromise = this.mongoDb.collection('students').aggregate([
+        { $match: studentFilter },
+        {
+          $group: {
+            _id: null,
+            count: { $sum: 1 },
+            sumLevel: { $sum: '$currentLevel' },
+            certified: {
+              $sum: {
+                $cond: [{ $gte: ['$currentLevel', 5] }, 1, 0]
+              }
+            }
+          }
+        }
+      ]).toArray();
+
+      const distPromise = this.mongoDb.collection('students').aggregate([
+        { $match: studentFilter },
+        {
+          $group: {
+            _id: '$currentLevel',
+            count: { $sum: 1 }
+          }
+        }
+      ]).toArray();
+
+      const [statsResult, distResult] = await Promise.all([statsPromise, distPromise]);
+
+      const stats = statsResult[0] || { count: 0, sumLevel: 0, certified: 0 };
+      const count = stats.count;
+      const sumLevel = stats.sumLevel;
+      const certified = stats.certified;
+
+      const avgLevel = count > 0 ? Math.round((sumLevel / count) * 10) / 10 : 0;
+      const certificationRate = count > 0 ? Math.round((certified / count) * 100) : 0;
+
+      const topicMastery = {
+        "Number Sense": Math.min(100, Math.round(55 + avgLevel * 8)),
+        "Number Operations": Math.min(100, Math.round(45 + avgLevel * 9)),
+        "Shapes": Math.min(100, Math.round(58 + avgLevel * 7)),
+        "Fractions": Math.min(100, Math.round(20 + avgLevel * 11)),
+        "Patterns": Math.min(100, Math.round(38 + avgLevel * 10)),
+        "Measurement": Math.min(100, Math.round(32 + avgLevel * 10))
+      };
+
+      const levelDistribution: Record<string, number> = {};
+      for (let i = 1; i <= 15; i++) {
+        levelDistribution[`Level ${i}`] = 0;
+      }
+      levelDistribution["Level 16+"] = 0;
+
+      distResult.forEach(r => {
+        const lvl = r._id;
+        if (lvl >= 16) {
+          levelDistribution["Level 16+"] += r.count;
+        } else if (lvl >= 1 && lvl <= 15) {
+          levelDistribution[`Level ${lvl}`] = r.count;
+        }
+      });
+
+      return {
+        avgLevel,
+        certificationRate,
+        topicMastery,
+        levelDistribution,
+        count
+      };
+    }
+
+    const schools = this.data?.schools || [];
+    let schoolIds: string[] | null = null;
+    if (schoolFilter && Object.keys(schoolFilter).length > 0) {
+      schoolIds = schools.filter(s => {
+        return Object.entries(schoolFilter).every(([k, v]) => (s as any)[k] === v);
+      }).map(s => s.id);
+    }
+
+    let filteredStudents = this.data?.students || [];
+    if (schoolIds) {
+      filteredStudents = filteredStudents.filter(s => schoolIds!.includes(s.schoolId));
+    }
+
+    const count = filteredStudents.length;
+    if (count === 0) {
+      return {
+        avgLevel: 0,
+        certificationRate: 0,
+        topicMastery: { "Number Sense": 0, "Number Operations": 0, "Shapes": 0, "Fractions": 0, "Patterns": 0, "Measurement": 0 },
+        levelDistribution: Object.fromEntries(Array.from({ length: 15 }, (_, i) => [`Level ${i + 1}`, 0]).concat([["Level 16+", 0]])),
+        count: 0
+      };
+    }
+
+    const sumLevel = filteredStudents.reduce((acc, s) => acc + s.currentLevel, 0);
+    const avgLevel = Math.round((sumLevel / count) * 10) / 10;
+    const certified = filteredStudents.filter(s => s.currentLevel >= 5).length;
+    const certificationRate = Math.round((certified / count) * 100);
+
+    const topicMastery = {
+      "Number Sense": Math.min(100, Math.round(55 + avgLevel * 8)),
+      "Number Operations": Math.min(100, Math.round(45 + avgLevel * 9)),
+      "Shapes": Math.min(100, Math.round(58 + avgLevel * 7)),
+      "Fractions": Math.min(100, Math.round(20 + avgLevel * 11)),
+      "Patterns": Math.min(100, Math.round(38 + avgLevel * 10)),
+      "Measurement": Math.min(100, Math.round(32 + avgLevel * 10))
+    };
+
+    const levelDistribution: Record<string, number> = {};
+    for (let i = 1; i <= 15; i++) {
+      levelDistribution[`Level ${i}`] = filteredStudents.filter(s => s.currentLevel === i).length;
+    }
+    levelDistribution["Level 16+"] = filteredStudents.filter(s => s.currentLevel >= 16).length;
+
+    return {
+      avgLevel,
+      certificationRate,
+      topicMastery,
+      levelDistribution,
+      count
+    };
+  }
+
   async getTickets() {
     if (this.mongoDb) return await this.mongoDb.collection<Ticket>('tickets').find({}).toArray();
     return this.data?.tickets || [];
@@ -1017,9 +1207,35 @@ export class DBStore {
     await this.mongoDb!.collection('users').updateOne({ id: userId }, { $set: { passwordHash } });
   }
 
+  async getStudentById(id: string): Promise<Student | null> {
+    if (this.mongoDb) {
+      return await this.mongoDb.collection<Student>('students').findOne({ id });
+    }
+    return this.data?.students.find(s => s.id === id) || null;
+  }
+
+  async getExistingAadhars(aadhars: string[]): Promise<Set<string>> {
+    if (this.mongoDb) {
+      const docs = await this.mongoDb.collection('students')
+        .find({ aadharMasked: { $in: aadhars } }, { projection: { aadharMasked: 1 } })
+        .toArray();
+      return new Set(docs.map(d => d.aadharMasked));
+    }
+    const set = new Set<string>();
+    (this.data?.students || []).forEach(s => {
+      if (aadhars.includes(s.aadharMasked)) set.add(s.aadharMasked);
+    });
+    return set;
+  }
+
   async addStudent(student: Student) {
-    await this.mongoDb!.collection('students').insertOne(student);
-    if (this.data) this.data.students.push(student);
+    if (this.mongoDb) {
+      await this.mongoDb.collection('students').insertOne(student);
+    }
+    if (this.data) {
+      this.data.students.push(student);
+      if (!this.mongoDb) await this.save();
+    }
     return student;
   }
 

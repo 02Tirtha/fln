@@ -126,76 +126,203 @@ export function registerStudentRoutes(app: express.Express) {
     res.json(scoped);
   });
 
-  // Add Student
-  app.post('/api/students', async (req, res) => {
-    const user = getAuthUser(req);
-    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+  // ─── Shared student-creation helper ────────────────────────────────────────
+  // Issue #178: bulk-import must reuse this exact validation/creation logic.
+  // Both the single-student POST and the bulk-import POST call this helper so
+  // validation is never duplicated and stays in one place.
+  const VALID_CLASS_GROUPS = new Set([
+    'Preschool 1', 'Preschool 2', 'Balvatika',
+    'Class 1', 'Class 2', 'Class 3', 'Class 4',
+  ]);
 
-    const {
-      name, age, classGroup, section, schoolId, aadharNumber,
-      gender, dob, guardianName, guardianRelation, guardianContact, address,
-      bloodGroup, disabilityStatus, midDayMealBeneficiary, busRoute, siblingsInSchool,
-    } = req.body;
-    if (!name || !age || !classGroup || !section || !schoolId || !aadharNumber) {
-      return res.status(400).json({ error: 'Missing required student details.' });
+  async function createStudentFromData(
+    data: Record<string, any>,
+    actingUser: { id: string; email: string; role: UserRole; schoolId?: string },
+    existingAadhars: Set<string>,
+  ): Promise<{ student: Student } | { error: string }> {
+    const { name, classGroup, section, aadharNumber, dob, gender,
+      guardianName, guardianRelation, guardianContact, address,
+      bloodGroup, disabilityStatus, midDayMealBeneficiary, busRoute, siblingsInSchool } = data;
+
+    // Resolve schoolId — use row value for SUPERADMIN, otherwise auth context
+    const schoolId = (actingUser.role === UserRole.SUPERADMIN && data.schoolId)
+      ? String(data.schoolId).trim()
+      : actingUser.schoolId;
+
+    // Required field check (mirrors issue.txt: name, class, dob, ID card)
+    if (!name || !classGroup || !section || !aadharNumber || !schoolId) {
+      return { error: 'Missing required fields: name, classGroup, section, aadharNumber' + (!schoolId ? ', schoolId' : '') };
     }
 
-    // Enforce Aadhar formatting & masking (§13.2 R-6)
-    const rawAadhar = aadharNumber.replace(/[^0-9]/g, '');
+    // classGroup must match enum (issue.txt: "class must match the existing classGroup enum")
+    if (!VALID_CLASS_GROUPS.has(String(classGroup).trim())) {
+      return { error: `Invalid classGroup "${classGroup}". Must be one of: ${[...VALID_CLASS_GROUPS].join(', ')}` };
+    }
+
+    // dob validation + age derivation (issue.txt: "date-of-birth format is valid")
+    let age: number;
+    if (dob) {
+      const dobDate = new Date(String(dob));
+      if (isNaN(dobDate.getTime()) || !/^\d{4}-\d{2}-\d{2}$/.test(String(dob).trim())) {
+        return { error: `Invalid dob "${dob}". Must be YYYY-MM-DD.` };
+      }
+      // Compute age from dob
+      const today = new Date();
+      age = today.getFullYear() - dobDate.getFullYear()
+        - (today < new Date(today.getFullYear(), dobDate.getMonth(), dobDate.getDate()) ? 1 : 0);
+      if (age < 1 || age > 20) return { error: `Computed age (${age}) from dob is out of range.` };
+    } else {
+      // Fall back to explicit age field
+      age = parseInt(String(data.age ?? ''), 10);
+      if (!Number.isFinite(age) || age < 1 || age > 20) {
+        return { error: 'age must be a number 1–20 when dob is not provided.' };
+      }
+    }
+
+    // Aadhar uniqueness — SRS §13.2 R-6 (issue.txt: "ID card is unique")
+    const rawAadhar = String(aadharNumber).replace(/[^0-9]/g, '');
     if (rawAadhar.length < 4) {
-      return res.status(400).json({ error: 'Invalid identity document.' });
+      return { error: 'Invalid identity document — must contain at least 4 digits.' };
     }
-
-    // Enforce uniqueness check on raw Aadhar number
-    const studentsListForDuplicateCheck = await dbStore.getStudents();
-    const isDuplicate = studentsListForDuplicateCheck.some(s => s.aadharMasked === rawAadhar);
-    if (isDuplicate) {
-      return res.status(400).json({ error: 'A student with this Aadhar / ID number is already registered.' });
+    if (existingAadhars.has(rawAadhar)) {
+      return { error: 'A student with this Aadhar / ID number is already registered.' };
     }
 
     const newStudent: Student = {
       id: 'STD_' + Math.floor(10000 + Math.random() * 90000),
-      name,
-      age: parseInt(age),
-      classGroup,
-      section,
+      name: String(name).trim(),
+      age,
+      classGroup: String(classGroup).trim(),
+      section: String(section).trim(),
       schoolId,
-      teacherId: user.role === UserRole.TEACHER ? user.id : undefined,
-      currentLevel: 1, // Start at level 1 before diagnostic
-      currentSubLevel: 0,
-      targetLevel: 2,
-      aadharMasked: rawAadhar, // Store raw unmasked Aadhar in DB so Superadmin sees it, others get masked dynamically
+      currentLevel: null,
+      currentSubLevel: null,
+      targetLevel: null,
+      aadharMasked: rawAadhar,
       levelHistory: [],
-      gender: gender || undefined,
-      dob: dob || undefined,
-      guardianName: guardianName || undefined,
-      guardianRelation: guardianRelation || undefined,
-      guardianContact: guardianContact || undefined,
-      address: address || undefined,
-      bloodGroup: bloodGroup || undefined,
-      disabilityStatus: disabilityStatus || undefined,
-      midDayMealBeneficiary: midDayMealBeneficiary === undefined ? undefined : Boolean(midDayMealBeneficiary),
-      busRoute: busRoute || undefined,
-      siblingsInSchool: siblingsInSchool || undefined,
+      streak: 0,
     };
 
+    if (actingUser.role === UserRole.TEACHER) {
+      newStudent.teacherId = actingUser.id;
+    }
+    if (address) {
+      newStudent.address = String(address).trim();
+    }
+
     await dbStore.addStudent(newStudent);
+    // Track in-memory so bulk operations detect intra-batch duplicates too
+    existingAadhars.add(rawAadhar);
+    return { student: newStudent };
+  }
+
+  // Add Student (single)
+  app.post('/api/students', async (req, res) => {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+    if (!['SCHOOL', 'TEACHER', 'ADMIN', 'SUPERADMIN', 'VOLUNTEER'].includes(user.role.toUpperCase()) &&
+      user.role !== UserRole.SCHOOL && user.role !== UserRole.TEACHER &&
+      user.role !== UserRole.ADMIN && user.role !== UserRole.SUPERADMIN &&
+      user.role !== UserRole.VOLUNTEER) {
+      return res.status(403).json({ error: 'Forbidden.' });
+    }
+
+    // Build aadhars set for uniqueness check
+    const rawAadhar = String(req.body.aadharNumber).replace(/[^0-9]/g, '');
+    const existingAadhars = await dbStore.getExistingAadhars([rawAadhar]);
+
+    const result = await createStudentFromData(
+      { ...req.body, schoolId: req.body.schoolId || user.schoolId },
+      user,
+      existingAadhars,
+    );
+
+    if ('error' in result) return res.status(400).json({ error: result.error });
 
     await dbStore.addLog({
       id: 'log_' + Date.now(),
       timestamp: new Date().toISOString(),
-      schoolId: schoolId,
+      schoolId: result.student.schoolId,
       schoolName: 'GPS',
       userId: user.id,
       userEmail: user.email,
       userRole: user.role,
       activityType: 'verify',
       status: 'Success',
-      details: `Onboarded and verified student: ${name}`
+      details: `Onboarded and verified student: ${result.student.name}`,
     });
 
-    res.json(newStudent);
+    res.json(result.student);
   });
+
+  // ─── POST /api/students/bulk-import ─────────────────────────────────────────
+  // Accepts { rows: CsvRow[] }, validates and registers each row immediately.
+  // Returns a per-row summary. Allowed roles: SCHOOL, TEACHER, VOLUNTEER, ADMIN+.
+  app.post('/api/students/bulk-import', async (req, res) => {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+    if (
+      user.role === UserRole.DISTRICT_ADMIN ||
+      user.role === UserRole.BLOCK_ADMIN
+    ) {
+      return res.status(403).json({ error: 'Forbidden: insufficient role for bulk import.' });
+    }
+
+    const rows: Record<string, any>[] = req.body?.rows;
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ error: '`rows` must be a non-empty array.' });
+    }
+    if (rows.length > 500) {
+      return res.status(400).json({ error: 'Maximum 500 rows per request.' });
+    }
+
+    // Pre-load all existing aadhar numbers once; the helper adds new ones as
+    // it inserts, so intra-batch duplicates are caught too.
+    const aadharsInBatch = rows.map(r => String(r.aadharNumber).replace(/[^0-9]/g, '')).filter(Boolean);
+    const existingAadhars = await dbStore.getExistingAadhars(aadharsInBatch);
+
+    const results: {
+      row: number; status: 'created' | 'failed'; name?: string; id?: string; reason?: string;
+    }[] = [];
+
+    let created = 0;
+    let failed = 0;
+
+    for (let i = 0; i < rows.length; i++) {
+      const rowData = rows[i];
+      const enriched = {
+        ...rowData,
+        schoolId: rowData.schoolId || user.schoolId,
+      };
+
+      const outcome = await createStudentFromData(enriched, user, existingAadhars);
+
+      if ('error' in outcome) {
+        failed++;
+        results.push({ row: i + 1, status: 'failed', name: rowData.name || '', reason: outcome.error });
+      } else {
+        created++;
+        results.push({ row: i + 1, status: 'created', name: outcome.student.name, id: outcome.student.id });
+        await dbStore.addLog({
+          id: 'log_' + Date.now() + '_' + i,
+          timestamp: new Date().toISOString(),
+          schoolId: outcome.student.schoolId,
+          schoolName: 'GPS',
+          userId: user.id,
+          userEmail: user.email,
+          userRole: user.role,
+          activityType: 'verify',
+          status: 'Success',
+          details: `[Bulk Import] Onboarded student: ${outcome.student.name}`,
+        });
+      }
+    }
+
+    return res.json({ created, failed, total: rows.length, results });
+  });
+
 
   // Update Student (Bypass / manual override for demo ease)
   app.patch('/api/students/:id', async (req, res) => {
@@ -203,15 +330,14 @@ export function registerStudentRoutes(app: express.Express) {
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
     const { currentLevel, currentSubLevel, targetLevel, levelHistory } = req.body;
-    const students = await dbStore.getStudents();
-    const student = students.find(s => s.id === req.params.id);
+    const student = await dbStore.getStudentById(req.params.id);
     if (!student) return res.status(404).json({ error: 'Student not found.' });
     if (!canAccessStudent(user, student)) return res.status(403).json({ error: 'Forbidden.' });
 
     await dbStore.updateStudent(student.id, {
-      currentLevel: Number(currentLevel),
+      currentLevel: currentLevel !== null && currentLevel !== undefined ? Number(currentLevel) : null,
       currentSubLevel: currentSubLevel !== undefined ? Number(currentSubLevel) : student.currentSubLevel,
-      targetLevel: Number(targetLevel),
+      targetLevel: targetLevel !== null && targetLevel !== undefined ? Number(targetLevel) : null,
       levelHistory: levelHistory || student.levelHistory
     });
 
@@ -225,8 +351,7 @@ export function registerStudentRoutes(app: express.Express) {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const students = await dbStore.getStudents();
-    const student = students.find(s => s.id === req.params.id);
+    const student = await dbStore.getStudentById(req.params.id);
     if (!student) return res.status(404).json({ error: 'Student not found.' });
     if (!canAccessStudent(user, student)) return res.status(403).json({ error: 'Forbidden.' });
 
@@ -259,8 +384,7 @@ export function registerStudentRoutes(app: express.Express) {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const students = await dbStore.getStudents();
-    const student = students.find(s => s.id === req.params.id);
+    const student = await dbStore.getStudentById(req.params.id);
     if (!student) return res.status(404).json({ error: 'Student not found.' });
     if (!canAccessStudent(user, student)) return res.status(403).json({ error: 'Forbidden.' });
 
@@ -354,8 +478,7 @@ export function registerStudentRoutes(app: express.Express) {
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
     const { questions, answers } = req.body;
-    const students = await dbStore.getStudents();
-    const student = students.find(s => s.id === req.params.id);
+    const student = await dbStore.getStudentById(req.params.id);
     if (!student) return res.status(404).json({ error: 'Student not found.' });
     if (!canAccessStudent(user, student)) return res.status(403).json({ error: 'Forbidden.' });
 

@@ -13,7 +13,7 @@ import { BaselineUpload } from '../BaselineUpload';
 import { SkillGraphPanel } from '../SkillGraphPanel';
 import { Table, Column } from '../Table';
 import { Layers as BulkIcon } from 'lucide-react';
-import { FLNLevelReferenceModal } from '../RoleDashboards';
+import { FLNLevelReferenceModal, LevelBadge } from '../RoleDashboards';
 
 
 export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
@@ -45,15 +45,7 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
   const [levelBatchError, setLevelBatchError] = useState('');
   const [levelBatchDownloading, setLevelBatchDownloading] = useState(false);
 
-  // New Student state
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [name, setName] = useState('');
-  const [age, setAge] = useState('');
-  const [cls, setCls] = useState('Class 2');
-  const [sec, setSec] = useState('A');
-  const [aadhar, setAadhar] = useState('');
-  const [regError, setRegError] = useState('');
-  const [regSuccess, setRegSuccess] = useState('');
+
 
   const [levelPdfLoading, setLevelPdfLoading] = useState(false);
   const [levelPdfError, setLevelPdfError] = useState('');
@@ -190,59 +182,7 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
     return () => clearInterval(interval);
   }, [bulkJob?.jobId, bulkJob?.status]);
 
-  const handleAddStudent = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setRegError('');
-    setRegSuccess('');
 
-    if (!name || !age || !aadhar) {
-      setRegError('All fields are required.');
-      return;
-    }
-
-    const schoolId = user.schoolId || (classes.length > 0 ? classes[0].schoolId : '');
-    if (!schoolId) {
-      setRegError('No school associated with this user.');
-      return;
-    }
-
-    const finalClassGroup = activeClass ? activeClass.className : cls;
-    const finalSection = activeClass ? activeClass.section : sec;
-
-    try {
-      const res = await apiFetch('/api/students', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          name,
-          age,
-          classGroup: finalClassGroup,
-          section: finalSection,
-          schoolId: schoolId,
-          aadharNumber: aadhar
-        })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setRegSuccess(`Successfully registered ${name} in ${finalClassGroup} - ${finalSection}!`);
-        setName('');
-        setAge('');
-        setAadhar('');
-        fetchTeacherData();
-        setTimeout(() => {
-          setShowAddForm(false);
-          setRegSuccess('');
-        }, 3000);
-      } else {
-        setRegError(data.error || 'Failed to register student.');
-      }
-    } catch (err) {
-      setRegError('Network error. Check connection settings.');
-    }
-  };
 
   if (showBulkDiagnostic) {
     return (
@@ -371,80 +311,11 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
           >
             🧠 Skill Progression (93 levels)
           </button>
-          <button
-            onClick={() => setShowAddForm(!showAddForm)}
-            className="bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-xs font-mono px-4 py-2.5 rounded-lg transition-colors cursor-pointer"
-          >
-            {showAddForm ? 'Close Form' : 'Register New Student'}
-          </button>
+
         </div>
       </div>
 
-      {/* Add student dropdown form */}
-      {showAddForm && (
-        <form onSubmit={handleAddStudent} className="bg-white dark:bg-slate-900 p-6 border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-sm space-y-4">
-          <div className="flex justify-between items-center border-b border-zinc-100 dark:border-zinc-800 pb-2">
-            <h4 className="text-xs font-mono font-bold text-zinc-500 dark:text-zinc-400 uppercase">
-              Register Student in <span className="text-zinc-900 dark:text-white">{activeClass ? `${activeClass.className} - ${activeClass.section}` : `${cls} - ${sec}`}</span>
-            </h4>
-          </div>
-          
-          {regError && (
-            <div className="p-3 text-xs bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 rounded-lg border border-red-100 dark:border-red-800 font-medium">
-              ⚠️ {regError}
-            </div>
-          )}
-          {regSuccess && (
-            <div className="p-3 text-xs bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 rounded-lg border border-green-100 dark:border-green-800 font-medium">
-              ✅ {regSuccess}
-            </div>
-          )}
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div>
-              <label className="block text-[10px] font-mono font-bold uppercase text-zinc-505 dark:text-zinc-400 mb-1">Full Name</label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Amanpreet Singh"
-                className="w-full text-sm border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 outline-none focus:border-zinc-500 focus:bg-white dark:bg-zinc-800 dark:text-white"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-mono font-bold uppercase text-zinc-505 dark:text-zinc-400 mb-1">Age</label>
-              <input
-                type="number"
-                value={age}
-                onChange={(e) => setAge(e.target.value)}
-                placeholder="e.g. 8"
-                className="w-full text-sm border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 outline-none focus:border-zinc-500 focus:bg-white dark:bg-zinc-800 dark:text-white"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-mono font-bold uppercase text-zinc-505 dark:text-zinc-400 mb-1">Identity (Aadhar / BC No.)</label>
-              <input
-                type="text"
-                value={aadhar}
-                onChange={(e) => setAadhar(e.target.value)}
-                placeholder="12 digit identity number"
-                className="w-full text-sm border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 outline-none focus:border-zinc-500 focus:bg-white dark:bg-zinc-800 dark:text-white"
-                required
-              />
-            </div>
-            <div className="flex items-end">
-              <button
-                type="submit"
-                className="w-full bg-zinc-900 text-white font-mono font-medium text-xs py-3 rounded-lg hover:bg-zinc-800 cursor-pointer shadow-sm transition-colors"
-              >
-                Verify & Add Student
-              </button>
-            </div>
-          </div>
-        </form>
-      )}
 
       {/* Class picker tabs */}
       <div className="flex gap-2 border-b border-zinc-200 dark:border-zinc-700 pb-px">
@@ -699,11 +570,7 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
                   { header: 'Student Name', accessor: 'name', sortKey: 'name', className: 'font-medium text-slate-900 dark:text-slate-100' },
                   {
                     header: 'Current Level',
-                    accessor: (s) => (
-                      <span className="font-mono font-bold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 text-xs">
-                        L{s.currentLevel}.{s.currentSubLevel ?? 0}
-                      </span>
-                    )
+                    accessor: (s) => <LevelBadge level={s.currentLevel} subLevel={s.currentSubLevel} />
                   },
                   {
                     header: 'Target Level',
