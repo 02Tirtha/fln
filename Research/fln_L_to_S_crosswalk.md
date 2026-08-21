@@ -160,3 +160,69 @@ The code records only one `relationshipType` per level, applied to *all* of that
 2. **Reconcile the edges before the diagnostic ships.** 58 of ~150 agreement is not a detail — the apex set, and therefore the printed paper, depends on which graph is right.
 3. **Let the code express per-edge types**, as the research graph does.
 4. **Settle the seven content divergences in §2**, several of which move a concept a full year.
+
+---
+
+## 5. Per-level differences (data for review)
+
+Machine-readable: `fln_L_vs_S_per_level.csv` (all 93 rows, every column).
+
+| Status | Levels |
+|---|---|
+| Clean — no difference at all | **13** |
+| Different prerequisite *set* only | 52 |
+| Different prerequisite *type* only | 20 |
+| Both set and type differ | 6 |
+| Strand assignment also differs | 2 |
+| **Total** | **93** |
+
+**Only 13 of 93 levels are identical across the two graphs.**
+
+### 5.1 Strand disagreements — 2 levels
+
+Both are the same underlying question: *does comparison belong to Pre-Number or to Number Sense?*
+
+| L | S | Capability | Code says | Docs say |
+|---|---|---|---|---|
+| `L8` | `S2.1` | Quantity Comparison | SK09 → Number Sense | Pre-Number |
+| `L20` | `S3.3` | Numeral Comparison (Object-Mediated) | SK09 → Number Sense | Pre-Number |
+
+This is the Chain A → Chain B boundary. The framework places comparison in Pre-Number on Piaget's comparison-first principle; the code assigns SK09 (Number Comparison), which sits in Number Sense. Both readings are defensible — it needs a decision, not a correction.
+
+### 5.2 Prerequisite-type conflicts — the consequential ones
+
+These are levels where both graphs agree an edge exists but disagree on whether it is a **hard prerequisite**. Apex selection depends entirely on this distinction, so each row changes what appears on the printed paper.
+
+| L | S | Capability | Conflict |
+|---|---|---|---|
+| `L5` | `S1.5` | Counting Small Sets (1-3) | S1.4: docs=co-occurs/code=requires |
+| `L8` | `S2.1` | Quantity Comparison | S1.1: docs=requires/code=often-precedes |
+| `L9` | `S2.2` | Seriation (3 Objects) | S2.1: docs=requires/code=often-precedes |
+| `L12` | `S2.5` | Counting 6-10 | S2.4: docs=requires/code=often-precedes |
+| `L16` | `S2.9` | Conceptual Subitizing | S1.7: docs=requires/code=supports |
+| `L21` | `S3.4` | Seriation with Transitivity | S2.2: docs=requires/code=supports |
+| `L22` | `S3.5` | Flexible Classification | S2.3: docs=requires/code=supports |
+| `L24` | `S3.7` | Comparative Vocabulary (Formalizing) | S2.8: docs=requires/code=supports |
+| `L25` | `S3.8` | Patterns (2-Item Indep & 3-Item Intro) | S2.7: docs=requires/code=often-precedes |
+| `L27` | `S3.10` | Shape Composition & Decomposition | S2.10: docs=requires/code=supports |
+| `L28` | `S4.1` | Abstract Numeral Comparison | S3.3: docs=requires/code=often-precedes |
+| `L29` | `S4.2` | Close Numeral Comparison | S4.1: docs=requires/code=often-precedes |
+| `L34` | `S4.7` | Single-Digit Subtraction | S4.6: docs=parallel/code=requires |
+| `L36` | `S4.9` | Non-Standard Length Estimation | S3.7: docs=requires/code=supports |
+| `L38` | `S4.11` | 3-Item Pattern Completion | S3.8: docs=requires/code=often-precedes |
+| `L40` | `S4.13` | Ordinal Positions (1st-10th) | S3.6: docs=requires/code=often-precedes |
+| `L42` | `S4.15` | Advanced Shape Composition | S3.10: docs=requires/code=supports |
+| `L53` | `S5.11` | Uniform Non-Standard Measurement | S4.10: docs=requires/code=supports S4.9: docs=requires/code=supports |
+| `L61` | `S5.19` | Skip Counting (2s, 5s, 10s) | S5.16: docs=requires/code=often-precedes |
+| `L64` | `S6.3` | 3-Digit Comparison & Ordering | S4.2: docs=requires/code=often-precedes |
+| `L70` | `S6.9` | Relating 2D Faces to 3D Solids | S4.8: docs=requires/code=supports |
+| `L71` | `S6.10` | Telling Time (Hours & Half-Hours) | S5.14: docs=co-occurs/code=requires |
+| `L84` | `S7.9` | 3D Nets & Spatial Perspective | S6.9: docs=requires/code=supports |
+| `L86` | `S7.11` | Complex Money Problems | S6.11: docs=requires/code=often-precedes |
+| `L87` | `S7.12` | Advanced Number Patterns | S6.13: docs=requires/code=often-precedes |
+| `L88` | `S7.13` | Bar Graphs & Data Interpretation | S6.14: docs=requires/code=often-precedes |
+| `L89` | `S7.14` | Factors & Multiples | S6.6: docs=requires/code=often-precedes |
+
+### 5.3 Levels where the prerequisite *sets* differ
+
+Listed in the CSV. Summary: 46 edges exist only in the research documents, 66 only in the code.
