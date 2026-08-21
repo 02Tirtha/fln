@@ -165,7 +165,7 @@ Full results are in **`fln_source_verification_2026-08-21.md`**. Summary:
 2. **The Preschool 1/2 caveat in `fln_framework_from_scratch.md` was too strong and has been softened.** The Foundational Stage competencies document does specify all three preschool years separately.
 3. **The four "orphan" chains split two ways, not four.** Money (G) and Fractions (I) are **not** Foundational Stage domains — their late start is defensible. Data Handling (J) and Calendar & Time (H) **are** named domains, so their late start with three nodes each is a **genuine gap**.
 4. **`FLN_foundation.md` narrowed the official definition** of foundational numeracy from four components to two, dropping Measurement and Data Handling — the same two chains that are thin. Corrected.
-5. **"Balvatika" is ambiguous in official sources** — headed `Class 1 (BALVATIKA)` in one section and `PRESCHOOL 3 (BALVATIKA)` in another of the same document. The maths section agrees with this framework. **Must be pinned down in the grade-mapping work**; read the other way, every stage shifts by a year.
+5. ~~**"Balvatika" is ambiguous in official sources**~~ — **RESOLVED 2026-08-21** against the Ministry of Education's own Lakshya poster series ("Balvatika or Age 5-6" / "Class I or age 6-7" / "Class II or age 7-8" / "Class III or age 8-9"). Balvatika = age 5–6, before Class I. This framework's stage→age mapping matches the Ministry labels exactly. Superseded detail: — headed `Class 1 (BALVATIKA)` in one section and `PRESCHOOL 3 (BALVATIKA)` in another of the same document. The maths section agrees with this framework. **Must be pinned down in the grade-mapping work**; read the other way, every stage shifts by a year.
 6. **Counting difficulty is language-dependent.** NIPUN Bharat mandates mother-tongue instruction, and Hindi number names are more irregular than English. The framework does not currently account for this.
 
 ### OPEN — added by this round
@@ -175,3 +175,22 @@ Full results are in **`fln_source_verification_2026-08-21.md`**. Summary:
 12. ~~Whether the counting chain should branch by language of instruction~~ — **refined 2026-08-21.** Two separate problems were being conflated. *Literacy load on the page* is handled by the minimum-text design decision. *Number naming* is not, because it acts on the child's internal count sequence rather than the printed page — so it stands as a real open question for the place-value nodes, and the English-specific teen-confusion examples in `Child_psychology.md` §8.3 must not be applied across languages.
 13. **New — vernacular-medium assessment is an unrecorded product requirement.** NIPUN Bharat mandates mother-tongue instruction and FLS 2022 ran in 20 languages. An English-only paper measures English comprehension alongside numeracy — a validity problem. Staged position: minimise text now, English instructions as an explicitly interim step, vernacular instruction sets planned with FLS 2022's 20 languages as the benchmark. Not currently in the framework, SRS or PRD.
 14. **Sub-skill edges are no longer listed as a gap** — see `fln_level_networks.md` Part 5 for the three-type build method (entailment / inherited / empirical). Most need no literature. What they block is the *teaching* ladder (the worksheet bundle), not the diagnostic.
+
+---
+
+## Entry: 2026-08-21b — Bal Vatika collapsed to one band; grade-anchored mapping
+
+**Decision (Pavani):** everything before Grade 1 is a single **Bal Vatika** band. Do not split it into Bal Vatika 1/2/3.
+
+This matches the national framework: NIPUN Bharat's Lakshya has **one** Balvatika target, not three. Stages 1–3 (7 + 10 + 10 = 27 nodes) become one reported band. The prerequisite edges among those 27 still order a child precisely *within* the band — what is dropped is the preschool *year label*, which was false precision anyway, since pre-primary years are not uniformly implemented across states (some run one year, KVs run three).
+
+**Decision (Pavani):** the mapping is **grade-anchored, not age-anchored.** FLN is defined as a grade-level competency — the mission's target is stated as "by the end of Grade 3." Age is an annotation.
+
+This corrects an earlier recommendation in this log to anchor on age. Two distinct objects must be kept apart in the mapping:
+
+- **Grade-level competency** — the statutory benchmark, what a child in that grade *should* have.
+- **True level** — what the diagnostic finds the child *does* have.
+
+FLN certification is `actual ≥ benchmark for the enrolled grade`. The gap between the two is the platform's entire reason to exist, so the mapping must carry both rather than collapsing them.
+
+**OPEN 15 — do state FLN targets differ from the national Lakshya?** Established: states define state-level Lakshya and run their own branded missions (Mission Prerna in UP, Mission Ankur in MP, Utkarsh in Odisha, NIPUN Gujarat, NIPUN Meghalaya, Nipun Tripura), and at least the **timeline** varies — the Meghalaya document targets 2025 where the national mission targets 2026-27. **Not established:** whether the numeracy *competency targets* themselves differ numerically. State Lakshya documents were not accessible. Until resolved, build to the national Lakshya as the baseline and make the grade→level mapping **configurable per state** — states demonstrably localise, and retrofitting that later is far more expensive than allowing for it now.

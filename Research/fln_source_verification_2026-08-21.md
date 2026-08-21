@@ -109,7 +109,22 @@ The Foundational Stage maths domains are: Concept Formation, Number Sense, Numbe
 - **Money (Chain G) and Fractions (Chain I) are not foundational-stage domains at all.** Their late start at Stage 5 is **defensible, not a gap.**
 - **Data Handling (Chain J) and Calendar & Time (Chain H) are explicitly named domains**, yet both begin at Stage 5 with three nodes and no precursor. These are **genuine gaps**.
 
-### "Balvatika" is ambiguous in official sources
+### "Balvatika" — RESOLVED against a Ministry of Education primary source
+
+**Resolved 2026-08-21.** The Ministry of Education's own *Lakshya/Targets* poster series labels its stages:
+
+> **Balvatika or Age 5-6** · **Class I or age 6-7** · **Class II or age 7-8** · **Class III or age 8-9**
+
+Balvatika is therefore **age 5–6, the stage before Class I** — this framework's reading, now confirmed against a national Ministry document rather than a state adaptation. Stage 3 = Balvatika (5–6), Stage 4 = Class 1 (6–7), Stage 5 = Class 2 (7–8), Stage 6 = Class 3 (8–9) all match the Ministry's own labels exactly.
+
+Two further points follow from that wording:
+
+- **The Ministry treats grade and age as interchangeable labels for the same target** ("Class I *or* age 6-7"). They diverge only in practice, where over-age and under-age enrolment is common — which is the platform's own premise for assessing level rather than grade.
+- **There is one Balvatika target nationally, not three.** The national Lakshya has no Balvatika 1/2/3 split. Everything before Grade 1 is a single band.
+
+*(Retained for context: the state adaptation checked earlier does contradict itself — Development Goal 1 heads a column `Class 1 (BALVATIKA)` while its mathematics section heads it `PRESCHOOL 3 (BALVATIKA)`. The national document settles which is right.)*
+
+### Original ambiguity as found
 
 The Foundational Stage document contradicts itself: Development Goal 1 heads its column `Class 1 (BALVATIKA)`, while the mathematics section heads it `PRESCHOOL 3 (BALVATIKA)`. The national NIPUN table treats Balvatika as its own stage before Grade 1.
 
