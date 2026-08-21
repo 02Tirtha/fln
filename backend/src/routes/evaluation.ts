@@ -456,6 +456,8 @@ export function registerEvaluationRoutes(app: express.Express) {
           questionResults: diagQuestions.length > 0
             ? diagQuestions.map(q => ({
                 questionId: q.question_id,
+                question: q.question,
+                correctAnswer: q.answer,
                 submittedAnswer: extractedAnswers[q.question_id] ?? '',
                 isCorrect: extractedCorrectness[q.question_id] ?? false,
               }))
@@ -1179,6 +1181,8 @@ export function registerEvaluationRoutes(app: express.Express) {
       // individual mis-scanned answers via the override endpoint.
       questionResults: studentQuestions.map(q => ({
         questionId: q.question_id,
+        question: q.question,
+        correctAnswer: q.answer,
         submittedAnswer: answers[q.question_id] || '',
         isCorrect: (answers[q.question_id] || '').trim().toLowerCase() === q.answer.trim().toLowerCase(),
       })),
@@ -1324,6 +1328,16 @@ export function registerEvaluationRoutes(app: express.Express) {
 
   // Evaluation History
   app.get('/api/evaluation/:studentId/history', async (req, res) => {
+    // Was missing auth entirely — any unauthenticated request could read
+    // any student's full evaluation history. Fixed while wiring #174's
+    // Student Profile exam-history view to this route.
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+    const student = await dbStore.getStudentById(req.params.studentId);
+    if (!student) return res.status(404).json({ error: 'Student not found.' });
+    if (!canAccessStudent(user, student)) return res.status(403).json({ error: 'Forbidden.' });
+
     const reps = await dbStore.getEvaluationReports();
     const filtered = reps.filter(r => r.studentId === req.params.studentId);
     res.json(filtered);
@@ -1369,7 +1383,7 @@ export function registerEvaluationRoutes(app: express.Express) {
       const correction = correctionMap.get(q.questionId);
       if (!correction) return q;
       return {
-        questionId: q.questionId,
+        ...q,
         submittedAnswer: correction.correctedAnswer ?? q.submittedAnswer,
         isCorrect: correction.isCorrect,
       };

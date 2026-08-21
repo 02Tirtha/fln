@@ -24,6 +24,9 @@ export const StudentProfilePanel: React.FC<{
   const [searchQuery, setSearchQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const [activityFilter, setActivityFilter] = useState<'all' | 'assessment' | 'level_change'>('all');
+  // Issue #174: expand one report at a time to show its full per-question
+  // exam-history breakdown (question, given answer, correct answer, verdict).
+  const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
 
   useEffect(() => {
     if (students.length > 0 && !sel) {
@@ -407,11 +410,56 @@ export const StudentProfilePanel: React.FC<{
                       ))}</div>
                       
                       <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
-                        <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">Per-question answer detail not yet available</span>
+                        {r.questionResults && r.questionResults.length > 0 ? (
+                          <button
+                            onClick={() => setExpandedReportId(expandedReportId === r.id ? null : r.id)}
+                            className="text-[10px] font-mono font-bold text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                          >
+                            {expandedReportId === r.id ? '▲ Hide' : '▼ Show'} per-question detail ({r.questionResults.length} questions)
+                          </button>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">Per-question answer detail not available for this report</span>
+                        )}
                         <button onClick={() => handleDownloadPDF(s, r)} className="text-xs font-semibold text-emerald-650 hover:text-emerald-800 flex items-center gap-1">
                           📥 Download PDF Report
                         </button>
                       </div>
+
+                      {expandedReportId === r.id && r.questionResults && (
+                        <div className="overflow-x-auto border border-slate-200 dark:border-slate-700 rounded-lg">
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 font-mono uppercase">
+                                <th className="p-2"># Question</th>
+                                <th className="p-2 text-center">Correct Answer</th>
+                                <th className="p-2">Given Answer</th>
+                                <th className="p-2 text-center">Result</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                              {r.questionResults.map((q, idx) => (
+                                <tr key={q.questionId}>
+                                  <td className="p-2 font-medium text-slate-900 dark:text-white">
+                                    <span className="font-mono text-[10px] font-bold text-slate-400 mr-1.5">Q{idx + 1}.</span>
+                                    {q.question || q.questionId}
+                                  </td>
+                                  <td className="p-2 text-center font-mono font-bold text-emerald-600 dark:text-emerald-400">{q.correctAnswer ?? '—'}</td>
+                                  <td className="p-2 font-mono">{q.submittedAnswer || '—'}</td>
+                                  <td className="p-2 text-center">
+                                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
+                                      q.isCorrect
+                                        ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300'
+                                        : 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300'
+                                    }`}>
+                                      {q.isCorrect ? '✓ Correct' : '✗ Incorrect'}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </div>
                   );
                 })}</div> : <div className="text-center py-8"><p className="text-xs text-slate-400 dark:text-slate-500">No assessment reports yet.</p></div>}
