@@ -468,6 +468,17 @@ export function registerEvaluationRoutes(app: express.Express) {
           studentId: student.id,
           studentName: student.name,
           rollNumber: student.id.slice(-4),
+          // Issue #176: the frontend review screen needs this to call
+          // PATCH /api/evaluation/:reportId/override once the teacher has
+          // flipped any wrong verdicts.
+          reportId: report.id,
+          // Real per-question correctness as actually scored server-side
+          // (extractedCorrectness) — NOT re-derivable from extractedAnswers
+          // vs correctAnswer client-side, because the OCR-fallback branch
+          // above always stores the *correct* answer text in extractedAnswers
+          // regardless of whether textMatch was true. Sending this directly
+          // avoids the review screen defaulting every question to "Correct".
+          questionResults: report.questionResults,
           score,
           totalQuestions: diagQuestions.length,
           percentage,

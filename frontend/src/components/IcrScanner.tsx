@@ -22,12 +22,19 @@ interface BulkResultItem {
   studentId: string;
   studentName: string;
   rollNumber: string;
+  // Issue #176: needed to call PATCH /api/evaluation/:reportId/override
+  // once the teacher has reviewed and corrected any wrong verdicts.
+  reportId?: string;
   score: number;
   totalQuestions: number;
   percentage: number;
   previousLevel: number;
   newLevel: number;
   subLevel: number;
+  questions?: Array<{ id: string; question: string; correctAnswer: string; topic?: string }>;
+  // Real per-question correctness as actually scored server-side — see the
+  // backend comment on this field for why it can't be re-derived client-side.
+  questionResults?: Array<{ questionId: string; submittedAnswer: string; isCorrect: boolean }>;
   extractedAnswers: Record<string, string>;
   ocrEngine: string;
   ocrAnalysis?: OcrAnalysisData;
@@ -58,6 +65,83 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
   const [questions, setQuestions] = useState<Array<{ id: string; question: string; correctAnswer: string; topic?: string }>>([]);
   const [report, setReport] = useState<EvaluationReport | null>(null);
   const answerInputRefs = React.useRef<Array<HTMLInputElement | null>>([]);
+
+  // Issue #176: teacher-review/override screen for the bulk ICR results
+  // table. expandedReviewId tracks which student's row is open; verdicts
+  // holds this teacher's (possibly flipped) correct/incorrect calls per
+  // question, keyed by studentId then questionId — initialized from the
+  // system's own OCR-derived verdict the first time a row is expanded.
+  const [expandedReviewId, setExpandedReviewId] = useState<string | null>(null);
+  const [verdicts, setVerdicts] = useState<Record<string, Record<string, boolean>>>({});
+  const [reviewSaving, setReviewSaving] = useState<string | null>(null);
+  const [reviewSaved, setReviewSaved] = useState<Record<string, boolean>>({});
+  const [reviewError, setReviewError] = useState<string>('');
+
+  const openReview = (res: BulkResultItem) => {
+    if (expandedReviewId === res.studentId) {
+      setExpandedReviewId(null);
+      return;
+    }
+    if (!verdicts[res.studentId] && res.questions) {
+      const resultByQuestionId = new Map((res.questionResults || []).map(q => [q.questionId, q.isCorrect]));
+      const initial: Record<string, boolean> = {};
+      res.questions.forEach(q => {
+        // Prefer the real server-computed verdict; fall back to a naive
+        // string comparison only if questionResults wasn't sent (shouldn't
+        // happen for reports created after this feature, but keeps older
+        // response shapes from crashing).
+        initial[q.id] = resultByQuestionId.has(q.id)
+          ? resultByQuestionId.get(q.id)!
+          : (res.extractedAnswers[q.id] || '').trim() === (q.correctAnswer || '').trim();
+      });
+      setVerdicts(prev => ({ ...prev, [res.studentId]: initial }));
+    }
+    setExpandedReviewId(res.studentId);
+  };
+
+  const toggleVerdict = (studentId: string, questionId: string) => {
+    setVerdicts(prev => ({
+      ...prev,
+      [studentId]: { ...prev[studentId], [questionId]: !prev[studentId]?.[questionId] },
+    }));
+  };
+
+  const confirmAndFinalize = async (res: BulkResultItem) => {
+    if (!res.reportId || !res.questions) return;
+    setReviewSaving(res.studentId);
+    setReviewError('');
+    try {
+      const studentVerdicts = verdicts[res.studentId] || {};
+      const corrections = res.questions.map(q => ({
+        questionId: q.id,
+        isCorrect: studentVerdicts[q.id] ?? false,
+      }));
+      const response = await apiFetch(`/api/evaluation/${res.reportId}/override`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ corrections }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to save corrections.');
+
+      // Reflect the corrected score/level back into the results table so the
+      // teacher sees the finalized outcome without re-running the scan.
+      setBulkResults(prev => prev ? prev.map(r => r.studentId === res.studentId ? {
+        ...r,
+        score: data.report.score,
+        percentage: Math.round((data.report.score / r.totalQuestions) * 100),
+        newLevel: data.report.recommendedLevel,
+        subLevel: data.report.recommendedSubLevel ?? r.subLevel,
+        status: data.report.score / r.totalQuestions >= 0.5 ? 'Mastered' : 'Needs Remediation',
+      } : r) : prev);
+      setReviewSaved(prev => ({ ...prev, [res.studentId]: true }));
+      setExpandedReviewId(null);
+    } catch (err: any) {
+      setReviewError(err.message || 'Failed to save corrections.');
+    } finally {
+      setReviewSaving(null);
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -1011,26 +1095,106 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                       <th className="p-3">Raw OCR Extracted Text</th>
                       <th className="p-3">Assessed Level</th>
                       <th className="p-3">Status</th>
+                      <th className="p-3">Review</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                     {bulkResults.map((res) => (
-                      <tr key={res.studentId} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
-                        <td className="p-3 font-medium text-zinc-900 dark:text-white">{res.studentName}</td>
-                        <td className="p-3 font-mono">{res.score} / {res.totalQuestions}</td>
-                        <td className="p-3 font-mono font-bold text-blue-600">{res.percentage}%</td>
-                        <td className="p-3 font-mono text-emerald-600 dark:text-emerald-400 max-w-xs truncate">
-                          {res.ocrAnalysis?.rawOcrText || 'Q1: 42 | Q2: 15 | Q3: 8'}
-                        </td>
-                        <td className="p-3 font-mono font-bold text-emerald-600">L{res.newLevel}.{res.subLevel}</td>
-                        <td className="p-3">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
-                            res.status === 'Mastered' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'
-                          }`}>
-                            {res.status}
-                          </span>
-                        </td>
-                      </tr>
+                      <React.Fragment key={res.studentId}>
+                        <tr className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
+                          <td className="p-3 font-medium text-zinc-900 dark:text-white">{res.studentName}</td>
+                          <td className="p-3 font-mono">{res.score} / {res.totalQuestions}</td>
+                          <td className="p-3 font-mono font-bold text-blue-600">{res.percentage}%</td>
+                          <td className="p-3 font-mono text-emerald-600 dark:text-emerald-400 max-w-xs truncate">
+                            {res.ocrAnalysis?.rawOcrText || 'Q1: 42 | Q2: 15 | Q3: 8'}
+                          </td>
+                          <td className="p-3 font-mono font-bold text-emerald-600">L{res.newLevel}.{res.subLevel}</td>
+                          <td className="p-3">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
+                              res.status === 'Mastered' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'
+                            }`}>
+                              {res.status}
+                            </span>
+                          </td>
+                          <td className="p-3">
+                            {res.reportId && res.questions ? (
+                              <button
+                                onClick={() => openReview(res)}
+                                className={`px-2.5 py-1 rounded text-[10px] font-mono font-bold border transition-colors ${
+                                  reviewSaved[res.studentId]
+                                    ? 'bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300'
+                                    : 'bg-white dark:bg-slate-800 border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700'
+                                }`}
+                              >
+                                {reviewSaved[res.studentId] ? '✓ Finalized' : expandedReviewId === res.studentId ? 'Close' : 'Review'}
+                              </button>
+                            ) : (
+                              <span className="text-zinc-300 dark:text-zinc-600 text-[10px] font-mono">—</span>
+                            )}
+                          </td>
+                        </tr>
+                        {expandedReviewId === res.studentId && res.questions && (
+                          <tr>
+                            <td colSpan={7} className="p-0 bg-zinc-50/50 dark:bg-zinc-800/30">
+                              <div className="p-4 space-y-3">
+                                <p className="text-[10px] font-mono uppercase font-bold text-zinc-500 dark:text-zinc-400">
+                                  Teacher Review — flip any verdict the scanner got wrong, then confirm
+                                </p>
+                                <div className="overflow-x-auto border border-zinc-200 dark:border-zinc-700 rounded-lg">
+                                  <table className="w-full text-left text-xs">
+                                    <thead>
+                                      <tr className="bg-white dark:bg-slate-900 border-b border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 font-mono uppercase">
+                                        <th className="p-2"># Question</th>
+                                        <th className="p-2 text-center">Correct Answer</th>
+                                        <th className="p-2">Student's Given Answer</th>
+                                        <th className="p-2 text-center">Verdict</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800 bg-white dark:bg-slate-900">
+                                      {res.questions.map((q, idx) => {
+                                        const isCorrect = verdicts[res.studentId]?.[q.id] ?? false;
+                                        return (
+                                          <tr key={q.id}>
+                                            <td className="p-2 font-medium text-zinc-900 dark:text-white">
+                                              <span className="font-mono text-[10px] font-bold text-zinc-400 mr-1.5">Q{idx + 1}.</span>
+                                              {q.question}
+                                            </td>
+                                            <td className="p-2 text-center font-mono font-bold text-emerald-600 dark:text-emerald-400">{q.correctAnswer}</td>
+                                            <td className="p-2 font-mono">{res.extractedAnswers[q.id] || '—'}</td>
+                                            <td className="p-2 text-center">
+                                              <button
+                                                onClick={() => toggleVerdict(res.studentId, q.id)}
+                                                className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-bold cursor-pointer transition-colors ${
+                                                  isCorrect
+                                                    ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300'
+                                                    : 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300'
+                                                }`}
+                                                title="Click to flip this verdict"
+                                              >
+                                                {isCorrect ? '✓ Correct' : '✗ Incorrect'}
+                                              </button>
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                                {reviewError && (
+                                  <p className="text-[10px] font-mono text-red-600 dark:text-red-400">{reviewError}</p>
+                                )}
+                                <button
+                                  onClick={() => confirmAndFinalize(res)}
+                                  disabled={reviewSaving === res.studentId}
+                                  className="bg-emerald-700 hover:bg-emerald-600 disabled:opacity-60 text-white font-mono font-medium text-[10px] px-4 py-2 rounded-lg transition-colors"
+                                >
+                                  {reviewSaving === res.studentId ? 'Saving…' : 'Confirm & Finalize'}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     ))}
                   </tbody>
                 </table>
