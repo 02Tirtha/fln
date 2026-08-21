@@ -6,6 +6,7 @@ import {
   LayoutDashboard, BookOpen, UserCheck, Calendar, ShieldCheck, HelpCircle, Settings, Users,
   School, GraduationCap, MapPin, BarChart3, FileText, ClipboardList, ShieldAlert, KeyRound, Clock, Database, Home
 } from 'lucide-react';
+import { LanguageSwitcher } from './LanguageSwitcher';
 
 interface NavigationItem {
   name: string;
@@ -273,19 +274,7 @@ export const Layout: React.FC<LayoutProps> = ({
             <button onClick={() => adjustFontSize(10)} className="hover:text-white transition px-1.5 py-0.5 rounded border border-gray-700 hover:border-gray-500" title="Increase font size">A+</button>
           </div>
           <span className="text-gray-700 dark:text-gray-500">|</span>
-          {/* Hindi + Punjabi commented out as a stopgap - selecting either
-              used to just show an alert() and never actually translated
-              anything. Real i18n is being built in PR #146
-              (frontend/src/i18n/); restore these once that lands instead of
-              the old no-op alerts. */}
-          <select
-            defaultValue="en"
-            className="bg-gray-800 text-gray-300 text-[10px] md:text-xs font-bold border border-gray-700 rounded px-2 py-1 outline-none hover:border-gray-500 cursor-pointer"
-          >
-            <option value="en">English</option>
-            {/* <option value="pa">ਪੰਜਾਬੀ</option> */}
-            {/* <option value="hi">हिन्दी</option> */}
-          </select>
+          <LanguageSwitcher variant="dark" />
         </div>
       </div>
 
@@ -337,6 +326,10 @@ export const Layout: React.FC<LayoutProps> = ({
 
         {/* Topbar Right Section */}
         <div className="flex items-center gap-4">
+          {/* Language Switcher — dashboard chrome labels remain English for now;
+              the landing page hero/stats/vision copy is already routed through t(). */}
+          <LanguageSwitcher />
+
           {/* Dynamic Database Storage Status */}
           <button
             onClick={() => setShowDbModal(true)}
