@@ -32,7 +32,7 @@ export default defineConfig(() => {
         // isn't running in this dev environment — they caused 500s when
         // the frontend fetched /api/students etc. Let the catch-all route
         // everything to the main backend to avoid the misrouting.
-        '/api': 'https://localhost:5000',
+        '/api': { target: process.env.VITE_API_TARGET || 'http://localhost:3000', changeOrigin: true },
         '/output': { target: process.env.VITE_API_TARGET || 'http://localhost:3000', changeOrigin: true },
         '/worksheets': { target: process.env.VITE_API_TARGET || 'http://localhost:3000', changeOrigin: true },
       },
