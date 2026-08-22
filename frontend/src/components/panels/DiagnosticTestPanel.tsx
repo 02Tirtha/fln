@@ -8,7 +8,7 @@ import { Student, User } from '../../types';
 import { PageHeader } from './PanelShared';
 import { ShieldAlert, CheckCircle2, Upload, Timer as TimerIcon } from 'lucide-react';
 import { apiFetch } from '../../services/apiClient';
-import { parseCSVText } from '../RoleDashboards';
+import { parseCSVText, FLNLevelReferenceModal } from '../RoleDashboards';
 import { BulkDiagnosticWorkflow } from '../BulkDiagnosticWorkflow';
 
 interface DiagnosticTestPanelProps {
@@ -29,6 +29,11 @@ export const DiagnosticTestPanel: React.FC<DiagnosticTestPanelProps> = ({ studen
   const [csvImporting, setCsvImporting] = useState(false);
   const [csvResults, setCsvResults] = useState<any>(null);
   const [csvError, setCsvError] = useState('');
+
+  // Issue #166: 93 FLN Framework reference modal — moved here from the
+  // Teacher/Volunteer dashboards so the framework reference lives next to
+  // the diagnostic test where it's actually used for placement decisions.
+  const [showLevelRef, setShowLevelRef] = useState(false);
 
   const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -91,12 +96,20 @@ export const DiagnosticTestPanel: React.FC<DiagnosticTestPanelProps> = ({ studen
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm space-y-4">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <PageHeader title="Upload Class Roster" desc="Bring in a whole class via CSV before generating diagnostic papers" icon={<Upload className="h-5 w-5" />} />
-          <button
-            onClick={() => { setShowCsvImport(!showCsvImport); setCsvResults(null); setCsvError(''); }}
-            className="bg-emerald-700 hover:bg-emerald-600 text-white font-medium text-xs font-mono px-4 py-2.5 rounded-lg transition-colors cursor-pointer shrink-0"
-          >
-            {showCsvImport ? 'Close CSV Import' : '⬆ Bulk Import CSV'}
-          </button>
+          <div className="flex gap-2 shrink-0">
+            <button
+              onClick={() => setShowLevelRef(true)}
+              className="bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-mono text-xs font-semibold px-4 py-2.5 rounded-lg transition-colors cursor-pointer"
+            >
+              📖 93 FLN Framework
+            </button>
+            <button
+              onClick={() => { setShowCsvImport(!showCsvImport); setCsvResults(null); setCsvError(''); }}
+              className="bg-emerald-700 hover:bg-emerald-600 text-white font-medium text-xs font-mono px-4 py-2.5 rounded-lg transition-colors cursor-pointer"
+            >
+              {showCsvImport ? 'Close CSV Import' : '⬆ Bulk Import CSV'}
+            </button>
+          </div>
         </div>
         {showCsvImport && (
           <div className="border-t border-slate-100 dark:border-slate-800 pt-4 space-y-3">
@@ -197,6 +210,8 @@ export const DiagnosticTestPanel: React.FC<DiagnosticTestPanelProps> = ({ studen
           ))}</div>
         </div>
       </div>
+
+      <FLNLevelReferenceModal isOpen={showLevelRef} onClose={() => setShowLevelRef(false)} />
     </div>
   );
 };
