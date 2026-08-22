@@ -25,7 +25,6 @@ import { ContentPanel } from './panels/ContentPanel';
 import { DistrictsPanel } from './panels/DistrictsPanel';
 import { BlocksPanel } from './panels/BlocksPanel';
 import { AnalyticsPanel } from './panels/AnalyticsPanel';
-import { ReportsPanel } from './panels/ReportsPanel';
 import { StudentProfilePanel } from './panels/StudentProfilePanel';
 
 interface PanelViewsProps {
@@ -76,7 +75,6 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
 
   if (panel === 'performance') return <PerformancePanel students={students} currentUser={currentUser} />;
 
-  if (panel === 'reports') return <ReportsPanel currentUser={currentUser} schools={schools} students={students} reportsList={reportsList} />;
 
   // ===================== VOLUNTEER PANELS =====================
   if (panel === 'assigned_schools') return <AssignedSchoolsPanel schools={schools} students={students} />;
