@@ -1295,34 +1295,49 @@ export function registerEvaluationRoutes(app: express.Express) {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
+    let reports: EvaluationReport[];
     if (user.role === UserRole.SUPERADMIN) {
-      const reports = await dbStore.getEvaluationReports();
-      return res.json(reports);
-    }
-
-    let scopedStudentIds: Set<string>;
-    if (user.role === UserRole.SCHOOL || user.role === UserRole.TEACHER) {
-      const students = await dbStore.getStudents({ schoolId: user.schoolId });
-      scopedStudentIds = new Set(students.map(s => s.id));
-    } else if (user.role === UserRole.VOLUNTEER) {
-      const students = await dbStore.getStudents({ schoolId: user.assignedSchools || [] });
-      scopedStudentIds = new Set(students.map(s => s.id));
-    } else if (user.role === UserRole.ADMIN || user.role === UserRole.DISTRICT_ADMIN || user.role === UserRole.BLOCK_ADMIN) {
-      const schools = await dbStore.getSchools();
-      const filteredSchools = schools.filter(school => {
-        if (user.role === UserRole.ADMIN) return school.stateCode === user.stateCode;
-        if (user.role === UserRole.DISTRICT_ADMIN) return school.districtCode === user.districtCode;
-        return school.blockCode === user.blockCode; // BLOCK_ADMIN
-      });
-      const schoolIds = filteredSchools.map(s => s.id);
-      const students = await dbStore.getStudents({ schoolId: schoolIds });
-      scopedStudentIds = new Set(students.map(s => s.id));
+      reports = await dbStore.getEvaluationReports();
     } else {
-      const students = await dbStore.getStudents();
-      scopedStudentIds = new Set(students.map(s => s.id));
+      let scopedStudentIds: Set<string>;
+      if (user.role === UserRole.SCHOOL || user.role === UserRole.TEACHER) {
+        const students = await dbStore.getStudents({ schoolId: user.schoolId });
+        scopedStudentIds = new Set(students.map(s => s.id));
+      } else if (user.role === UserRole.VOLUNTEER) {
+        const students = await dbStore.getStudents({ schoolId: user.assignedSchools || [] });
+        scopedStudentIds = new Set(students.map(s => s.id));
+      } else if (user.role === UserRole.ADMIN || user.role === UserRole.DISTRICT_ADMIN || user.role === UserRole.BLOCK_ADMIN) {
+        const schools = await dbStore.getSchools();
+        const filteredSchools = schools.filter(school => {
+          if (user.role === UserRole.ADMIN) return school.stateCode === user.stateCode;
+          if (user.role === UserRole.DISTRICT_ADMIN) return school.districtCode === user.districtCode;
+          return school.blockCode === user.blockCode; // BLOCK_ADMIN
+        });
+        const schoolIds = filteredSchools.map(s => s.id);
+        const students = await dbStore.getStudents({ schoolId: schoolIds });
+        scopedStudentIds = new Set(students.map(s => s.id));
+      } else {
+        const students = await dbStore.getStudents();
+        scopedStudentIds = new Set(students.map(s => s.id));
+      }
+      reports = await dbStore.getEvaluationReports({ studentIds: Array.from(scopedStudentIds) });
     }
 
-    const reports = await dbStore.getEvaluationReports({ studentIds: Array.from(scopedStudentIds) });
+    // Opt-in pagination (same pattern as GET /api/students, PR #115).
+    // Omitting ?page & ?limit returns the full scoped list — no existing caller breaks.
+    const pageParam = req.query.page as string | undefined;
+    const limitParam = req.query.limit as string | undefined;
+    if (pageParam || limitParam) {
+      const page  = Math.max(1, parseInt(pageParam || '1', 10) || 1);
+      const limit = Math.max(1, Math.min(500, parseInt(limitParam || '50', 10) || 50));
+      const total = reports.length;
+      const start = (page - 1) * limit;
+      res.set('X-Total-Count', String(total));
+      res.set('X-Page',        String(page));
+      res.set('X-Pages',       String(Math.max(1, Math.ceil(total / limit))));
+      return res.json(reports.slice(start, start + limit));
+    }
+
     res.json(reports);
   });
 
