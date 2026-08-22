@@ -11,6 +11,7 @@ import { parseCSVText } from '../RoleDashboards';
 
 interface StudentListPanelProps {
   students: Student[];
+  studentsLoading?: boolean;
   currentUser: User;
   token: string;
   refreshStudents: () => void;
@@ -18,6 +19,7 @@ interface StudentListPanelProps {
 
 export const StudentListPanel: React.FC<StudentListPanelProps> = ({
   students,
+  studentsLoading,
   currentUser,
   token,
   refreshStudents,
@@ -406,7 +408,7 @@ export const StudentListPanel: React.FC<StudentListPanelProps> = ({
           </div>
         )}
 
-        <EmptyStudents students={visibleStudents} />
+        <EmptyStudents students={visibleStudents} loading={studentsLoading} />
       </div>
     </div>
   );

@@ -45,7 +45,7 @@ const CONTENT_ITEMS = [
 
 export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser, token }) => {
   const {
-    students, schools, usersList, reportsList, worksheetsList, teachersList,
+    students, studentsLoading, schools, usersList, reportsList, worksheetsList, teachersList,
     getDistrictStats, getBlockStats, updateStudentLocally, refreshStudents,
   } = usePanelData(token, currentUser, activePanel);
 
@@ -56,6 +56,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
     return (
       <StudentListPanel
         students={students}
+        studentsLoading={studentsLoading}
         currentUser={currentUser}
         token={token}
         refreshStudents={refreshStudents}
@@ -63,7 +64,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
     );
   }
 
-  if (panel === 'student_profile') return <StudentProfilePanel students={students} schools={schools} reportsList={reportsList} currentUser={currentUser} token={token} updateStudentLocally={updateStudentLocally} />;
+  if (panel === 'student_profile') return <StudentProfilePanel students={students} studentsLoading={studentsLoading} schools={schools} reportsList={reportsList} currentUser={currentUser} token={token} updateStudentLocally={updateStudentLocally} />;
 
   if (panel === 'diagnostic_test') return <DiagnosticTestPanel students={students} currentUser={currentUser} token={token} refreshStudents={refreshStudents} />;
 

@@ -10,12 +10,13 @@ import { Users, BookOpen, Calendar, Award, BarChart3, FileText, Search, ChevronD
 
 export const StudentProfilePanel: React.FC<{
   students: Student[];
+  studentsLoading?: boolean;
   schools: School[];
   reportsList: EvaluationReport[];
   currentUser: User;
   token: string;
   updateStudentLocally: (studentId: string, patch: Partial<Student>) => void;
-}> = ({ students, schools, reportsList, currentUser, token, updateStudentLocally }) => {
+}> = ({ students, studentsLoading, schools, reportsList, currentUser, token, updateStudentLocally }) => {
   const [sel, setSel] = useState('');
   const [profileTab, setProfileTab] = useState<'overview' | 'academic' | 'personal' | 'activity'>('overview');
   const [editingProfile, setEditingProfile] = useState(false);
@@ -33,6 +34,29 @@ export const StudentProfilePanel: React.FC<{
       setSel(students[0].id);
     }
   }, [students, sel]);
+
+  // Issue #292: `students[0]` used to always exist because a hardcoded
+  // demo-student fallback guaranteed a non-empty list. With that fallback
+  // removed, a teacher who genuinely has zero students yet — a brand-new
+  // account, the exact case this bug was found on — would otherwise hit
+  // `s.schoolId`, `s.levelHistory[0]`, etc. on `undefined` below and crash.
+  if (studentsLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-slate-400 dark:text-slate-500">
+        <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mb-3" />
+        <p className="text-xs font-mono">Loading student records...</p>
+      </div>
+    );
+  }
+  if (students.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center text-slate-400 dark:text-slate-500">
+        <Users className="h-8 w-8 mb-3" />
+        <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">No students registered yet.</p>
+        <p className="text-xs mt-1">Register a student from the Students section to see their profile here.</p>
+      </div>
+    );
+  }
 
     const s = students.find(x => x.id === sel) || students[0];
 
