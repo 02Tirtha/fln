@@ -261,6 +261,15 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user, token,
               <h3 className="font-display font-medium text-zinc-900 dark:text-white text-sm">
                 {showAllStudents ? `All Students — School Roster (${classStudents.length})` : `Classroom Student Roster (${classStudents.length})`}
               </h3>
+              {classStudents.some(s => s.levelHistory.length === 0) && (
+                <button
+                  onClick={() => onNavigate?.('diagnostic_test')}
+                  className="bg-amber-600 hover:bg-amber-700 text-white font-mono text-xs font-bold px-3 py-1.5 rounded-lg transition-colors cursor-pointer"
+                  title="Generate diagnostic papers for a whole class at once, instead of one student at a time"
+                >
+                  📋 Run Diagnostic in Bulk
+                </button>
+              )}
             </div>
             <div className="p-4">
               {(() => {
