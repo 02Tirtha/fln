@@ -218,7 +218,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user, token,
       {/* Issue #172: real "how is my class doing today?" summary + #167's
           Top Performing Students, now that the standalone Performance page
           is gone. */}
-      <ClassSummaryBar students={students} />
+      <ClassSummaryBar students={students} token={token} teacherId={user.id} />
 
       {/* Class picker tabs */}
       <div className="flex gap-2 border-b border-zinc-200 dark:border-zinc-700 pb-px">
