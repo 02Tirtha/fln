@@ -59,8 +59,13 @@ export const TeacherDashboard: React.FC<DashboardProps> = ({ user, token }) => {
       const clsRes = await apiFetch('/api/classes', { headers: { 'Authorization': `Bearer ${token}` } });
       const clsData = await clsRes.json();
       if (Array.isArray(clsData)) {
-        setClasses(clsData);
-        if (clsData.length > 0) setActiveClass(clsData[0]);
+        // Defensive scope check (issue #291) — the backend is the source of
+        // truth for scoping, but a teacher's own class-tab bar should never
+        // render another school's classes even if a future backend change
+        // regresses.
+        const scoped = clsData.filter((c: ClassGroup) => c.schoolId === user.schoolId);
+        setClasses(scoped);
+        if (scoped.length > 0) setActiveClass(scoped[0]);
       }
 
       const stdRes = await apiFetch('/api/students', { headers: { 'Authorization': `Bearer ${token}` } });
