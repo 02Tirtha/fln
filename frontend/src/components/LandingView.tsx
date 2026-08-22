@@ -236,19 +236,19 @@ export const LandingView: React.FC<LandingViewProps> = ({ onNavigateToLogin, isL
         {/* Assessment cycle order */}
         <div className="mt-12 grid grid-cols-1 gap-6 sm:grid-cols-3">
           <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-5 text-center shadow-sm dark:shadow-slate-950/50">
-            <p className="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">Cycle 1</p>
-            <p className="mt-2 font-semibold text-gray-900 dark:text-white">Baseline</p>
-            <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">Initial placement to identify each student's starting level.</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">{t('landing.cycle.cycle1')}</p>
+            <p className="mt-2 font-semibold text-gray-900 dark:text-white">{t('landing.cycle.cycle1Title')}</p>
+            <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">{t('landing.cycle.cycle1Description')}</p>
           </div>
           <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-5 text-center shadow-sm dark:shadow-slate-950/50">
-            <p className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Cycle 2</p>
-            <p className="mt-2 font-semibold text-gray-900 dark:text-white">Mid-year</p>
-            <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">Progress check to track growth and adjust remediation.</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">{t('landing.cycle.cycle2')}</p>
+            <p className="mt-2 font-semibold text-gray-900 dark:text-white">{t('landing.cycle.cycle2Title')}</p>
+            <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">{t('landing.cycle.cycle2Description')}</p>
           </div>
           <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-5 text-center shadow-sm dark:shadow-slate-950/50">
-            <p className="text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">Cycle 3</p>
-            <p className="mt-2 font-semibold text-gray-900 dark:text-white">End-of-year</p>
-            <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">Final assessment to confirm outcomes for the year.</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">{t('landing.cycle.cycle3')}</p>
+            <p className="mt-2 font-semibold text-gray-900 dark:text-white">{t('landing.cycle.cycle3Title')}</p>
+            <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">{t('landing.cycle.cycle3Description')}</p>
           </div>
         </div>
       </main>
