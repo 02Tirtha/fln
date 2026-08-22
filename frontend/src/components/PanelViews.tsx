@@ -71,7 +71,7 @@ export const PanelViews: React.FC<PanelViewsProps> = ({ activePanel, currentUser
 
   if (panel === 'test_history') return <TestHistoryPanel currentUser={currentUser} token={token} />;
 
-  if (panel === 'worksheets') return <WorksheetsPanel reportsList={reportsList} worksheetsList={worksheetsList} />;
+  if (panel === 'worksheets') return <WorksheetsPanel reportsList={reportsList} worksheetsList={worksheetsList} students={students} currentUser={currentUser} token={token} refreshStudents={refreshStudents} />;
 
   if (panel === 'performance') return <PerformancePanel students={students} currentUser={currentUser} />;
 

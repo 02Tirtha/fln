@@ -1,4 +1,7 @@
 // Extracted from frontend/src/components/PanelViews.tsx (issue #144, PR 3).
+// Issue #166: this panel is the canonical home for the "New Registration"
+// (Register New Student) action. The toggle button + form below live here
+// in the Students section; no register-style action exists on the dashboards.
 import React, { useState } from 'react';
 import { Student, User, UserRole } from '../../types';
 import { PageHeader, EmptyStudents } from './PanelShared';
