@@ -455,6 +455,18 @@ export const StudentListPanel: React.FC<StudentListPanelProps> = ({
                     ))}
                   </div>
                 )}
+                {/* Explicit closure — without this, switching tabs (or just
+                    not knowing what to click) left teachers unsure whether
+                    the import was actually done, reported live after a
+                    successful 9/10 import with no way to confirm and
+                    dismiss the panel. */}
+                <button
+                  type="button"
+                  onClick={() => { setShowCsvImport(false); setCsvResults(null); setParsedRows([]); setRowDrafts({}); }}
+                  className="w-full bg-slate-900 dark:bg-white hover:bg-slate-800 dark:hover:bg-zinc-200 text-white dark:text-slate-900 text-xs font-mono font-bold px-4 py-2.5 rounded-lg transition-colors cursor-pointer"
+                >
+                  ✓ Done — Close CSV Import
+                </button>
               </div>
             )}
           </div>
