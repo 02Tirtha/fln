@@ -1312,7 +1312,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                 <div className="text-center">
                   <span className="block text-xs font-mono text-zinc-400 uppercase">Final Score</span>
                   <span className="text-2xl font-display font-bold text-zinc-900 dark:text-white">
-                    {questions.reduce((acc, q) => (q && (extractedAnswers[q.id] || '').trim() === (q.correctAnswer || '').trim() ? acc + 1 : acc), 0)} / {questions.length || report.totalQuestions}
+                    {report.score} / {report.totalQuestions}
                   </span>
                 </div>
                 <div className="text-center border-x border-zinc-200 dark:border-zinc-700">

@@ -146,18 +146,23 @@ export class RemediationController {
   async getLedgersForStudent(req: Request, res: Response): Promise<void> {
     try {
       const studentId = req.query.studentId as string;
-      if (!studentId) {
-        res.status(400).json({ success: false, error: 'studentId is required' });
-        return;
-      }
-
       let ledgers: IRemediationLedger[] = [];
-      try {
-        ledgers = await RemediationLedger.find({ studentId }).exec();
-      } catch (err) {
-        console.warn('Mongoose query failed, searching dbStore:', err);
-        const all = await dbStore.getRemediationLedgers();
-        ledgers = all.filter(l => l.studentId === studentId);
+      
+      if (studentId) {
+        try {
+          ledgers = await RemediationLedger.find({ studentId }).exec();
+        } catch (err) {
+          console.warn('Mongoose query failed, searching dbStore:', err);
+          const all = await dbStore.getRemediationLedgers();
+          ledgers = all.filter(l => l.studentId === studentId);
+        }
+      } else {
+        try {
+          ledgers = await RemediationLedger.find({}).exec();
+        } catch (err) {
+          console.warn('Mongoose query failed, searching dbStore:', err);
+          ledgers = await dbStore.getRemediationLedgers();
+        }
       }
 
       res.status(200).json({ success: true, data: ledgers });
