@@ -412,9 +412,9 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
     const actualEngine = data.ocrAnalysis?.ocrEngine || 'EasyOCR (PyTorch Fast Reader)';
 
     const firstRes = {
-      studentId: selectedStudentId || 'SCAN',
-      studentName: 'Scanned Student',
-      rollNumber: '',
+      studentId: targetStudentId || 'SCAN',
+      studentName: targetStudentId ? (students.find(s => s.id === targetStudentId)?.name || 'Scanned Student') : 'Scanned Student',
+      rollNumber: targetStudentId ? targetStudentId.slice(-4) : '',
       score: matched,
       totalQuestions: total,
       percentage: pct,
@@ -463,40 +463,74 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
   };
 
   const confirmEvaluation = async () => {
-    let score = 0;
-    const mastery: { [topic: string]: 'Strong' | 'Needs Practice' | 'Satisfactory' } = {};
-    for (const q of questions) {
-      if (!q) continue;
-      const userVal = (extractedAnswers[q.id] || '').trim();
-      const expected = (q.correctAnswer || '').trim();
-      if (userVal === expected) score++;
-      const topic = q.topic || 'Number Sense';
-      if (!mastery[topic]) {
-        mastery[topic] = userVal === expected ? 'Strong' : 'Needs Practice';
+    const activeStudentId = selectedStudentId && selectedStudentId !== 'ALL_STUDENTS' ? selectedStudentId : report?.studentId;
+    if (!activeStudentId || activeStudentId === 'manual_entry' || activeStudentId === 'SCAN') {
+      let score = 0;
+      const mastery: { [topic: string]: 'Strong' | 'Needs Practice' | 'Satisfactory' } = {};
+      for (const q of questions) {
+        if (!q) continue;
+        const userVal = (extractedAnswers[q.id] || '').trim();
+        const expected = (q.correctAnswer || '').trim();
+        if (userVal === expected) score++;
+        const topic = q.topic || 'Number Sense';
+        if (!mastery[topic]) {
+          mastery[topic] = userVal === expected ? 'Strong' : 'Needs Practice';
+        }
       }
+
+      const totalQuestions = questions.length;
+      const percentage = totalQuestions > 0 ? Math.round((score / totalQuestions) * 100) : 0;
+      const baseLevel = 2;
+      let sub = 1;
+      if (percentage >= 80) sub = Math.min(5, sub + 1);
+      else if (percentage < 60) sub = Math.max(0, sub - 1);
+
+      setReport({
+        id: 'rep_' + Date.now(),
+        studentId: activeStudentId || 'manual_entry',
+        worksheetId: 'icr_manual_pass',
+        score,
+        totalQuestions,
+        conceptMastery: mastery,
+        narrative: `Manual-entry ICR verification: ${score}/${totalQuestions} correct (${percentage}%). Recommended level L${baseLevel}.${sub}.`,
+        recommendedLevel: baseLevel,
+        recommendedSubLevel: sub,
+        timestamp: new Date().toISOString(),
+      });
+      setStep('result');
+      setSuccess(`Verification confirmed — ${score}/${totalQuestions} correct (${percentage}%). Diagnostic placement: L${baseLevel}.${sub}.`);
+      return;
     }
 
-    const totalQuestions = questions.length;
-    const percentage = totalQuestions > 0 ? Math.round((score / totalQuestions) * 100) : 0;
-    const baseLevel = 2;
-    let sub = 1;
-    if (percentage >= 80) sub = Math.min(5, sub + 1);
-    else if (percentage < 60) sub = Math.max(0, sub - 1);
-
-    setReport({
-      id: 'rep_' + Date.now(),
-      studentId: selectedStudentId && selectedStudentId !== 'ALL_STUDENTS' ? selectedStudentId : 'manual_entry',
-      worksheetId: 'icr_manual_pass',
-      score,
-      totalQuestions,
-      conceptMastery: mastery,
-      narrative: `Manual-entry ICR verification: ${score}/${totalQuestions} correct (${percentage}%). Recommended level L${baseLevel}.${sub}.`,
-      recommendedLevel: baseLevel,
-      recommendedSubLevel: sub,
-      timestamp: new Date().toISOString(),
-    });
-    setStep('result');
-    setSuccess(`Verification confirmed — ${score}/${totalQuestions} correct (${percentage}%). Diagnostic placement: L${baseLevel}.${sub}.`);
+    try {
+      setLoading(true);
+      setError('');
+      const res = await apiFetch(`/api/students/${encodeURIComponent(activeStudentId)}/diagnostic/submit`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          questions: questions,
+          answers: extractedAnswers
+        })
+      });
+      if (res.ok) {
+        const savedReport = await res.json();
+        const reportData = savedReport.data || savedReport.report || savedReport;
+        setReport(reportData);
+        setStep('result');
+        setSuccess(`Verification confirmed and saved to student records! Placed Level: L${reportData.recommendedLevel}.${reportData.recommendedSubLevel ?? 0}`);
+      } else {
+        const err = await res.json();
+        setError(err.error || 'Failed to save diagnostic evaluation.');
+      }
+    } catch (err: any) {
+      setError('Network error saving diagnostic evaluation: ' + (err?.message || err));
+    } finally {
+      setLoading(false);
+    }
   };
 
   const fetchRemediationLedger = async (studentId: string, examId: string, responses: any[], questions: any[]) => {

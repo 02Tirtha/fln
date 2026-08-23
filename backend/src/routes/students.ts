@@ -392,7 +392,7 @@ export function registerStudentRoutes(app: express.Express) {
     questions.forEach((q, idx) => {
       const qNum = idx + 1;
       const pipelineQId = `Q${qNum}`;
-      const submitted = (answers[q.question_id] || '').trim();
+      const submitted = (answers[q.question_id || q.id] || '').trim();
       pipelineAnswers[pipelineQId] = {
         answer: String(submitted),
         confidence: 0.95
@@ -478,8 +478,8 @@ export function registerStudentRoutes(app: express.Express) {
     if (levelQuestions.length > 0) {
       let failedCount = 0;
       levelQuestions.forEach(q => {
-        const submitted = (answers[q.question_id] || '').trim().toLowerCase();
-        const correct = q.answer.trim().toLowerCase();
+        const submitted = (answers[q.question_id || q.id] || '').trim().toLowerCase();
+        const correct = (q.answer || q.correctAnswer || '').trim().toLowerCase();
         if (submitted !== correct) {
           failedCount++;
         }
@@ -538,8 +538,8 @@ export function registerStudentRoutes(app: express.Express) {
     }
 
     const responses = questions.map((q: any) => {
-      const studentAnswer = (answers[q.question_id] || '').trim();
-      const correctAnswer = (q.answer || '').trim();
+      const studentAnswer = (answers[q.question_id || q.id] || '').trim();
+      const correctAnswer = (q.answer || q.correctAnswer || '').trim();
       const status = studentAnswer.toLowerCase() === correctAnswer.toLowerCase() ? 'Correct' : 'Incorrect';
       return {
         question: q.question,

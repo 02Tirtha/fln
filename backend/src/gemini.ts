@@ -432,8 +432,8 @@ Provide a clean narrative feedback summary.`;
 
   // Grade the questions deterministically
   questions.forEach((q) => {
-    const submitted = (submittedAnswers[q.question_id] || '').trim().toLowerCase();
-    const correct = q.answer.trim().toLowerCase();
+    const submitted = (submittedAnswers[q.question_id || q.id] || '').trim().toLowerCase();
+    const correct = (q.answer || q.correctAnswer || '').trim().toLowerCase();
     if (submitted === correct) {
       score++;
     }
@@ -442,8 +442,8 @@ Provide a clean narrative feedback summary.`;
   // Weakest level mapping: find the lowest source_level of any failed question
   const failedLevels: number[] = [];
   questions.forEach((q) => {
-    const submitted = (submittedAnswers[q.question_id] || '').trim().toLowerCase();
-    const correct = q.answer.trim().toLowerCase();
+    const submitted = (submittedAnswers[q.question_id || q.id] || '').trim().toLowerCase();
+    const correct = (q.answer || q.correctAnswer || '').trim().toLowerCase();
     if (submitted !== correct) {
       failedLevels.push(q.source_level);
     }

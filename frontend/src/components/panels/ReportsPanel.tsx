@@ -15,8 +15,45 @@ export const ReportsPanel: React.FC<{
   students: Student[];
   reportsList: EvaluationReport[];
   token: string;
-}> = ({ currentUser, schools, students, reportsList, token }) => {
+}> = ({ currentUser, schools, students: initialStudents, reportsList: initialReportsList, token }) => {
   const [expandedDistRpt, setExpandedDistRpt] = useState<string | null>(null);
+  const [reportsList, setReportsList] = useState<EvaluationReport[]>(initialReportsList || []);
+  const [students, setStudents] = useState<Student[]>(initialStudents || []);
+
+  const fetchReportsAndStudents = async () => {
+    try {
+      const headers = { 'Authorization': `Bearer ${token}` };
+      const [resReports, resStudents] = await Promise.all([
+        fetch('/api/evaluation/reports', { headers }),
+        fetch('/api/students', { headers })
+      ]);
+      if (resReports.ok) {
+        const d = await resReports.json();
+        if (Array.isArray(d)) {
+          setReportsList(d);
+        } else if (d && Array.isArray(d.data)) {
+          setReportsList(d.data);
+        }
+      }
+      if (resStudents.ok) {
+        const d = await resStudents.json();
+        if (Array.isArray(d)) {
+          setStudents(d);
+        } else if (d && Array.isArray(d.data)) {
+          setStudents(d.data);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch evaluation reports or students:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchReportsAndStudents();
+    const interval = setInterval(fetchReportsAndStudents, 5000);
+    return () => clearInterval(interval);
+  }, [token]);
+
   const handleViewRemediationNotes = (studentName: string, studentId: string, examId: string) => {
     const nameQuery = studentName ? `?studentName=${encodeURIComponent(studentName)}` : '';
     window.open(`/remediation-note/${studentId}/${encodeURIComponent(String(examId))}${nameQuery}`, '_blank');
