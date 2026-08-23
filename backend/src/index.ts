@@ -41,9 +41,9 @@ import fs from 'fs';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { ROOT_DIR, PYTHON_BIN, AI_SERVICES_DIR } from './config';
-import { remediationRoutes } from './routes/remediation.routes';
-import { blueprintRoutes } from './routes/blueprint.routes';
-import { parseAndSeedBlueprints } from './services/remediation/blueprintService';
+import remediationRoutes from './routes/remediation.routes';
+import blueprintRoutes from './routes/blueprint.routes';
+import { parseAndSeedBlueprints } from './utils/blueprintSeeder';
 import { remediationService } from './services/remediation/remediation.service';
 
 // Safety net: the MongoDB driver occasionally rejects a connection AFTER
