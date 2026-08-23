@@ -464,14 +464,11 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
 
   const confirmEvaluation = async () => {
     let score = 0;
-    let graded = 0;
     const mastery: { [topic: string]: 'Strong' | 'Needs Practice' | 'Satisfactory' } = {};
     for (const q of questions) {
       if (!q) continue;
       const userVal = (extractedAnswers[q.id] || '').trim();
       const expected = (q.correctAnswer || '').trim();
-      if (expected.length === 0) continue;
-      graded++;
       if (userVal === expected) score++;
       const topic = q.topic || 'Number Sense';
       if (!mastery[topic]) {
@@ -479,7 +476,8 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
       }
     }
 
-    const percentage = graded > 0 ? Math.round((score / graded) * 100) : 0;
+    const totalQuestions = questions.length;
+    const percentage = totalQuestions > 0 ? Math.round((score / totalQuestions) * 100) : 0;
     const baseLevel = 2;
     let sub = 1;
     if (percentage >= 80) sub = Math.min(5, sub + 1);
@@ -490,15 +488,15 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
       studentId: selectedStudentId && selectedStudentId !== 'ALL_STUDENTS' ? selectedStudentId : 'manual_entry',
       worksheetId: 'icr_manual_pass',
       score,
-      totalQuestions: graded > 0 ? graded : questions.length,
+      totalQuestions,
       conceptMastery: mastery,
-      narrative: `Manual-entry ICR verification: ${score}/${graded} correct (${percentage}%). Recommended level L${baseLevel}.${sub}.`,
+      narrative: `Manual-entry ICR verification: ${score}/${totalQuestions} correct (${percentage}%). Recommended level L${baseLevel}.${sub}.`,
       recommendedLevel: baseLevel,
       recommendedSubLevel: sub,
       timestamp: new Date().toISOString(),
     });
     setStep('result');
-    setSuccess(`Verification confirmed — ${score}/${graded} correct (${percentage}%). Diagnostic placement: L${baseLevel}.${sub}.`);
+    setSuccess(`Verification confirmed — ${score}/${totalQuestions} correct (${percentage}%). Diagnostic placement: L${baseLevel}.${sub}.`);
   };
 
   const fetchRemediationLedger = async (studentId: string, examId: string, responses: any[], questions: any[]) => {
