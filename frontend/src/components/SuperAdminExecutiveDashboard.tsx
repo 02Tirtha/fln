@@ -40,45 +40,6 @@ interface SuperAdminDashboardProps {
   token?: string;
 }
 
-type ExecutiveSchoolRanking = {
-  id: string;
-  name: string;
-  stateCode: string;
-  schoolType: string;
-  performanceScore: number;
-  completionRate: number;
-  studentSatisfaction: number;
-  interviewSuccessRate: number;
-};
-
-type BoardCountItem = {
-  board: string;
-  schoolsCount: number;
-  percentage: number;
-};
-
-type SuperAdminAnalyticsData = {
-  schoolRankings?: ExecutiveSchoolRanking[];
-  kpis?: {
-    totalRegisteredSchools?: number;
-    activeSchools?: number;
-    totalStudents?: number;
-    totalTeachers?: number;
-    totalExamsConducted?: number;
-    totalInterviewsCompleted?: number;
-    avgPerformanceScore?: number;
-  };
-  stateDistribution?: Array<{ stateCode: string; schoolsCount: number }>;
-  growthTrend?: any[];
-  performanceAnalytics?: Record<string, any>;
-  interviewAnalytics?: Record<string, any>;
-  usageAnalytics?: Record<string, any>;
-  aiAnalytics?: Record<string, any>;
-  engagementAnalytics?: Record<string, any>;
-  systemHealth?: Record<string, any>;
-  recentTrends?: any[];
-};
-
 export const SuperAdminExecutiveDashboard: React.FC<SuperAdminDashboardProps> = ({ user, token }) => {
   // Global Filters state
   const [dateRange, setDateRange] = useState<'7d' | '30d' | '6m' | '1y'>('30d');
@@ -96,7 +57,7 @@ export const SuperAdminExecutiveDashboard: React.FC<SuperAdminDashboardProps> = 
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [chartLoading, setChartLoading] = useState<boolean>(false);
   const isNextFetchChartOnly = useRef<boolean>(false);
-  const [analyticsData, setAnalyticsData] = useState<SuperAdminAnalyticsData | null>(null);
+  const [analyticsData, setAnalyticsData] = useState<any>(null);
 
   // States & Filter for Student Performance Analytics school chart
   const [perfChartTab, setPerfChartTab] = useState<'states' | 'schools'>('states');
@@ -180,14 +141,8 @@ export const SuperAdminExecutiveDashboard: React.FC<SuperAdminDashboardProps> = 
     return count;
   }, [dateRange, stateCode, schoolType, board, grade, status]);
 
-  const kpis = analyticsData?.kpis ?? {};
-  const stateDistribution = analyticsData?.stateDistribution ?? [];
-  const totalRegisteredSchools = kpis.totalRegisteredSchools ?? 0;
-  const activeSchools = kpis.activeSchools ?? 0;
-  const totalStudentsCount = kpis.totalStudents ?? 0;
-  const totalTeachersCount = kpis.totalTeachers ?? 0;
-  const totalExamsConductedCount = kpis.totalExamsConducted ?? 0;
-  const totalInterviewsCompletedCount = kpis.totalInterviewsCompleted ?? 0;
+  const kpis = analyticsData?.kpis || {};
+  const stateDistribution = analyticsData?.stateDistribution || [];
 
   const boardsData = useMemo(() => {
     const totalSchools = kpis.totalRegisteredSchools || 188435;
@@ -223,7 +178,7 @@ export const SuperAdminExecutiveDashboard: React.FC<SuperAdminDashboardProps> = 
       "West Bengal State Board": "WB"
     };
 
-    const rawList: Array<{ board: string; schoolsCount: number }> = [
+    const rawList = [
       { board: 'CBSE', schoolsCount: Math.round(totalSchools * 0.35) },
       { board: 'CISCE', schoolsCount: Math.round(totalSchools * 0.12) },
       { board: 'NIOS', schoolsCount: Math.round(totalSchools * 0.05) },
@@ -241,12 +196,12 @@ export const SuperAdminExecutiveDashboard: React.FC<SuperAdminDashboardProps> = 
     ];
 
     const sumCounts = rawList.reduce((acc, b) => acc + b.schoolsCount, 0) || 1;
-    const withPercentages: BoardCountItem[] = rawList.map(b => ({
+    const withPercentages = rawList.map(b => ({
       ...b,
       percentage: Math.round((b.schoolsCount / sumCounts) * 1000) / 10
     }));
 
-    return withPercentages.sort((a: BoardCountItem, b: BoardCountItem) => b.schoolsCount - a.schoolsCount);
+    return withPercentages.sort((a, b) => b.schoolsCount - a.schoolsCount);
   }, [kpis.totalRegisteredSchools, stateDistribution]);
 
   const filteredBoards = useMemo(() => {
@@ -259,25 +214,15 @@ export const SuperAdminExecutiveDashboard: React.FC<SuperAdminDashboardProps> = 
   // Memoized School Rankings sorted by chosen metric and state filter
   const sortedSchoolRankings = useMemo(() => {
     if (!analyticsData?.schoolRankings) return [];
-    let list = [...analyticsData.schoolRankings] as ExecutiveSchoolRanking[];
+    let list = [...analyticsData.schoolRankings];
 
     if (rankingsStateFilter !== 'ALL') {
-      list = list.filter((school: ExecutiveSchoolRanking) => school.stateCode === rankingsStateFilter);
-
-      // If no schools in database match the filtered state, dynamically generate 5 realistic rankings for that state
-      if (list.length === 0) {
-        const stateName = STATE_NAMES[rankingsStateFilter] || rankingsStateFilter;
-        list = [
-          { id: `SCH-MOCK-1`, name: `GSSS Model Town ${stateName}`, stateCode: rankingsStateFilter, schoolType: 'Government', performanceScore: 92.4, completionRate: 96.8, studentSatisfaction: 4.8, interviewSuccessRate: 91.2 },
-          { id: `SCH-MOCK-2`, name: `Jawahar Navodaya Vidyalaya ${stateName}`, stateCode: rankingsStateFilter, schoolType: 'Model', performanceScore: 89.2, completionRate: 94.5, studentSatisfaction: 4.6, interviewSuccessRate: 88.4 },
-          { id: `SCH-MOCK-3`, name: `Delhi Public School ${stateName}`, stateCode: rankingsStateFilter, schoolType: 'Private', performanceScore: 86.8, completionRate: 92.1, studentSatisfaction: 4.5, interviewSuccessRate: 85.6 },
-          { id: `SCH-MOCK-4`, name: `St. Xavier Primary Academy ${stateName}`, stateCode: rankingsStateFilter, schoolType: 'Private Aided', performanceScore: 84.1, completionRate: 90.4, studentSatisfaction: 4.3, interviewSuccessRate: 83.2 },
-          { id: `SCH-MOCK-5`, name: `Government High School ${stateName}`, stateCode: rankingsStateFilter, schoolType: 'Government', performanceScore: 81.5, completionRate: 88.2, studentSatisfaction: 4.1, interviewSuccessRate: 80.8 }
-        ];
-      }
+      list = list.filter(school => school.stateCode === rankingsStateFilter);
+      // No fake fallback rankings when a state has no real ranked schools -
+      // the render side shows an honest empty state instead (see below).
     }
 
-    return list.sort((a: ExecutiveSchoolRanking, b: ExecutiveSchoolRanking) => {
+    return list.sort((a, b) => {
       if (rankingSortMetric === 'performance') return b.performanceScore - a.performanceScore;
       if (rankingSortMetric === 'completion') return b.completionRate - a.completionRate;
       if (rankingSortMetric === 'satisfaction') return b.studentSatisfaction - a.studentSatisfaction;
@@ -581,51 +526,39 @@ export const SuperAdminExecutiveDashboard: React.FC<SuperAdminDashboardProps> = 
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             <KPICard
               title="Registered & Active Schools"
-              value={totalRegisteredSchools ? totalRegisteredSchools.toLocaleString() : '—'}
-              subtext={`${totalRegisteredSchools ? Math.round((activeSchools / totalRegisteredSchools) * 100) : 100}% Operational`}
+              value={kpis.totalRegisteredSchools?.toLocaleString()}
+              subtext={kpis.totalRegisteredSchools ? `${Math.round((kpis.activeSchools / kpis.totalRegisteredSchools) * 100)}% Operational` : 'Loading…'}
               icon={School}
-              badge="+4.2%"
-              badgeType="up"
             />
             <KPICard
               title="Total Students Enrolled"
-              value={totalStudentsCount.toLocaleString()}
+              value={kpis.totalStudents?.toLocaleString()}
               subtext="Enrolled across FLN"
               icon={Users}
-              badge="+8.1%"
-              badgeType="up"
             />
             <KPICard
               title="Total Teachers"
-              value={totalTeachersCount.toLocaleString()}
+              value={kpis.totalTeachers?.toLocaleString()}
               subtext="Active Educators"
               icon={ShieldCheck}
-              badge="+2.4%"
-              badgeType="up"
             />
             <KPICard
               title="Total Assessments Conducted"
-              value={totalExamsConductedCount.toLocaleString()}
+              value={kpis.totalExamsConducted?.toLocaleString()}
               subtext="Assessments sync"
               icon={FileCheck}
-              badge="+12%"
-              badgeType="up"
             />
             <KPICard
-              title="Total AI Interviews Completed"
-              value={totalInterviewsCompletedCount.toLocaleString()}
-              subtext="AI Mock Evaluations"
+              title="Total Evaluations Completed"
+              value={kpis.totalInterviewsCompleted?.toLocaleString()}
+              subtext="Diagnostic + worksheet evaluations"
               icon={Zap}
-              badge="+15%"
-              badgeType="up"
             />
             <KPICard
               title="Average Performance Score"
               value={kpis.avgPerformanceScore !== undefined ? `${kpis.avgPerformanceScore}%` : '—'}
               subtext="National Index"
               icon={Award}
-              badge="+3.5%"
-              badgeType="up"
             />
           </div>
 
@@ -1309,6 +1242,13 @@ export const SuperAdminExecutiveDashboard: React.FC<SuperAdminDashboardProps> = 
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
+                      {sortedSchoolRankings.length === 0 && (
+                        <tr>
+                          <td colSpan={8} className="py-8 px-3 text-center text-slate-400 dark:text-slate-500">
+                            No ranked schools yet for this filter.
+                          </td>
+                        </tr>
+                      )}
                       {sortedSchoolRankings.map((school: any, idx: number) => (
                         <tr key={school.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
                           <td className="py-3 px-3">

@@ -258,10 +258,6 @@ function randomAge(classIndex: number): number {
   return base + Math.floor(Math.random() * 2);
 }
 
-function randomStreak(): number {
-  return Math.floor(Math.random() * 20);
-}
-
 function generateAadhaar(): string {
   const last4 = String(Math.floor(Math.random() * 9000) + 1000);
   return `XXXX-XXXX-${last4}`;
@@ -471,10 +467,9 @@ async function main() {
                   {
                     level: currentLevel,
                     date: '2026-04-10',
-                    reason: 'Onboarding Diagnostic Placement',
+                    reason: 'Baseline',
                   },
                 ],
-                streak: randomStreak(),
               });
             }
           }
