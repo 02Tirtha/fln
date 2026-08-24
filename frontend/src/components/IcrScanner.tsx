@@ -538,37 +538,63 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
     const ocrValues: string[] = Object.entries(answers).map(([, v]) => String(v.value || ''));
 
     // Fetch the answer key for the selected class (mirrors the Pass OCR
-    // flow). This gives us the actual number of questions (e.g. 15) and
-    // their question text + correctAnswer for the verify table.
-    const cls = classes.find(c => c.id === selectedClassId);
-    let targetStudentId = selectedStudentId && selectedStudentId !== 'ALL_STUDENTS'
-      ? selectedStudentId
-      : students.find(s => cls && (s.classGroup === cls.className || (s.classGroup || '').includes(cls.className)))?.id;
+        // flow). This gives us the actual number of questions (e.g. 15) and
+        // their question text + correctAnswer for the verify table.
+        const cls = classes.find(c => c.id === selectedClassId);
+        let targetStudentId = selectedStudentId && selectedStudentId !== 'ALL_STUDENTS'
+          ? selectedStudentId
+          : students.find(s => cls && (s.classGroup === cls.className || (s.classGroup || '').includes(cls.className)))?.id;
 
-    let loadedQuestions: Array<{ id: string; question: string; correctAnswer: string; topic?: string }> = [];
-    let sourceLabel = '';
-    if (targetStudentId) {
-      try {
-        const res = await apiFetch(
-          `/api/diagnostic/student/${encodeURIComponent(targetStudentId)}/answer-key`,
-          { headers: { 'Authorization': `Bearer ${token}` } }
-        );
-        if (res.ok) {
-          const ak = (await res.json())?.answerKey || [];
-          if (Array.isArray(ak) && ak.length > 0) {
-            loadedQuestions = ak.map((item: any, i: number) => ({
-              id: item.qid || item.question_id || item.id || `q_${i + 1}`,
-              question: item.question || item.prompt || `Question #${i + 1}`,
-              correctAnswer: String(item.answer ?? item.expected ?? ''),
-              topic: item.topic,
-            }));
-            sourceLabel = `mapped ${Math.min(ocrValues.length, loadedQuestions.length)} OCR values into ${loadedQuestions.length} answer-key fields`;
+        let loadedQuestions: Array<{ id: string; question: string; correctAnswer: string; topic?: string }> = [];
+        let sourceLabel = '';
+        if (targetStudentId) {
+          try {
+            const res = await apiFetch(
+              `/api/diagnostic/student/${encodeURIComponent(targetStudentId)}/answer-key`,
+              { headers: { 'Authorization': `Bearer ${token}` } }
+            );
+            if (res.ok) {
+              const ak = (await res.json())?.answerKey || [];
+              if (Array.isArray(ak) && ak.length > 0) {
+                loadedQuestions = ak.map((item: any, i: number) => ({
+                  id: item.qid || item.question_id || item.id || `q_${i + 1}`,
+                  question: item.question || item.prompt || `Question #${i + 1}`,
+                  correctAnswer: String(item.answer ?? item.expected ?? ''),
+                  topic: item.topic,
+                }));
+                sourceLabel = `mapped ${Math.min(ocrValues.length, loadedQuestions.length)} OCR values into ${loadedQuestions.length} answer-key fields`;
+              }
+            }
+          } catch {
+            // non-fatal, fall through to class-level fallback
           }
         }
-      } catch {
-        // non-fatal, fall through to placeholder grid
-      }
-    }
+        // Fallback: no per-student key resolved. Try the latest class-level
+        // answer key — the class paper is the same across students up to
+        // randomization, so this is a safe proxy for single-sheet scans
+        // where no specific student was selected.
+        if (loadedQuestions.length === 0 && cls?.classNumber) {
+          try {
+            const res = await apiFetch(
+              `/api/diagnostic/class/${encodeURIComponent(String(cls.classNumber))}/answer-key`,
+              { headers: { 'Authorization': `Bearer ${token}` } }
+            );
+            if (res.ok) {
+              const ak = (await res.json())?.answerKey || [];
+              if (Array.isArray(ak) && ak.length > 0) {
+                loadedQuestions = ak.map((item: any, i: number) => ({
+                  id: item.qid || item.question_id || item.id || `q_${i + 1}`,
+                  question: item.question || item.prompt || `Question #${i + 1}`,
+                  correctAnswer: String(item.answer ?? item.expected ?? ''),
+                  topic: item.topic,
+                }));
+                sourceLabel = `class-level answer key (${loadedQuestions.length} fields) — no student selected`;
+              }
+            }
+          } catch {
+            // non-fatal, fall through to placeholder grid
+          }
+        }
 
     // Fallback: if no answer key, build N rows from the OCR'd count.
     if (loadedQuestions.length === 0) {

@@ -1565,14 +1565,31 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
   }
 
   async getStudentDiagnosticAnswerKey(studentId: string, jobId?: string): Promise<DiagnosticAnswerKey | null> {
-    if (this.mongoDb) {
-      const query: any = { studentId };
-      if (jobId) query.jobId = jobId;
-      return await this.mongoDb.collection<DiagnosticAnswerKey>('diagnostic_answer_keys').findOne(query, { sort: { createdAt: -1 } });
+      if (this.mongoDb) {
+        const query: any = { studentId };
+        if (jobId) query.jobId = jobId;
+        return await this.mongoDb.collection<DiagnosticAnswerKey>('diagnostic_answer_keys').findOne(query, { sort: { createdAt: -1 } });
+      }
+      const keys = (this.data?.diagnosticAnswerKeys || []).filter(k => k.studentId === studentId && (!jobId || k.jobId === jobId));
+      return keys[keys.length - 1] || null;
     }
-    const keys = (this.data?.diagnosticAnswerKeys || []).filter(k => k.studentId === studentId && (!jobId || k.jobId === jobId));
-    return keys[keys.length - 1] || null;
-  }
+
+    // Fetch the latest diagnostic answer key for any student in a given class —
+    // used when a single sheet scan is performed without a specific student
+    // selected (the OCR can't ask "which student", so it grabs the most
+    // recently generated paper for that class). All students in the same class
+    // get the same paper up to per-student randomization, so this is a safe
+    // approximation when no per-student answer key is available.
+    async getLatestClassAnswerKey(classNumber: number): Promise<DiagnosticAnswerKey | null> {
+      if (this.mongoDb) {
+        return await this.mongoDb.collection<DiagnosticAnswerKey>('diagnostic_answer_keys')
+          .findOne({ classNumber }, { sort: { createdAt: -1 } });
+      }
+      const keys = (this.data?.diagnosticAnswerKeys || [])
+        .filter(k => k.classNumber === classNumber)
+        .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+      return keys[0] || null;
+    }
 
   // --- Preloaded Question Pool (Mathematical Curriculum Questions Classes 2-4) ---
   private getSeedQuestions(): Question[] {
