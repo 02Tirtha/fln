@@ -41,6 +41,98 @@ interface BulkResultItem {
   status: string;
 }
 
+// Lightweight SVG donut chart — correct vs incorrect counts. No external
+// chart library; the math is just arc-length-to-percentage on two slices.
+// Hides itself gracefully when there are zero questions.
+const DonutChart: React.FC<{ correct: number; incorrect: number }> = ({ correct, incorrect }) => {
+  const total = correct + incorrect;
+  const correctPct = total > 0 ? (correct / total) * 100 : 0;
+  const incorrectPct = total > 0 ? (incorrect / total) * 100 : 0;
+
+  // Donut geometry: outer radius 70, inner radius 44, stroke-based arcs.
+  // Use stroke-dasharray on a single circle to draw the two slices; the
+  // circle's circumference is 2πr.
+  const R = 70;
+  const C = 2 * Math.PI * R;
+  // dasharray = "<correct-arc-length> <gap>" — gap = full circumference so
+  // we only ever paint one slice. Rotate the circle so the correct slice
+  // starts at 12 o'clock.
+  const correctArc = (correctPct / 100) * C;
+
+  if (total === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-4">
+        <div className="w-40 h-40 rounded-full border-4 border-zinc-200 dark:border-zinc-700 flex items-center justify-center">
+          <div className="text-center">
+            <div className="text-2xl font-display font-bold text-zinc-400">—</div>
+            <div className="text-[10px] font-mono uppercase tracking-wider text-zinc-400 mt-1">No Questions</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-center justify-center py-2">
+      <div className="relative w-40 h-40">
+        <svg viewBox="0 0 160 160" className="w-full h-full -rotate-90">
+          {/* Base ring (incorrect slice in red) — full circle, then we
+              overlay the correct slice on top using dasharray to mask. */}
+          <circle
+            cx="80" cy="80" r={R}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="26"
+            className="text-red-200 dark:text-red-900/40"
+          />
+          {/* Incorrect slice — explicit arc so the red is only where the
+              incorrect percentage is, not bleeding into the correct zone. */}
+          {incorrectPct > 0 && (
+            <circle
+              cx="80" cy="80" r={R}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="26"
+              strokeDasharray={`${(incorrectPct / 100) * C} ${C}`}
+              strokeDashoffset={-(correctPct / 100) * C}
+              className="text-red-500 dark:text-red-500"
+            />
+          )}
+          {/* Correct slice — emerald, starts at the top. */}
+          {correctPct > 0 && (
+            <circle
+              cx="80" cy="80" r={R}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="26"
+              strokeDasharray={`${correctArc} ${C}`}
+              className="text-emerald-500 dark:text-emerald-500"
+            />
+          )}
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <div className="text-2xl font-display font-bold text-zinc-900 dark:text-white">
+            {correct}<span className="text-zinc-400 dark:text-zinc-500 text-lg">/{total}</span>
+          </div>
+          <div className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mt-0.5">
+            Correct
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center gap-4 mt-3 text-xs">
+        <div className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" />
+          <span className="text-zinc-700 dark:text-zinc-300 font-mono">{correct} correct</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-sm bg-red-500" />
+          <span className="text-zinc-700 dark:text-zinc-300 font-mono">{incorrect} incorrect</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) => {
   const [classes, setClasses] = useState<ClassGroup[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
@@ -1229,46 +1321,24 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                 </p>
               </div>
 
-              <div className="grid grid-cols-3 gap-4 border-y border-zinc-200 dark:border-zinc-700 py-4">
-                              <div className="text-center">
-                                <span className="block text-xs font-mono text-zinc-400 uppercase">Final Score</span>
-                                <span className="text-2xl font-display font-bold text-zinc-900 dark:text-white">
-                                  {questions.reduce((acc, q) => (q && (extractedAnswers[q.id] || '').trim() === (q.correctAnswer || '').trim() ? acc + 1 : acc), 0)} / {questions.length || report.totalQuestions}
-                                </span>
-                              </div>
-                              <div className="text-center border-x border-zinc-200 dark:border-zinc-700">
-                                <span className="block text-xs font-mono text-zinc-400 uppercase">Placed Level</span>
-                                <span className="text-2xl font-display font-bold text-zinc-900 dark:text-white">L{report.recommendedLevel}.{report.recommendedSubLevel ?? 0}</span>
-                              </div>
-                              <div className="text-center">
-                                <span className="block text-xs font-mono text-zinc-400 uppercase">Status</span>
-                                {(() => {
-                                  const failed = report.failedLevels ?? [];
-                                  const passed = report.passedLevels ?? [];
-                                  const allFailed = failed.length > 0 && passed.length === 0;
-                                  const allPassed = passed.length > 0 && failed.length === 0;
-                                  const label = allFailed
-                                    ? 'Needs Support'
-                                    : allPassed
-                                    ? 'All Levels Passed'
-                                    : 'Partial — see breakdown below';
-                                  const color = allFailed
-                                    ? 'text-amber-600'
-                                    : allPassed
-                                    ? 'text-green-600'
-                                    : 'text-blue-600';
-                                  return (
-                                    <span className={`text-xl font-display font-bold ${color}`}>{label}</span>
-                                  );
-                                })()}
-                              </div>
-                            </div>
+              <div className="space-y-4">
+                              {/* Donut chart: correct vs incorrect questions. Centered,
+                                  visually prominent — this is now the primary outcome of
+                                  the diagnostic. SVG-only, no chart library. Counts come
+                                  from questionResults (per-question truth) when present,
+                                  falling back to derived accuracy from the submitted
+                                  answers. */}
+                              <DonutChart
+                                correct={report.questionResults?.filter((r) => r.isCorrect).length
+                                  ?? Math.max(0, (report.totalQuestions ?? 0) - (report.wrongCount ?? 0))}
+                                incorrect={report.questionResults?.filter((r) => !r.isCorrect).length
+                                  ?? (report.wrongCount ?? 0)}
+                              />
 
-                            {/* Diagnostic breakdown — passed/failed levels and skill gaps
-                                derived from the cross-skill graph. Replaces the old
-                                hardcoded "Verified & Certified" with something driven by
-                                the actual submitted answers. */}
-                            <div className="space-y-3">
+                              {/* Per-level breakdown — driven by passedLevels / failedLevels
+                                  populated by the backend. The "Placed Level" column was
+                                  intentionally removed: the diagnostic is analytics-first
+                                  and does not assign a level to the student. */}
                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 p-3">
                                   <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300 mb-1">
