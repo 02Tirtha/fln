@@ -381,10 +381,21 @@ export interface EvaluationReport {
   // correcting, since a correction is meaningless without knowing which
   // question is being corrected.
   questionResults?: { questionId: string; question?: string; correctAnswer?: string; submittedAnswer: string; isCorrect: boolean }[];
-  teacherReviewed?: boolean;
-  reviewedBy?: string; // reviewing teacher's email
-  reviewedAt?: string;
-}
+    teacherReviewed?: boolean;
+    reviewedBy?: string; // reviewing teacher's email
+    reviewedAt?: string;
+    // Per-level pass/fail breakdown for diagnostic reports — the diagnostic
+    // intentionally does NOT assign a placement level (we are heading toward
+    // analytics & reports, which read these instead). Populated wherever the
+    // grading code knows the per-question source_level.
+    passedLevels?: number[];
+    failedLevels?: number[];
+    // Skills the student is struggling with — conceptIds of the failed levels
+    // plus any direct prerequisites (so the panel can show "you have gaps in
+    // Number Sense: Counting 6-10"). Drives the status text in the diagnostic
+    // panel instead of the old hardcoded "Verified & Certified".
+    skillGaps?: { conceptId: string; level: number; levelTitle: string; strand: string }[];
+  }
 
 export interface Ticket {
   id: string;
