@@ -1,7 +1,9 @@
 import { apiFetch } from '../services/apiClient';
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Student, ClassGroup, EvaluationReport, User } from '../types';
 import { IcrTwoStageScan } from './IcrTwoStageScan';
+import { FileText } from 'lucide-react';
 
 interface IcrScannerProps {
   token: string;
@@ -64,6 +66,128 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
   const [originalOcrAnswers, setOriginalOcrAnswers] = useState<{ [questionId: string]: string }>({});
   const [questions, setQuestions] = useState<Array<{ id: string; question: string; correctAnswer: string; topic?: string }>>([]);
   const [report, setReport] = useState<EvaluationReport | null>(null);
+  const [reportId, setReportId] = useState('');
+  
+  const navigate = useNavigate();
+  const [generatingRemediation, setGeneratingRemediation] = useState(false);
+
+  const handleGenerateRemediation = async () => {
+    console.log('--- BUTTON CLICKED: handleGenerateRemediation ---');
+    if (!report) {
+      console.log('EXIT: No report');
+      alert("Cannot generate remediation: No report generated yet.");
+      return;
+    }
+    console.log('Report studentId:', report.studentId);
+    // Collect the string IDs of failed questions (preserve original ID format — do NOT strip to int)
+    let failedQuestionIds: string[] = [];
+
+    console.log('report.questionResults exists?', !!(report.questionResults && report.questionResults.length > 0));
+    console.log('questions exists?', !!(questions && questions.length > 0));
+
+    if (report.questionResults && report.questionResults.length > 0) {
+      failedQuestionIds = report.questionResults
+        .filter(qr => !qr.isCorrect)
+        .map(qr => String(qr.questionId));
+      console.log('Failed IDs from report.questionResults:', failedQuestionIds);
+    } else if (questions && questions.length > 0) {
+      questions.forEach((q, idx) => {
+        const qId = q.id || `Q${idx + 1}`;
+        const userVal = String(originalOcrAnswers[qId] || (report as any).extractedAnswers?.[qId] || '');
+        const isMatch = String(q.correctAnswer).trim().toLowerCase() === userVal.trim().toLowerCase();
+        if (!isMatch) failedQuestionIds.push(qId);
+      });
+      console.log('Failed IDs from questions/extractedAnswers:', failedQuestionIds);
+    }
+
+    failedQuestionIds = Array.from(new Set(failedQuestionIds));
+    console.log('Final Failed IDs length:', failedQuestionIds.length);
+
+    if (failedQuestionIds.length === 0) {
+      console.log('EXIT: No failed questions');
+      alert('No failed questions found to generate remediation for.');
+      return;
+    }
+
+    // Build a rich question map so the backend can find question text by ID
+    const questionMap = (questions || []).reduce((acc: Record<string, any>, q) => {
+      acc[q.id] = {
+        id: q.id,
+        question: q.question,
+        correctAnswer: q.correctAnswer,
+        topic: q.topic,
+      };
+      return acc;
+    }, {} as Record<string, any>);
+
+    // Also include questionResults data (submittedAnswer per question) if available
+    if (report.questionResults) {
+      report.questionResults.forEach(qr => {
+        if (questionMap[qr.questionId]) {
+          questionMap[qr.questionId].studentAnswer = qr.submittedAnswer;
+        }
+      });
+    }
+
+    // Resolve the best-known display name for this student so the backend can
+    // label the remediation sheet even if its own student lookup fails.
+    const studentName = students.find(s => s.id === report.studentId)?.name
+      || bulkResults?.find(r => r.studentId === report.studentId)?.studentName
+      || '';
+
+    const originalQuestionsArray = Object.values(questionMap);
+
+    try {
+      const examId = reportId || report.id || 'diagnostic';
+      console.log('--- STARTING REMEDIATION GENERATION ---');
+      setGeneratingRemediation(true);
+
+      console.log('Payload:', {
+        studentId: report.studentId,
+        examId,
+        failedQuestionIds,
+        questionsProvided: originalQuestionsArray.length,
+      });
+
+      // Start generation API request without awaiting it to block navigation
+      const generatePromise = apiFetch('/api/remediation/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          studentId: report.studentId,
+          studentName,
+          examId,
+          failedQuestionIds,          // string IDs
+          failedQuestionNums: failedQuestionIds,  // backward-compat alias
+          originalQuestions: originalQuestionsArray,
+        }),
+      });
+
+      console.log(`Executing navigate(/remediation/${report.studentId}/${examId})...`);
+      // Immediately navigate to the remediation page
+      navigate(`/remediation/${report.studentId}/${examId}`);
+      console.log('Navigate called!');
+
+      // Handle any errors that occur during the API request
+      generatePromise.then(async (res) => {
+        console.log('POST /generate returned status:', res.status);
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          console.error('Failed to start remediation generation:', errorData);
+        }
+      }).catch(err => {
+        console.error('Error generating remediation POST request:', err);
+      }).finally(() => {
+        setGeneratingRemediation(false);
+      });
+
+    } catch (error) {
+      console.error('CRITICAL: Error in handleGenerateRemediation:', error);
+      alert('Failed to generate remediation sheet. Please try again.');
+      setGeneratingRemediation(false);
+    }
+  };
+
   const answerInputRefs = React.useRef<Array<HTMLInputElement | null>>([]);
 
   // Issue #176: teacher-review/override screen for the bulk ICR results
@@ -567,7 +691,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
     if (percentage >= 80) sub = Math.min(5, sub + 1);
     else if (percentage < 60) sub = Math.max(0, sub - 1);
 
-    setReport({
+    const newReport = {
       id: 'rep_' + Date.now(),
       studentId: selectedStudentId && selectedStudentId !== 'ALL_STUDENTS' ? selectedStudentId : 'manual_entry',
       worksheetId: 'icr_manual_pass',
@@ -578,7 +702,8 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
       recommendedLevel: baseLevel,
       recommendedSubLevel: sub,
       timestamp: new Date().toISOString(),
-    });
+    };
+    setReport(newReport);
     setStep('result');
     setSuccess(`Verification confirmed — ${score}/${graded} correct (${percentage}%). Diagnostic placement: L${baseLevel}.${sub}.`);
   };
@@ -1298,6 +1423,30 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                         })}
                       </tbody>
                     </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Remediation Generation Card */}
+              {true && (
+                <div className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl p-6 shadow-sm mt-6">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div>
+                      <h4 className="text-lg font-display font-semibold text-zinc-900 dark:text-white flex items-center gap-2">
+                        <FileText className="h-5 w-5 text-indigo-500" />
+                        Remediation Sheet Generation
+                      </h4>
+                      <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
+                        Generate a personalized practice sheet based on the incorrectly answered questions.
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleGenerateRemediation}
+                      disabled={generatingRemediation}
+                      className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-mono text-sm font-bold px-4 py-2.5 rounded-lg transition-colors shadow-sm whitespace-nowrap shrink-0 cursor-pointer"
+                    >
+                      {generatingRemediation ? 'Generating...' : 'Generate Remediation Sheet'}
+                    </button>
                   </div>
                 </div>
               )}

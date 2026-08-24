@@ -491,6 +491,8 @@ interface DatabaseSchema {
   bestPractices: BestPractice[];
   diagnosticAnswerKeys: DiagnosticAnswerKey[];
   testHistory: TestHistoryEntry[];
+  remediationLedgers: any[];
+  examBlueprints: any[];
 }
 
 const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
@@ -512,6 +514,8 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
   bestPractices: 'best_practices',
   diagnosticAnswerKeys: 'diagnostic_answer_keys',
   testHistory: 'testHistory',
+  remediationLedgers: 'remediation_ledgers',
+  examBlueprints: 'exam_blueprints',
 };
 
 export class DBStore {
@@ -1380,6 +1384,72 @@ export class DBStore {
     return (this.data?.evaluationReports || []).find(r => r.id === id);
   }
 
+  async getExamBlueprints() {
+    if (this.mongoDb) return await this.mongoDb.collection('examBlueprints').find({}).toArray();
+    return this.data?.examBlueprints || [];
+  }
+
+  async getRemediationLedgers() {
+    if (this.mongoDb) return await this.mongoDb.collection('remediationLedgers').find({}).toArray();
+    return this.data?.remediationLedgers || [];
+  }
+
+  async getRemediationLedgerById(id: string) {
+    if (this.mongoDb) {
+      return await this.mongoDb.collection('remediationLedgers').findOne({ id });
+    }
+    return (this.data?.remediationLedgers || []).find((l: any) => l.id === id) || null;
+  }
+
+  async getRemediationLedgerByStudentAndExam(studentId: string, examId: string) {
+    if (this.mongoDb) {
+      return await this.mongoDb.collection('remediationLedgers').findOne({ studentId, examId });
+    }
+    return (this.data?.remediationLedgers || []).find((l: any) => l.studentId === studentId && l.examId === examId) || null;
+  }
+
+  async getRemediationLedgersByExam(examId: string) {
+    if (this.mongoDb) {
+      return await this.mongoDb.collection('remediationLedgers').find({ examId }).toArray();
+    }
+    return (this.data?.remediationLedgers || []).filter((l: any) => l.examId === examId);
+  }
+
+  async getRemediationLedgersByStudent(studentId: string) {
+    if (this.mongoDb) {
+      return await this.mongoDb.collection('remediationLedgers').find({ studentId }).toArray();
+    }
+    return (this.data?.remediationLedgers || []).filter((l: any) => l.studentId === studentId);
+  }
+  async addRemediationLedger(ledger: any) {
+    if (this.mongoDb) {
+      await this.mongoDb.collection('remediationLedgers').insertOne(ledger);
+    }
+    if (this.data) {
+      if (!this.data.remediationLedgers) {
+        this.data.remediationLedgers = [];
+      }
+      this.data.remediationLedgers.push(ledger);
+      await this.save();
+    }
+  }
+
+  async updateRemediationLedger(id: string, update: any) {
+    if (this.mongoDb) {
+      await this.mongoDb.collection('remediationLedgers').updateOne({ id }, { $set: update });
+    }
+    if (this.data) {
+      if (!this.data.remediationLedgers) {
+        this.data.remediationLedgers = [];
+      }
+      const idx = this.data.remediationLedgers.findIndex((l:any) => l.id === id);
+      if (idx !== -1) {
+        this.data.remediationLedgers[idx] = { ...this.data.remediationLedgers[idx], ...update };
+        await this.save();
+      }
+    }
+  }
+
   async updateEvaluationReport(id: string, updates: Partial<EvaluationReport>) {
     if (this.mongoDb) {
       await this.mongoDb.collection('evaluationReports').updateOne({ id }, { $set: updates });
@@ -1519,6 +1589,34 @@ export class DBStore {
     }
     const keys = (this.data?.diagnosticAnswerKeys || []).filter(k => k.studentId === studentId && (!jobId || k.jobId === jobId));
     return keys[keys.length - 1] || null;
+  }
+
+  async findQuestionInAnyDiagnosticAnswerKey(questionId: string): Promise<any | null> {
+    const baseId = questionId.replace(/_b\d+$/, '');
+    
+    if (this.mongoDb) {
+      const collection = this.mongoDb.collection<DiagnosticAnswerKey>('diagnostic_answer_keys');
+      // Try exact match first
+      let key = await collection.findOne({ 'questions.question_id': questionId });
+      if (key && key.questions) {
+        const q = key.questions.find((q: any) => q.question_id === questionId);
+        if (q) return q;
+      }
+      // Try base match
+      key = await collection.findOne({ 'questions.question_id': baseId });
+      if (key && key.questions) {
+        const q = key.questions.find((q: any) => q.question_id === baseId);
+        if (q) return q;
+      }
+    }
+    const allKeys = this.data?.diagnosticAnswerKeys || [];
+    for (const key of allKeys) {
+      let q = (key.questions || []).find((q: any) => q.question_id === questionId);
+      if (q) return q;
+      q = (key.questions || []).find((q: any) => q.question_id === baseId);
+      if (q) return q;
+    }
+    return null;
   }
 
   // --- Preloaded Question Pool (Mathematical Curriculum Questions Classes 2-4) ---
@@ -3390,7 +3488,9 @@ export class DBStore {
       interventions,
       bestPractices,
       diagnosticAnswerKeys: [],
-      testHistory: []
+      testHistory: [],
+      remediationLedgers: [],
+      examBlueprints: []
     };
   }
 }

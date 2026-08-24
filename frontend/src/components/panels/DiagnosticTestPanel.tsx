@@ -23,6 +23,8 @@ export const DiagnosticTestPanel: React.FC<DiagnosticTestPanelProps> = ({ studen
   const pending = students.filter(s => s.levelHistory.length === 0);
   const completed = students.filter(s => s.levelHistory.length > 0);
 
+
+
   // CSV upload
   const [showCsvImport, setShowCsvImport] = useState(false);
   const [csvImporting, setCsvImporting] = useState(false);
@@ -120,6 +122,8 @@ export const DiagnosticTestPanel: React.FC<DiagnosticTestPanelProps> = ({ studen
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm">
         <BulkDiagnosticWorkflow user={currentUser} token={token} userRole={currentUser.role} />
       </div>
+
+
 
       {/* Supplementary status lists */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

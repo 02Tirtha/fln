@@ -37,6 +37,8 @@ import { registerWorksheetRoutes } from './routes/worksheets';
 import { registerEvaluationRoutes } from './routes/evaluation';
 import { registerAnalyticsRoutes } from './routes/analytics';
 import { registerDiagnosticBulkRoutes } from './routes/diagnosticBulk';
+import remediationRoutes from './routes/remediation.routes';
+import blueprintRoutes from './routes/blueprint.routes';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
 import bcrypt from 'bcrypt';
@@ -95,6 +97,18 @@ async function startServer() {
   console.log(`[competencyPrerequisites] prerequisite graph OK — ${prereqReport.totalConceptsWithPrerequisites} concepts, ${prereqReport.totalEdges} edges, 0 unknown ids, 0 cycles`);
 
   const app = express();
+  
+  // Allow direct requests from Vite frontend dev server
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', 'http://localhost:5173');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
   app.use(express.json({ limit: '100mb' }));
   app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
@@ -127,6 +141,9 @@ registerStatsRoutes(app);
   registerWorksheetRoutes(app);
   registerAnalyticsRoutes(app);
   registerDiagnosticBulkRoutes(app);
+  
+  app.use('/api/remediation', remediationRoutes);
+  app.use('/api/blueprint', blueprintRoutes);
 
   // --- Intervention Tracking & Best Practices Repository ---
 

@@ -51,12 +51,12 @@ function answersMatch(submitted: string, correct: string): boolean {
 // Helper to get Gemini client or null if key is missing
 let aiClient: GoogleGenAI | null = null;
 
-function getAiClient(): GoogleGenAI {
+export function getAiClient(): GoogleGenAI | null {
   if (!aiClient) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      // In development or if key not configured, we throw a clear error or fallback gracefully
-      throw new Error("NO_API_KEY: GEMINI_API_KEY environment variable is not configured in the Secrets panel.");
+      console.warn("NO_API_KEY: GEMINI_API_KEY environment variable is not configured. Falling back to local generative engines.");
+      return null;
     }
     aiClient = new GoogleGenAI({
       apiKey,
@@ -73,7 +73,7 @@ function getAiClient(): GoogleGenAI {
 /**
  * Call Gemini API with retries and exponential backoff, falling back to other models if needed.
  */
-async function generateContentWithRetry(params: {
+export async function generateContentWithRetry(params: {
   contents: any;
   config?: any;
   model?: string;
