@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
-import { dbStore, EvaluationReport, Student, AnswerSubmission, UserRole, CYCLE_NAMES } from '../db';
+import { dbStore, EvaluationReport, Student, AnswerSubmission, UserRole, CYCLE_NAMES, dedupeQuestionsById } from '../db';
 import { getAuthUser, canAccessStudent } from '../auth';
 import { evaluateAIWorksheet } from '../gemini';
 import { PYTHON_BIN, AI_SERVICES_DIR } from '../config';
@@ -380,9 +380,15 @@ export function registerEvaluationRoutes(app: express.Express) {
         (rawOcrText.match(/\d+/g) || []);
 
       for (let sIdx = 0; sIdx < evalStudents.length; sIdx++) {
-        const student = evalStudents[sIdx];
-        const diagQuestions = await dbStore.getStudentAssignedQuestions(student.id, classNumber);
-        const totalQ = (diagQuestions && diagQuestions.length > 0) ? diagQuestions.length : 10;
+              const student = evalStudents[sIdx];
+              // De-dupe by question_id before iterating: the cached paper may
+              // contain duplicate rows for the same question (overlapping sources
+              // during paper generation), which would otherwise inflate the total
+              // question count and silently double-count correct/incorrect on the
+              // donut. Duplicate answer values get comma-joined into one row.
+              const rawDiagQuestions = await dbStore.getStudentAssignedQuestions(student.id, classNumber);
+              const diagQuestions = dedupeQuestionsById(rawDiagQuestions);
+              const totalQ = (diagQuestions && diagQuestions.length > 0) ? diagQuestions.length : 10;
         const extractedAnswers: Record<string, string> = {};
         const extractedCorrectness: Record<string, boolean> = {};
         let score = 0;

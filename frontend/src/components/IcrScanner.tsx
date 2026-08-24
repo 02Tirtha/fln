@@ -43,11 +43,18 @@ interface BulkResultItem {
 
 // Lightweight SVG donut chart — correct vs incorrect counts. No external
 // chart library; the math is just arc-length-to-percentage on two slices.
-// Hides itself gracefully when there are zero questions.
-const DonutChart: React.FC<{ correct: number; incorrect: number }> = ({ correct, incorrect }) => {
-  const total = correct + incorrect;
-  const correctPct = total > 0 ? (correct / total) * 100 : 0;
-  const incorrectPct = total > 0 ? (incorrect / total) * 100 : 0;
+// `correct` and `incorrect` may be null (e.g. when the report predates
+// per-question truth and we can't reconstruct it) — in that case we show a
+// clear "no data" placeholder instead of silently rendering a wrong chart.
+const DonutChart: React.FC<{
+  correct: number | null;
+  incorrect: number | null;
+  totalQuestions?: number;
+}> = ({ correct, incorrect, totalQuestions }) => {
+  const hasData = typeof correct === 'number' && typeof incorrect === 'number';
+  const total = hasData ? (correct as number) + (incorrect as number) : 0;
+  const correctPct = hasData && total > 0 ? ((correct as number) / total) * 100 : 0;
+  const incorrectPct = hasData && total > 0 ? ((incorrect as number) / total) * 100 : 0;
 
   // Donut geometry: outer radius 70, inner radius 44, stroke-based arcs.
   // Use stroke-dasharray on a single circle to draw the two slices; the
@@ -59,13 +66,17 @@ const DonutChart: React.FC<{ correct: number; incorrect: number }> = ({ correct,
   // starts at 12 o'clock.
   const correctArc = (correctPct / 100) * C;
 
-  if (total === 0) {
+  if (!hasData || total === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-4">
         <div className="w-40 h-40 rounded-full border-4 border-zinc-200 dark:border-zinc-700 flex items-center justify-center">
           <div className="text-center">
-            <div className="text-2xl font-display font-bold text-zinc-400">—</div>
-            <div className="text-[10px] font-mono uppercase tracking-wider text-zinc-400 mt-1">No Questions</div>
+            <div className="text-2xl font-display font-bold text-zinc-400">
+              {totalQuestions ?? '—'}
+            </div>
+            <div className="text-[10px] font-mono uppercase tracking-wider text-zinc-400 mt-1">
+              Questions · No per-question data
+            </div>
           </div>
         </div>
       </div>
@@ -1329,11 +1340,12 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                                   falling back to derived accuracy from the submitted
                                   answers. */}
                               <DonutChart
-                                correct={report.questionResults?.filter((r) => r.isCorrect).length
-                                  ?? Math.max(0, (report.totalQuestions ?? 0) - (report.wrongCount ?? 0))}
-                                incorrect={report.questionResults?.filter((r) => !r.isCorrect).length
-                                  ?? (report.wrongCount ?? 0)}
-                              />
+                                                                correct={report.questionResults?.filter((r) => r.isCorrect).length
+                                                                  ?? null}
+                                                                incorrect={report.questionResults?.filter((r) => !r.isCorrect).length
+                                                                  ?? null}
+                                                                totalQuestions={report.totalQuestions}
+                                                              />
 
                               {/* Per-level breakdown — driven by passedLevels / failedLevels
                                   populated by the backend. The "Placed Level" column was
