@@ -345,10 +345,26 @@ export interface LevelSkillMapping {
        | 'Class 1' | 'Class 2' | 'Class 3' | 'Class 4';
   primarySkills: string[];     // SK IDs
   supportingSkills: string[];  // SK IDs
-  prerequisites: string[];     // levelIds (conservative — only set when required_for_procedure)
-  relationshipType: RelationshipType;
+  prerequisites: Prerequisite[];
   questionTypes: string[];
   evidence: string[];
+}
+
+/**
+ * Issue #277: a level's prerequisites can genuinely differ in strength from
+ * each other (e.g. L53 depends on L36 more loosely than it depends on L37) —
+ * the relationship type lives on the edge, not on the whole level, so mixed
+ * strength can actually be expressed. `rationale` gives somewhere to record
+ * *why* an edge is typed the way it is; per the issue, an edge with no
+ * stated rationale shouldn't be typed as a hard prerequisite
+ * (`required_for_procedure`) — the diagnostic paper's apex-selection
+ * inference only holds across genuinely hard edges, so an unjustified one
+ * silently over-claims what testing the apex level actually proves.
+ */
+export interface Prerequisite {
+  levelId: string;
+  relationshipType: RelationshipType;
+  rationale?: string;
 }
 
 // Cumulative level counts per S-notation stage (S1..S7): 7, 10, 10, 15, 19,
@@ -394,8 +410,26 @@ function qtL(l: number): string[] {
 // (Earlier hand-written L1-L27 mapping has been replaced by spec §4. The shape
 // and the dashboard button location are preserved.)
 
+// Issue #277: every existing call site below sets `prerequisites` as a plain
+// levelId array plus one shared `relationshipType` — because until now that
+// was the only way to say it. That shape stays valid as a shorthand (most
+// levels genuinely do have uniform-strength prerequisites and there's no
+// reason to force verbosity where it isn't needed) but is normalized here
+// into real per-edge Prerequisite objects, so the *data* is per-edge even
+// where the *authoring* isn't. A call site that does need mixed strength
+// (e.g. applying #278's corrections) can pass `Prerequisite[]` directly
+// instead, per-edge, bypassing the shorthand for just that level.
+function normalizePrerequisites(
+  prereqs: (string | Prerequisite)[] | undefined,
+  defaultType: RelationshipType
+): Prerequisite[] {
+  return (prereqs ?? []).map(p =>
+    typeof p === 'string' ? { levelId: p, relationshipType: defaultType } : p
+  );
+}
+
 function makeLevel(n: number, capability: string, primary: string[], supporting: string[], opts: {
-  prerequisites?: string[];
+  prerequisites?: (string | Prerequisite)[];
   relationshipType?: RelationshipType;
   questionTypes?: string[];
   evidence?: string[];
@@ -408,8 +442,7 @@ function makeLevel(n: number, capability: string, primary: string[], supporting:
     stage: stageFor(n),
     primarySkills: primary,
     supportingSkills: supporting,
-    prerequisites: opts.prerequisites ?? [],
-    relationshipType: opts.relationshipType ?? 'often_precedes',
+    prerequisites: normalizePrerequisites(opts.prerequisites, opts.relationshipType ?? 'often_precedes'),
     questionTypes: opts.questionTypes ?? qtL(n),
     evidence: opts.evidence ?? [],
   };
@@ -659,8 +692,8 @@ const LEVEL_BY_SCODE: Record<string, LevelSkillMapping> = Object.fromEntries(LEV
       }
     }
     for (const pre of lvl.prerequisites) {
-      if (!LEVEL_BY_ID[pre]) {
-        throw new Error(`Level ${lvl.levelId} references unknown prereq level ${pre}`);
+      if (!LEVEL_BY_ID[pre.levelId]) {
+        throw new Error(`Level ${lvl.levelId} references unknown prereq level ${pre.levelId}`);
       }
     }
   }
@@ -713,7 +746,7 @@ export function getPrerequisiteEdges(): Array<{ from: string; to: string; type: 
   const edges: Array<{ from: string; to: string; type: RelationshipType }> = [];
   for (const lvl of LEVEL_SKILL_MAP) {
     for (const pre of lvl.prerequisites) {
-      edges.push({ from: pre, to: lvl.levelId, type: lvl.relationshipType });
+      edges.push({ from: pre.levelId, to: lvl.levelId, type: pre.relationshipType });
     }
   }
   return edges;
