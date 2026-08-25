@@ -149,6 +149,11 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
   const [students, setStudents] = useState<Student[]>([]);
   const [selectedClassId, setSelectedClassId] = useState('');
   const [selectedStudentId, setSelectedStudentId] = useState('');
+  // Issue #234: the real question count for the selected student/class's
+  // paper, resolved ahead of the scan so the cloud OCR call can tell the
+  // model exactly how many rows to expect. null until resolved (or if no
+  // class/student is selected yet, or no answer key is found).
+  const [expectedQuestionCount, setExpectedQuestionCount] = useState<number | null>(null);
 
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [bulkResults, setBulkResults] = useState<BulkResultItem[] | null>(null);
@@ -313,6 +318,64 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
     fetchData();
   }, [token]);
 
+  // Issue #234: resolve the real question count for whatever class/student
+  // is currently selected, ahead of running OCR, so the scan call can tell
+  // the model exactly how many rows to expect and a mismatch can be flagged
+  // explicitly. Mirrors the same per-student → per-class fallback used in
+  // handleTwoStageResult once OCR completes; kept separate since this one
+  // needs to run on selection change, not on scan completion.
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedClassId) {
+      setExpectedQuestionCount(null);
+      return;
+    }
+    (async () => {
+      try {
+        const cls = classes.find(c => c.id === selectedClassId);
+        const targetStudentId = selectedStudentId && selectedStudentId !== 'ALL_STUDENTS'
+          ? selectedStudentId
+          : students.find(s => cls && (s.classGroup === cls.className || (s.classGroup || '').includes(cls.className)))?.id;
+
+        if (targetStudentId) {
+          const res = await apiFetch(
+            `/api/diagnostic/student/${encodeURIComponent(targetStudentId)}/answer-key`,
+            { headers: { 'Authorization': `Bearer ${token}` } }
+          );
+          if (!cancelled && res.ok) {
+            const ak = (await res.json())?.answerKey || [];
+            if (Array.isArray(ak) && ak.length > 0) {
+              setExpectedQuestionCount(ak.length);
+              return;
+            }
+          }
+        }
+        // Fallback: class-level answer key, same convention as the
+        // post-scan resolver.
+        const classNumberFromName = cls?.className ? parseInt(cls.className.match(/\d+/)?.[0] || '', 10) : 0;
+        if (!cancelled && Number.isFinite(classNumberFromName) && classNumberFromName > 0) {
+          const res = await apiFetch(
+            `/api/diagnostic/class/${encodeURIComponent(String(classNumberFromName))}/answer-key`,
+            { headers: { 'Authorization': `Bearer ${token}` } }
+          );
+          if (!cancelled && res.ok) {
+            const ak = (await res.json())?.answerKey || [];
+            if (Array.isArray(ak) && ak.length > 0) {
+              setExpectedQuestionCount(ak.length);
+              return;
+            }
+          }
+        }
+        if (!cancelled) setExpectedQuestionCount(null);
+      } catch {
+        // Non-fatal — the scan just proceeds without a known expected
+        // count, same as before this fix existed.
+        if (!cancelled) setExpectedQuestionCount(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedClassId, selectedStudentId, classes, students, token]);
+
   const selectedStudent = students.find(s => s.id === selectedStudentId);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -429,6 +492,8 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
     debug?: { image_size?: [number, number]; blue_pixel_ratio?: number };
     processingTimeMs?: number;
     ocrAnalysis?: { ocrEngine?: string };
+    countMismatch?: boolean | null;
+    expectedCount?: number | null;
   }) => {
     console.log('[OCR Result] received from two-stage scan:', data);
     if (!data.success || !data.answers) {
@@ -522,6 +587,18 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
     const matched = ocrValues.filter(v => v && v.trim()).length;
     const total = loadedQuestions.length;
     const pct = Math.round((matched / Math.max(1, total)) * 100);
+    // Issue #234: don't silently pad/truncate a row-count mismatch — flag
+    // it plainly so a teacher knows to check the mapping row-by-row before
+    // trusting/submitting it, rather than assuming a positional match held.
+    // Prefer the backend's countMismatch (it knows expectedCount even if
+    // this resolver's answer key differs slightly); fall back to comparing
+    // locally when the backend didn't have an expected count to check against.
+    const countMismatched = data.countMismatch != null
+      ? data.countMismatch
+      : ocrValues.length !== loadedQuestions.length;
+    const mismatchNote = countMismatched
+      ? ` ⚠️ COUNT MISMATCH: the scan returned ${ocrValues.length} answer(s) but this paper has ${loadedQuestions.length} question(s) — check every row against the question text below before submitting, positions past the mismatch may be shifted.`
+      : '';
     // Use whichever engine/provider actually produced this result (set by
     // IcrTwoStageScan — 'Ollama Gemma 4' for the cloud OCR path.
     // No local OCR model is supported anymore; the local PaddleOCR/EasyOCR
@@ -566,13 +643,22 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
         'Shapes': firstRes.percentage >= 60 ? 'Strong' : 'Needs Practice',
         'Operations': firstRes.percentage >= 50 ? 'Strong' : 'Needs Practice',
       },
-      narrative: `Two-stage scan complete. ${sourceLabel}. Score: ${firstRes.score}/${firstRes.totalQuestions} (${firstRes.percentage}%).`,
+      narrative: `Two-stage scan complete. ${sourceLabel}. Score: ${firstRes.score}/${firstRes.totalQuestions} (${firstRes.percentage}%).${mismatchNote}`,
       recommendedLevel: firstRes.newLevel,
       recommendedSubLevel: firstRes.subLevel,
       timestamp: new Date().toISOString(),
     });
     setStep('verify');
-    setSuccess(`Two-stage scan complete — ${sourceLabel} (${firstRes.score}/${firstRes.totalQuestions} matched, ${firstRes.percentage}%).`);
+    if (countMismatched) {
+      // Use the error banner (not success) for a mismatch — it needs the
+      // teacher's attention before they trust the row mapping below, not a
+      // routine confirmation.
+      setError(`⚠️ Scan returned ${ocrValues.length} answer(s) but this paper has ${loadedQuestions.length} question(s) — a row was likely skipped or merged. Check every answer against its question text before submitting.`);
+      setSuccess('');
+    } else {
+      setError('');
+      setSuccess(`Two-stage scan complete — ${sourceLabel} (${firstRes.score}/${firstRes.totalQuestions} matched, ${firstRes.percentage}%).`);
+    }
   };
 
   const handleAnswerChange = (qId: string, value: string) => {
@@ -802,6 +888,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
               token={token}
               uploadedFile={uploadedFile}
               onOcrSuccess={handleTwoStageResult}
+              expectedCount={expectedQuestionCount}
             />
           </div>
         </div>
