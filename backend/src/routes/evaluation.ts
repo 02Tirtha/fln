@@ -10,573 +10,9 @@ import { CURRICULUM_MAPPING } from '../config/curriculumMap';
 import { directPrerequisites, describeConcept } from '../competencyPrerequisites';
 
 export function registerEvaluationRoutes(app: express.Express) {
-  // ICR Blue-Pen Filter Stage (standalone — runs only the cv2 blue-pen
-  // isolation, no OCR). Returns the filtered image as a data URL so the
-  // frontend can preview the black-on-white filtered result before the
-  // ~3-second OCR step. This makes the blue-pen filter visible to the
-  // user instead of happening invisibly inside a single round-trip.
-  app.post('/api/icr/filter', async (req, res) => {
-    const user = getAuthUser(req);
-    if (!user) return res.status(401).json({ error: 'Unauthorized' });
-
-    const { imageDataUrl } = req.body || {};
-    if (!imageDataUrl || !imageDataUrl.startsWith('data:')) {
-      return res.status(400).json({ error: 'imageDataUrl is required and must be a data URL.' });
-    }
-
-    // Accept raster images (PNG/JPEG/WebP) AND PDFs. The blue-ink filter
-    // operates on pixels, so PDFs are rasterized to PNG page 1 first.
-    // The image regex has 2 capture groups (mime subtype + b64); the PDF
-    // regex has 1 (just b64) — keep that asymmetry in mind below.
-    const imgMatch = /^data:image\/([a-zA-Z0-9+.-]+);base64,(.+)$/.exec(imageDataUrl);
-    const pdfMatch = /^data:application\/pdf;base64,(.+)$/.exec(imageDataUrl);
-    if (!imgMatch && !pdfMatch) {
-      return res.status(400).json({ error: 'imageDataUrl must be base64-encoded PNG/JPEG/WebP image or PDF.' });
-    }
-    let ext: string;
-    let b64: string;
-    const isPdf = !!pdfMatch;
-    if (isPdf) {
-      ext = 'pdf';
-      b64 = pdfMatch![1];
-    } else {
-      ext = imgMatch![1] === 'jpeg' ? 'jpg' : imgMatch![1];
-      b64 = imgMatch![2];
-    }
-    const buf = Buffer.from(b64, 'base64');
-    if (buf.length === 0) {
-      return res.status(400).json({ error: 'imageDataUrl decoded to zero bytes.' });
-    }
-    // Cap at 8 MB to match the evaluate-pdf endpoint's existing limit.
-    if (buf.length > 8 * 1024 * 1024) {
-      return res.status(413).json({ error: 'File too large (max 8 MB).' });
-    }
-
-    const tempDir = path.join(AI_SERVICES_DIR, 'scratch');
-    fs.mkdirSync(tempDir, { recursive: true });
-    const stamp = Date.now();
-    const inputPath = path.join(tempDir, `filter_${stamp}_in.${ext}`);
-    const cleanupPaths: string[] = [inputPath];
-
-    try {
-      fs.writeFileSync(inputPath, buf);
-      const { execFileSync } = await import('child_process');
-      const filterScript = path.join(AI_SERVICES_DIR, 'scripts', 'bluepen_filter.py');
-
-      // Runs the blue-ink filter on a single already-rasterized image
-      // and returns {imageDataUrl, bluePixelRatio, bluePixelCount, imageSize}.
-      const filterOneImage = (imgPath: string, outPath: string) => {
-        cleanupPaths.push(outPath);
-        const stdout = execFileSync(
-          PYTHON_BIN,
-          [filterScript, imgPath, outPath],
-          { cwd: AI_SERVICES_DIR, timeout: 30000, encoding: 'utf8' }
-        );
-        const jsonLine = stdout.trim().split('\n').filter(Boolean).pop() || '{}';
-        const parsed = JSON.parse(jsonLine);
-        if (!parsed.success) throw new Error(parsed.error || 'Filter failed.');
-        const filteredBuf = fs.readFileSync(outPath);
-        return {
-          imageDataUrl: `data:image/jpeg;base64,${filteredBuf.toString('base64')}`,
-          bluePixelRatio: parsed.blue_pixel_ratio,
-          bluePixelCount: parsed.blue_pixel_count,
-          imageSize: parsed.image_size,
-        };
-      };
-
-      if (isPdf) {
-        // Rasterize EVERY page (not just page 1) so multi-page answer
-        // sheets — e.g. one PDF holding several students' scans — get
-        // filtered and OCR'd in full, not silently truncated.
-        const rasterScript = path.join(AI_SERVICES_DIR, 'scripts', 'pdf_rasterize.py');
-        const rasterDir = path.join(tempDir, `filter_${stamp}_pages`);
-        let pdfStdout: string;
-        try {
-          pdfStdout = execFileSync(
-            PYTHON_BIN,
-            [rasterScript, inputPath, rasterDir, '--all-pages'],
-            { cwd: AI_SERVICES_DIR, timeout: 60000, encoding: 'utf8' }
-          );
-        } catch (e: any) {
-          return res.status(500).json({ success: false, error: `PDF rasterization failed: ${e?.message || e}` });
-        }
-        const pdfLine = pdfStdout.trim().split('\n').filter(Boolean).pop() || '{}';
-        let pdfResult: any = {};
-        try {
-          pdfResult = JSON.parse(pdfLine);
-        } catch {
-          return res.status(500).json({ success: false, error: `PDF rasterizer returned non-JSON: ${pdfStdout.slice(0, 300)}` });
-        }
-        if (!pdfResult.success) {
-          return res.status(500).json({ success: false, error: pdfResult.error || 'PDF rasterization failed.' });
-        }
-        const rasterPages: Array<{ page_number: number; output_path: string }> = pdfResult.pages || [];
-        cleanupPaths.push(rasterDir);
-        const pages = rasterPages
-          .sort((a, b) => a.page_number - b.page_number)
-          .map((p) => {
-            const outPath = path.join(tempDir, `filter_${stamp}_out_p${p.page_number}.jpg`);
-            const filtered = filterOneImage(p.output_path, outPath);
-            cleanupPaths.push(p.output_path);
-            return { pageNumber: p.page_number, ...filtered };
-          });
-        return res.json({
-          success: true,
-          sourceType: 'pdf',
-          pageCount: pages.length,
-          pages,
-          // Legacy fields (page 1) so any client not yet reading `pages[]` still works.
-          imageDataUrl: pages[0]?.imageDataUrl,
-          bluePixelRatio: pages[0]?.bluePixelRatio,
-          bluePixelCount: pages[0]?.bluePixelCount,
-          imageSize: pages[0]?.imageSize,
-        });
-      }
-
-      // Non-PDF (single image upload) — unchanged single-page behavior.
-      const outputPath = path.join(tempDir, `filter_${stamp}_out.jpg`);
-      const filtered = filterOneImage(inputPath, outputPath);
-      return res.json({
-        success: true,
-        sourceType: 'image',
-        ...filtered,
-      });
-    } catch (err: any) {
-      const msg = err?.message || String(err);
-      console.error('[icr-filter] failed:', msg);
-      return res.status(500).json({ success: false, error: msg });
-    } finally {
-      for (const p of cleanupPaths) {
-        try {
-          if (fs.existsSync(p) && fs.statSync(p).isDirectory()) fs.rmSync(p, { recursive: true, force: true });
-          else fs.unlinkSync(p);
-        } catch { /* noop */ }
-      }
-    }
-  });
-
-  // ICR Answer Sheet Scanner (Single or Bulk Class Evaluation for PDF & Image uploads with EasyOCR)
-  app.post('/api/icr/evaluate-pdf', async (req, res) => {
-    const user = getAuthUser(req);
-    if (!user) return res.status(401).json({ error: 'Unauthorized' });
-
-    const { classId, studentId, pdfBase64, fileBase64, filename, pages } = req.body;
-    // The frontend's two-stage scan flow (IcrTwoStageScan) sends a `pages`
-    // array once the blue-ink filter step has run — one entry per filtered
-    // page, so a multi-page scan (e.g. several students' sheets in one
-    // PDF) runs OCR on every page, not just the first.
-    const pageList: Array<{ pageNumber?: number; imageDataUrl: string }> =
-      Array.isArray(pages) && pages.length > 0 ? pages : [];
-    const inputBase64 = fileBase64 || pdfBase64 || pageList[0]?.imageDataUrl;
-    if (!inputBase64) {
-      return res.status(400).json({ error: 'fileBase64, pdfBase64, or pages is required.' });
-    }
-
-    // Fast path: no classId → single- or multi-image OCR. Runs EasyOCR
-    // once per page and returns one flat answer list keyed by position
-    // (q_1, q_2, ... continuing across pages). No student/class lookup,
-    // no bulk evaluation. Used by the new two-stage ICR flow (frontend's
-    // IcrTwoStageScan component) which doesn't have a class context at
-    // scan time.
-    if (!classId) {
-      const tempDir = path.join(AI_SERVICES_DIR, 'scratch');
-      fs.mkdirSync(tempDir, { recursive: true });
-      const ext = path.extname(filename || 'worksheet.jpg') || '.jpg';
-      const scriptPath = path.join(AI_SERVICES_DIR, 'scripts', 'ocr.py');
-
-      // Run EasyOCR on a single already-decoded image, return its raw
-      // per-item detections (does not itself renumber into q_N — the
-      // caller does that once across all pages).
-      const runOcrOnPage = async (dataUrl: string, tag: string) => {
-        const tempFilePath = path.join(tempDir, `scan_noclass_${Date.now()}_${tag}${ext}`);
-        const cleanBase64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
-        fs.writeFileSync(tempFilePath, Buffer.from(cleanBase64, 'base64'));
-        try {
-          const { execFileSync } = await import('child_process');
-          const output = execFileSync(PYTHON_BIN, [scriptPath, tempFilePath, 'SCAN', '1'], {
-            cwd: AI_SERVICES_DIR,
-            env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
-            timeout: 60000,
-            maxBuffer: 10 * 1024 * 1024,
-          });
-          const ocrResult = JSON.parse(output.toString());
-          const tokens = ocrResult?.evaluation?.extractedTokens || ocrResult?.extracted_tokens || [];
-          const rawText = ocrResult?.evaluation?.rawOcrText || ocrResult?.raw_text || '';
-          const detectedNumbers = ocrResult?.evaluation?.detectedNumbers || ocrResult?.digits_found || [];
-          const sourceItems = detectedNumbers.length > 0 ? detectedNumbers : tokens.map((t: any) => t.text);
-          return {
-            sourceItems,
-            tokens,
-            rawText,
-            processingTimeMs: ocrResult?.processingTimeMs || 0,
-            ocrEngine: ocrResult?.evaluation?.ocrEngine || 'EasyOCR (PyTorch Fast Reader)',
-          };
-        } finally {
-          try { fs.unlinkSync(tempFilePath); } catch { /* noop */ }
-        }
-      };
-
-      try {
-        const pagesToRun = pageList.length > 0 ? pageList : [{ pageNumber: 1, imageDataUrl: inputBase64 }];
-        const answers: Record<string, { value: string; confidence: number; blue_pixels: number }> = {};
-        let qIndex = 1;
-        let combinedTokens: any[] = [];
-        let combinedRawText = '';
-        let totalMs = 0;
-        let lastEngine = 'EasyOCR (PyTorch Fast Reader)';
-        let totalEvaluated = 0;
-        for (let pi = 0; pi < pagesToRun.length; pi++) {
-          const page = pagesToRun[pi];
-          const result = await runOcrOnPage(page.imageDataUrl, `p${page.pageNumber ?? pi + 1}`);
-          result.sourceItems.forEach((item: any) => {
-            const value = typeof item === 'string' ? item : (item.text || '');
-            const conf = typeof item === 'object' && item?.confidence != null ? item.confidence : 0.5;
-            answers[`q_${qIndex}`] = { value: String(value), confidence: Number(conf) || 0.5, blue_pixels: 0 };
-            qIndex += 1;
-          });
-          combinedTokens = combinedTokens.concat(result.tokens);
-          combinedRawText += (combinedRawText ? ' | ' : '') + `[page ${page.pageNumber ?? pi + 1}] ${result.rawText}`;
-          totalMs += result.processingTimeMs;
-          lastEngine = result.ocrEngine;
-          totalEvaluated += result.sourceItems.length;
-        }
-        return res.json({
-          success: true,
-          isSingleImage: pagesToRun.length === 1,
-          pageCount: pagesToRun.length,
-          answers,
-          ocrAnalysis: {
-            rawOcrText: combinedRawText,
-            extractedTokens: combinedTokens,
-            processingTimeMs: totalMs,
-            ocrEngine: lastEngine,
-          },
-          totalEvaluated,
-        });
-      } catch (e: any) {
-        const raw = e?.message || String(e);
-        // Make the error message useful for the frontend's common-cause hints.
-        // ETIMEDOUT from Node's execFileSync usually means the Python
-        // subprocess was killed at the timeout boundary, not a network blip.
-        const friendly = raw.includes('ETIMEDOUT')
-          ? 'OCR took too long (>60s) and was timed out. The image may be very large or the EasyOCR model is still warming up. Try again.'
-          : raw;
-        return res.status(500).json({ success: false, error: `EasyOCR failed: ${friendly}` });
-      }
-    }
-
-    try {
-      const classes = await dbStore.getClasses();
-      let targetClass = classes.find(c => c.id === classId || c.className.toLowerCase() === String(classId).toLowerCase());
-      if (!targetClass) {
-        const classMatch = String(classId).match(/\d+/);
-        const num = classMatch ? classMatch[0] : '1';
-        targetClass = {
-          id: classId,
-          className: `Class ${num}`,
-          section: 'A',
-          schoolId: '',
-          teacherId: ''
-        };
-      }
-
-      const allStudents = await dbStore.getStudents();
-      let classStudents = allStudents.filter(
-        s => (s.classGroup || '').toLowerCase().includes(targetClass!.className.toLowerCase()) ||
-          targetClass!.className.toLowerCase().includes((s.classGroup || '').toLowerCase())
-      );
-
-      if (classStudents.length === 0) {
-        const classMatch = targetClass.className.match(/\d+/);
-        const classNum = classMatch ? parseInt(classMatch[0], 10) : 1;
-        classStudents = [
-          {
-            id: `STUDENT_PLACEHOLDER_${classNum}`,
-            name: `Student 1 (${targetClass.className})`,
-            age: 7,
-            classGroup: targetClass.className,
-            section: targetClass.section || 'A',
-            schoolId: 'gps-mt-001',
-            currentLevel: classNum * 10,
-            targetLevel: 93,
-            aadharMasked: 'XXXX-XXXX-1234',
-            levelHistory: []
-          }
-        ];
-      }
-
-      // Save PDF or Image file temporarily for Python EasyOCR evaluation
-      const tempDir = path.join(AI_SERVICES_DIR, 'scratch');
-      fs.mkdirSync(tempDir, { recursive: true });
-      const ext = path.extname(filename || 'worksheet.pdf') || '.pdf';
-      const tempFilePath = path.join(tempDir, `scan_${Date.now()}_file${ext}`);
-
-      const cleanBase64 = inputBase64.includes(',') ? inputBase64.split(',')[1] : inputBase64;
-      fs.writeFileSync(tempFilePath, Buffer.from(cleanBase64, 'base64'));
-
-      const classMatch = targetClass.className.match(/\d+/);
-      const classNumber = classMatch ? parseInt(classMatch[0], 10) : 1;
-
-      // Determine which students to evaluate
-      let evalStudents: Student[] = [];
-      if (studentId && studentId !== 'ALL_STUDENTS') {
-        const found = allStudents.find(s => s.id === studentId);
-        if (found) {
-          evalStudents = [found];
-        } else {
-          evalStudents = classStudents.filter(s => s.id === studentId);
-        }
-      } else {
-        evalStudents = classStudents;
-      }
-
-      if (evalStudents.length === 0) {
-        evalStudents = [
-          {
-            id: studentId || `STUDENT_PLACEHOLDER_${classNumber}`,
-            name: `Student (${targetClass.className})`,
-            age: 7,
-            classGroup: targetClass.className,
-            section: targetClass.section || 'A',
-            schoolId: 'gps-mt-001',
-            currentLevel: classNumber * 10,
-            targetLevel: 93,
-            aadharMasked: 'XXXX-XXXX-1234',
-            levelHistory: []
-          }
-        ];
-      }
-
-      // Execute Python EasyOCR ONCE for the uploaded document (Sub-second execution)
-      let sharedOcrResult: any = null;
-      try {
-        const { execFileSync } = await import('child_process');
-        const scriptPath = path.join(AI_SERVICES_DIR, 'scripts', 'ocr.py');
-        const output = execFileSync(PYTHON_BIN, [scriptPath, tempFilePath, studentId || 'ALL_STUDENTS', String(classNumber)], {
-          cwd: AI_SERVICES_DIR,
-          env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
-          timeout: 60000,
-          maxBuffer: 10 * 1024 * 1024
-        });
-        sharedOcrResult = JSON.parse(output.toString());
-      } catch (e: any) {
-        console.warn(`EasyOCR execution info:`, e.message);
-      }
-
-      const results = [];
-      const ocrTokens: Array<{ text: string; confidence: number }> =
-        sharedOcrResult?.evaluation?.extractedTokens ||
-        sharedOcrResult?.extracted_tokens ||
-        sharedOcrResult?.tokens || [];
-
-      const rawOcrText: string =
-        sharedOcrResult?.evaluation?.rawOcrText ||
-        sharedOcrResult?.raw_text ||
-        (ocrTokens.map(t => t.text).join(' ')) || '';
-
-      const realDigits: string[] =
-        sharedOcrResult?.evaluation?.detectedNumbers ||
-        sharedOcrResult?.digits_found ||
-        (rawOcrText.match(/\d+/g) || []);
-
-      for (let sIdx = 0; sIdx < evalStudents.length; sIdx++) {
-              const student = evalStudents[sIdx];
-              // De-dupe by question_id before iterating: the cached paper may
-              // contain duplicate rows for the same question (overlapping sources
-              // during paper generation), which would otherwise inflate the total
-              // question count and silently double-count correct/incorrect on the
-              // donut. Duplicate answer values get comma-joined into one row.
-              const rawDiagQuestions = await dbStore.getStudentAssignedQuestions(student.id, classNumber);
-              const diagQuestions = dedupeQuestionsById(rawDiagQuestions);
-              const totalQ = (diagQuestions && diagQuestions.length > 0) ? diagQuestions.length : 10;
-        const extractedAnswers: Record<string, string> = {};
-        const extractedCorrectness: Record<string, boolean> = {};
-        let score = 0;
-
-        if (diagQuestions.length === 0) {
-          // Fallback mock evaluation if student has no assigned paper yet
-          for (let i = 1; i <= 10; i++) {
-            const qId = `Q_L${(classNumber - 1) * 10 + i}_1`;
-            const digitIndex = (sIdx * 10) + (i - 1);
-            const val = realDigits[digitIndex] !== undefined ? String(realDigits[digitIndex]) : String(i * 2);
-            extractedAnswers[qId] = val;
-            extractedCorrectness[qId] = true;
-            score++;
-          }
-        } else {
-          diagQuestions.forEach((q, idx) => {
-            // Attempt to match extracted digit token for this question index
-            const digitIndex = (sIdx * diagQuestions.length) + idx;
-            const extractedDigit = (realDigits && realDigits[digitIndex] !== undefined)
-              ? String(realDigits[digitIndex]).trim()
-              : null;
-
-            if (extractedDigit !== null) {
-              extractedAnswers[q.question_id] = extractedDigit;
-              const isCorrect = extractedDigit === String(q.answer).trim();
-              extractedCorrectness[q.question_id] = isCorrect;
-              if (isCorrect) score++;
-            } else {
-              // Fallback match check against raw OCR text
-              const textMatch = rawOcrText.includes(String(q.answer).trim());
-              extractedAnswers[q.question_id] = textMatch ? String(q.answer).trim() : String(q.answer).trim();
-              extractedCorrectness[q.question_id] = textMatch;
-              if (textMatch) score++;
-                          }
-                        });
-                      }
-
-                      const percentage = Math.round((score / totalQ) * 100);
-
-                      // Diagnostic placement is intentionally score-driven (no classNumber-based
-                // hardcode): bucket each question into passed / failed by its
-                // source_level, then derive skill gaps from the failed concepts via
-                // the cross-skill graph. The student record is NOT mutated with a
-                // placement level here — analytics & placement are separate phases.
-                const passedLevelSet = new Set<number>();
-                const failedLevelSet = new Set<number>();
-                for (const q of diagQuestions) {
-                  const lvl = q.source_level;
-                  if (!Number.isFinite(lvl)) continue;
-                  const correct = extractedCorrectness[q.question_id] ?? false;
-                  (correct ? passedLevelSet : failedLevelSet).add(lvl);
-                }
-                const passedLevels = Array.from(passedLevelSet).sort((a, b) => a - b);
-                const failedLevels = Array.from(failedLevelSet).sort((a, b) => a - b);
-
-                // Skill gaps: conceptIds of the failed levels + their direct
-                // prerequisites from CONCEPT_PREREQUISITES. Same builder as the
-                // diagnostic submit path (routes/students.ts) so the UI can render
-                // gaps identically regardless of which entry point produced the
-                // report.
-                const skillGapMap = new Map<string, { conceptId: string; level: number; levelTitle: string; strand: string }>();
-                for (const lvl of failedLevels) {
-                  const cfg = CURRICULUM_MAPPING[lvl];
-                  if (!cfg) continue;
-                  const desc = describeConcept(cfg.conceptId);
-                  if (desc && !skillGapMap.has(desc.conceptId)) {
-                    skillGapMap.set(desc.conceptId, desc);
-                  }
-                  for (const prereqId of directPrerequisites(cfg.conceptId)) {
-                    const desc2 = describeConcept(prereqId);
-                    if (desc2 && !skillGapMap.has(desc2.conceptId)) {
-                      skillGapMap.set(desc2.conceptId, desc2);
-                    }
-                  }
-                }
-                const skillGaps = Array.from(skillGapMap.values()).sort((a, b) => a.level - b.level);
-
-                // recommendedLevel is retained on the report for backward compat
-                // (other UI surfaces read it) but the value is a placeholder and is
-                // not written back to the student. Analytics & placement live
-                // elsewhere now.
-                const recommendedLevel = 1;
-                const subLevel = 0;
-
-                const report: EvaluationReport = {
-                  id: 'rep_icr_file_' + randomUUID().slice(0, 8),
-                  studentId: student.id,
-                  worksheetId: 'icr_file_scan',
-                  score,
-                  totalQuestions: diagQuestions.length,
-                  conceptMastery: {
-                    'Number Sense': percentage >= 70 ? 'Strong' : 'Needs Practice',
-                    'Shapes': percentage >= 60 ? 'Strong' : 'Needs Practice',
-                    'Operations': percentage >= 50 ? 'Strong' : 'Needs Practice'
-                  },
-                  narrative: `ICR Answer Sheet Evaluation complete for ${student.name}. Score: ${score}/${diagQuestions.length} (${percentage}%). Per-level breakdown attached — see passedLevels / failedLevels.`,
-                  recommendedLevel,
-                  recommendedSubLevel: subLevel,
-                  timestamp: new Date().toISOString(),
-                  // Issue #180: per-question breakdown so a teacher can later correct
-                  // individual mis-scanned answers via the override endpoint.
-                  questionResults: diagQuestions.length > 0
-                    ? diagQuestions.map(q => ({
-                        questionId: q.question_id,
-                        question: q.question,
-                        correctAnswer: q.answer,
-                        submittedAnswer: extractedAnswers[q.question_id] ?? '',
-                        isCorrect: extractedCorrectness[q.question_id] ?? false,
-                      }))
-                    : undefined,
-                  // Score-driven diagnostic breakdown (no level assignment).
-                  passedLevels,
-                  failedLevels,
-                  skillGaps,
-                };
-
-        await dbStore.addEvaluationReport(report);
-
-        results.push({
-          studentId: student.id,
-          studentName: student.name,
-          rollNumber: student.id.slice(-4),
-          // Issue #176: the frontend review screen needs this to call
-          // PATCH /api/evaluation/:reportId/override once the teacher has
-          // flipped any wrong verdicts.
-          reportId: report.id,
-          // Real per-question correctness as actually scored server-side
-          // (extractedCorrectness) — NOT re-derivable from extractedAnswers
-          // vs correctAnswer client-side, because the OCR-fallback branch
-          // above always stores the *correct* answer text in extractedAnswers
-          // regardless of whether textMatch was true. Sending this directly
-          // avoids the review screen defaulting every question to "Correct".
-          questionResults: report.questionResults,
-          score,
-          totalQuestions: diagQuestions.length,
-          percentage,
-          previousLevel: student.currentLevel,
-          newLevel: recommendedLevel,
-          subLevel,
-          questions: diagQuestions.map(q => ({
-            id: q.question_id,
-            question: q.question,
-            correctAnswer: q.answer,
-            topic: q.topic || 'General'
-          })),
-          extractedAnswers,
-          ocrEngine: 'EasyOCR (PyTorch CRAFT Neural Net)',
-          ocrAnalysis: {
-            rawOcrText: rawOcrText || 'Extracted via EasyOCR',
-            extractedTokens: ocrTokens.length > 0 ? ocrTokens : realDigits.map(d => ({ text: d, confidence: 0.95 })),
-            processingTimeMs: sharedOcrResult?.processingTimeMs || 140,
-            ocrEngine: 'EasyOCR (PyTorch CRAFT Neural Net)'
-          },
-          status: percentage >= 50 ? 'Mastered' : 'Needs Remediation'
-        });
-      }
-
-      try { fs.unlinkSync(tempFilePath); } catch { }
-
-      await dbStore.addLog({
-        id: 'log_' + Date.now(),
-        timestamp: new Date().toISOString(),
-        schoolId: targetClass.schoolId,
-        schoolName: targetClass.className,
-        userId: user.id,
-        userEmail: user.email,
-        userRole: user.role,
-        activityType: 'scan',
-        status: 'Success',
-        details: `ICR PDF Scan: Evaluated ${results.length} student answer sheets for ${targetClass.className}`
-      });
-
-      res.json({
-        success: true,
-        isBulk: evalStudents.length > 1,
-        totalEvaluated: results.length,
-        results
-      });
-
-    } catch (err: any) {
-      console.error('ICR PDF Evaluation Error:', err);
-      res.status(500).json({ error: err.message || 'Failed to process ICR PDF scan.' });
-    }
-  });
 
   // =========================================================================
-  // ICR via external cloud OCR APIs (Google Vision / AWS Textract / Azure /
-  // MiniMax / OCR.space)
+  // ICR via Ollama Gemma 4 (single OCR provider)
   // =========================================================================
   // SECURITY: the API key is stored server-side (env var + optional DB
   // override). The frontend NEVER sees the key — it just picks a provider
@@ -614,8 +50,10 @@ export function registerEvaluationRoutes(app: express.Express) {
       return res.status(403).json({ error: 'Admin role required.' });
     }
     const { provider, apiKey } = req.body || {};
-    if (!provider || ['google', 'aws', 'azure', 'minimax', 'ocrspace', 'ollama-gemma4'].indexOf(provider) === -1) {
-      return res.status(400).json({ error: 'provider must be one of google/aws/azure/minimax/ocrspace/ollama-gemma4.' });
+    // Single OCR model: ollama-gemma4. Other providers (google, aws,
+    // azure, minimax, ocrspace) are no longer supported.
+    if (provider !== 'ollama-gemma4') {
+      return res.status(400).json({ error: 'provider must be "ollama-gemma4".' });
     }
     if (!_cloudKeyCache) _cloudKeyCache = {};
     if (apiKey == null || apiKey === '') {
@@ -640,7 +78,7 @@ export function registerEvaluationRoutes(app: express.Express) {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
     const result = {};
-    const providers = ['google', 'aws', 'azure', 'minimax', 'ocrspace', 'ollama-gemma4'];
+    const providers = ['ollama-gemma4'];
     for (let i = 0; i < providers.length; i++) {
       const k = await getCloudKey(providers[i]);
       result[providers[i]] = !!k;
@@ -1131,7 +569,7 @@ export function registerEvaluationRoutes(app: express.Express) {
                   parseError = 'empty model output';
                 }
         // Build a flat token list (whitespace split) for the existing
-        // downstream consumers (Verify table + EasyOCR-style fill).
+        // downstream consumers (Verify table + flat-answers fill).
         const tokens = rawText
           .split(/\s+/)
           .map(s => s.trim())
@@ -1180,26 +618,22 @@ export function registerEvaluationRoutes(app: express.Express) {
     }
   };
 
-  // OCR endpoint: takes {provider, imageDataUrl} for a single image, or
-  // {provider, pages} — one entry per filtered page — for multi-page PDFs
-  // (e.g. several students' sheets scanned into one file). NO apiKey from
-  // frontend.
+  // OCR endpoint: takes {provider, imageDataUrl} or {provider, fileBase64}
+  // for a single image or PDF. NO apiKey from frontend. The frontend
+  // sends the raw file as a single data URL; the backend rasterizes
+  // PDFs to PNG before posting to Ollama (Ollama's vision API only
+  // accepts image MIME types).
   app.post('/api/icr/evaluate-cloud', async (req, res) => {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    // Accept either field name so the cloud endpoint mirrors the legacy
-    // local-OCR endpoint shape, and accept image OR PDF data URLs since
-    // Ollama's vision API only accepts image MIME types (we rasterize PDFs).
-    const { imageDataUrl, fileBase64, provider, pages } = req.body || {};
-    const pageList: Array<{ pageNumber?: number; imageDataUrl: string }> =
-      Array.isArray(pages) && pages.length > 0 ? pages : [];
+    const { imageDataUrl, fileBase64, provider } = req.body || {};
     const singleDataUrl = imageDataUrl || fileBase64;
-    if (pageList.length === 0 && (!singleDataUrl || typeof singleDataUrl !== 'string')) {
-      return res.status(400).json({ error: 'imageDataUrl, fileBase64, or pages is required (data URL).' });
+    if (!singleDataUrl || typeof singleDataUrl !== 'string') {
+      return res.status(400).json({ error: 'imageDataUrl or fileBase64 is required (data URL).' });
     }
-    if (!provider || ['google', 'aws', 'azure', 'minimax', 'ocrspace', 'ollama-gemma4'].indexOf(provider) === -1) {
-      return res.status(400).json({ error: 'provider must be one of google/aws/azure/minimax/ocrspace/ollama-gemma4.' });
+    if (provider !== 'ollama-gemma4') {
+      return res.status(400).json({ error: 'provider must be "ollama-gemma4".' });
     }
 
     const apiKey = await getCloudKey(provider);
@@ -1209,41 +643,8 @@ export function registerEvaluationRoutes(app: express.Express) {
       });
     }
 
-    const pagesToRun = pageList.length > 0 ? pageList : [{ pageNumber: 1, imageDataUrl: singleDataUrl as string }];
-    const results: any[] = [];
-    for (const page of pagesToRun) {
-      const r = await runCloudOcrOnImage(page.imageDataUrl, provider, apiKey);
-      if (r.status !== 200) {
-        const prefix = pagesToRun.length > 1 ? `Page ${page.pageNumber}: ` : '';
-        return res.status(r.status).json({ ...r.body, error: prefix + (r.body?.error || 'unknown error') });
-      }
-      results.push({ pageNumber: page.pageNumber, ...r.body });
-    }
-
-    if (results.length === 1) {
-      return res.json(results[0]);
-    }
-
-    // Merge multi-page results into the same response shape the frontend
-    // already consumes for a single page. provider/model/ocrEngine/mimeUsed
-    // are identical across pages (same request, same provider) so page 1's
-    // values are used; everything else concatenates across pages.
-    const first = results[0];
-    return res.json({
-      success: true,
-      provider: first.provider,
-      model: first.model,
-      ocrEngine: first.ocrEngine,
-      mimeUsed: first.mimeUsed,
-      pageCount: results.length,
-      answers: results.flatMap(r => r.answers || []),
-      extractedTokens: results.flatMap(r => r.extractedTokens || []),
-      rawOcrText: results.map(r => `[page ${r.pageNumber}] ${r.rawOcrText || ''}`).join(' | '),
-      extractedText: results.map(r => r.extractedText).filter(Boolean).join(' | '),
-      structured: results.every(r => r.structured !== false),
-      structuredError: results.map(r => r.structuredError).filter(Boolean).join('; ') || null,
-      processingTimeMs: results.reduce((a, r) => a + (r.processingTimeMs || 0), 0),
-    });
+    const r = await runCloudOcrOnImage(singleDataUrl, provider, apiKey);
+    return res.status(r.status).json(r.body);
   });
 
   // Generate Personalized Class Worksheets
