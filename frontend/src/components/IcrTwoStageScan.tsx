@@ -35,6 +35,11 @@ interface ScanResponse {
   };
   processingTimeMs?: number;
   error?: string;
+  // Issue #234: present when the caller told the backend how many
+  // questions this sheet should have (expectedCount below). true means
+  // the model's row count didn't match — the parent surfaces a warning.
+  countMismatch?: boolean | null;
+  expectedCount?: number | null;
 }
 
 interface IcrTwoStageScanProps {
@@ -44,6 +49,12 @@ interface IcrTwoStageScanProps {
   // Called when OCR succeeds so the parent scanner can switch its UI
   // to the Verify step. Parent owns the result state.
   onOcrSuccess: (data: ScanResponse) => void;
+  // Issue #234: the real question count for the selected student/class's
+  // paper, when known ahead of the scan (resolved by the parent from the
+  // diagnostic answer key). Passed to the backend so it can tell the OCR
+  // model exactly how many rows to expect, and so a count mismatch can be
+  // flagged explicitly instead of silently padding/truncating the mapping.
+  expectedCount?: number | null;
 }
 
 type OcrState = 'idle' | 'running' | 'done' | 'error';
@@ -60,6 +71,7 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
   token,
   uploadedFile,
   onOcrSuccess,
+  expectedCount,
 }) => {
   // Cloud OCR state — the only OCR state we keep.
   const [cloudOcrState, setCloudOcrState] = useState<OcrState>('idle');
@@ -158,6 +170,10 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
         body: JSON.stringify({
           provider: 'ollama-gemma4',
           imageDataUrl: dataUrl,
+          // Issue #234: tell the backend how many questions this paper
+          // actually has, when known, so the model is told an explicit
+          // target row count instead of guessing from the image alone.
+          ...(typeof expectedCount === 'number' && expectedCount > 0 ? { expectedCount } : {}),
         }),
       });
       const clientMs = Math.round(performance.now() - t0);
@@ -214,6 +230,8 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
           ocrEngine: data.ocrEngine || (data.model ? `Ollama Gemma 4 (${data.model})` : 'Ollama Gemma 4'),
         },
         processingTimeMs: data.processingTimeMs ?? clientMs,
+        countMismatch: data.countMismatch ?? null,
+        expectedCount: data.expectedCount ?? null,
       };
       setCloudOcrState('done');
       onOcrSuccess(normalized);

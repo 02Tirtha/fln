@@ -94,7 +94,8 @@ export function registerEvaluationRoutes(app: express.Express) {
   const runCloudOcrOnImage = async (
     dataUrl: string,
     provider: string,
-    apiKey: string
+    apiKey: string,
+    expectedCount?: number
   ): Promise<{ status: number; body: any }> => {
     if (!dataUrl || typeof dataUrl !== 'string' ||
       (dataUrl.indexOf('data:image/') !== 0 && dataUrl.indexOf('data:application/') !== 0)) {
@@ -412,6 +413,24 @@ export function registerEvaluationRoutes(app: express.Express) {
           mimeUsed = mimeUsedIn;
         }
 
+        const expectedCountLines = (typeof expectedCount === 'number' && expectedCount > 0)
+          ? [
+              '',
+              '════════════════════════════════════',
+              'EXPECTED ROW COUNT',
+              '════════════════════════════════════',
+              `This answer sheet has EXACTLY ${expectedCount} questions in total, across all pages.`,
+              `Your output MUST contain EXACTLY row_1 through row_${expectedCount} — no more, no fewer.`,
+              'If you count more or fewer candidate rows than this while reading the page, re-check your',
+              'row segmentation (a merged multi-part question is still ONE row; do not split a single',
+              'question into two rows just to make the count match, and do not merge two distinct',
+              `questions into one row either). The count of ${expectedCount} is ground truth from the`,
+              'answer key this sheet was generated from — trust it over your own row count if they conflict,',
+              'and re-scan the page for a row you may have skipped or merged before giving up.',
+              '',
+            ]
+          : [];
+
         const ocrPrompt = [
           'You are an answer-sheet extraction assistant for a primary-school FLN assessment (Grades 2–5).',
           'You will receive ONE OR MORE scanned page images belonging to a SINGLE student\'s answer sheet.',
@@ -420,6 +439,7 @@ export function registerEvaluationRoutes(app: express.Express) {
           'Process ALL pages together, top to bottom, page by page.',
           'Your final output must be ONE unified JSON object with rows numbered continuously ',
           'across all pages (row 1 on page 1, row 6 on page 2, etc. — never restart at 1).',
+          ...expectedCountLines,
           '',
           '════════════════════════════════════',
           'MULTI-PAGE INSTRUCTIONS',
@@ -646,6 +666,14 @@ export function registerEvaluationRoutes(app: express.Express) {
                     // try to parse it client-side as a fallback.
                     structured: flatAnswers != null,
                     structuredError: parseError,
+                    // Issue #234: surface a row-count mismatch explicitly instead of
+                    // letting the frontend silently pad/truncate. expectedCount is
+                    // only present when the caller (frontend) already knew the real
+                    // question count for this student's paper.
+                    expectedCount: expectedCount ?? null,
+                    countMismatch: (typeof expectedCount === 'number' && expectedCount > 0 && flatAnswers != null)
+                      ? flatAnswers.length !== expectedCount
+                      : null,
                     processingTimeMs: Date.now() - t0,
                   }
                 };
@@ -676,7 +704,7 @@ export function registerEvaluationRoutes(app: express.Express) {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const { imageDataUrl, fileBase64, provider } = req.body || {};
+    const { imageDataUrl, fileBase64, provider, expectedCount } = req.body || {};
     const singleDataUrl = imageDataUrl || fileBase64;
     if (!singleDataUrl || typeof singleDataUrl !== 'string') {
       return res.status(400).json({ error: 'imageDataUrl or fileBase64 is required (data URL).' });
@@ -684,6 +712,14 @@ export function registerEvaluationRoutes(app: express.Express) {
     if (provider !== 'ollama-gemma4') {
       return res.status(400).json({ error: 'provider must be "ollama-gemma4".' });
     }
+    // Optional (issue #234): the caller may already know the real question
+    // count for this student's paper (from the diagnostic answer key). When
+    // present, it's used to tell the model exactly how many rows to expect
+    // and to flag a mismatch explicitly rather than silently padding/
+    // truncating downstream.
+    const expectedCountNum = (typeof expectedCount === 'number' && Number.isFinite(expectedCount) && expectedCount > 0)
+      ? Math.floor(expectedCount)
+      : undefined;
 
     const apiKey = await getCloudKey(provider);
     if (!apiKey) {
@@ -692,7 +728,7 @@ export function registerEvaluationRoutes(app: express.Express) {
       });
     }
 
-    const r = await runCloudOcrOnImage(singleDataUrl, provider, apiKey);
+    const r = await runCloudOcrOnImage(singleDataUrl, provider, apiKey, expectedCountNum);
     return res.status(r.status).json(r.body);
   });
 
