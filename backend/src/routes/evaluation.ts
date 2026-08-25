@@ -929,29 +929,119 @@ export function registerEvaluationRoutes(app: express.Express) {
         }
 
         const ocrPrompt = [
-          'You are an OCR assistant. The image is a single-page student answer sheet.',
+          'You are an answer-sheet extraction assistant for a primary-school FLN assessment (Grades 2–5).',
+          'You will receive ONE OR MORE scanned page images belonging to a SINGLE student\'s answer sheet.',
+          'Pages may be for Class 2, 3, 4, or 5 — the sheet can span 2 or more pages.',
           '',
-          'On the page there are small drawn rectangular boxes scattered around. Each box has a closed (or near-closed) border. Inside each box, a student may have handwritten digits or characters as their answer.',
+          'Process ALL pages together, top to bottom, page by page.',
+          'Your final output must be ONE unified JSON object with rows numbered continuously ',
+          'across all pages (row 1 on page 1, row 6 on page 2, etc. — never restart at 1).',
           '',
-          'Your ONLY job: read the handwritten content inside each box. Do not transcribe any printed text (questions, options, instructions, headers, school name, page numbers, decorative borders, printed digit examples).',
+          '════════════════════════════════════',
+          'MULTI-PAGE INSTRUCTIONS',
+          '════════════════════════════════════',
+          '- Process pages in the order they are given (Page 1, Page 2, … Page N).',
+          '- Row numbering is continuous across all pages. Do NOT restart row count per page.',
+          '- If a page is blank or unreadable, do NOT skip it. Instead, output an error entry ',
+          '  for every expected row on that page using this format:',
+          '  "row_N": { "error": "Page unreadable — could not extract answer. Please check scan quality." }',
+          '- If only part of a row is unreadable (e.g. torn edge, heavy shadow), output what ',
+          '  you could read and mark the unreadable slot as "unclear".',
+          '- Process ALL pages before writing any output.',
           '',
-          'Box dimensions (for reference):',
-          '- Box height: 0.20 to 0.35 inches (one line of handwriting).',
-          '- Box width: 0.17 to 0.23 inches per digit slot. So 1-digit box ≈ 0.17-0.23 in, 2-digit ≈ 0.34-0.46 in, 3-digit ≈ 0.51-0.69 in. Wider than that means it is a multi-line answer area — read the full handwritten text inside, do not split.',
+          '════════════════════════════════════',
+          'ROW DETECTION RULES',
+          '════════════════════════════════════',
+          'A "row" is one horizontal band of student-written content on the page.',
+          '- Each question or sub-question that occupies its own horizontal line = one row.',
+          '- If a question has multiple answer slots side by side on the same line, they all ',
+          '  belong to the same row — output them comma-separated, left to right.',
+          '- If a question spans multiple printed lines (e.g. a match-the-following block or a ',
+          '  multi-line pattern), treat the entire block as ONE row.',
+          '- Blank printed lines with no student writing = null for that row.',
           '',
-          'Output: a single JSON object with this exact shape:',
-          '{ "answers": [ "75, null, 89", "42", "100", null, "abc" ] }',
+          '════════════════════════════════════',
+          'WHAT TO CAPTURE (student output only)',
+          '════════════════════════════════════',
+          '',
+          '1. BOXES / BLANKS — Handwritten digits, letters, or words inside rectangular/square ',
+          '   boxes or on blank lines. Read exactly what the student wrote. Do not correct or normalise.',
+          '',
+          '2. FILL-IN-THE-BLANK (no box) — Handwritten characters written on a printed underline ',
+          '   or in a gap between printed words. Each gap = one slot; read left to right.',
+          '',
+          '3. COMPARISON SYMBOLS — Handwritten >, <, or = placed between two numbers or objects.',
+          '   Output the symbol exactly as written.',
+          '',
+          '4. MATCH-THE-FOLLOWING — Lines drawn by the student connecting left column to right column.',
+          '   Output as: "A→3, B→1, C→2" (use printed labels). Treat the full block as one row.',
+          '',
+          '5. PATTERN COMPLETION — Printed sequence with blank slots. Output only what the student ',
+          '   wrote or drew in the blank slots, left to right, comma-separated.',
+          '   If the student drew a shape, name it (see rule 7).',
+          '',
+          '6. CIRCLED ANSWER (single item) — Output the label or text of the circled item.',
+          '   If the item has no label and there are two images side by side, output "left" or "right" ',
+          '   based on horizontal position on the page.',
+          '',
+          '7. DRAWN / IDENTIFIED SHAPES — Identify by common name:',
+          '   heart, star, circle, square, triangle, rectangle, oval, diamond, arrow, ',
+          '   or "unknown shape" if unrecognisable.',
+          '',
+          '8. LARGEST / SMALLEST / MORE / LESS (two-image questions) — Output "left" or "right" ',
+          '   for whichever image the student circled. If ambiguous, output "unclear".',
+          '',
+          '9. EMPTY / UNANSWERED — No writing at all → null. Smudge or stray mark only → "unclear".',
+          '',
+          '════════════════════════════════════',
+          'WHAT NOT TO CAPTURE',
+          '════════════════════════════════════',
+          '- Any printed text: instructions, question numbers, option labels, example digits, ',
+          '  decorative borders, school name, page numbers, class/grade labels.',
+          '- Printed images or diagrams (reference them only to determine left vs right ',
+          '  for a circled answer).',
+          '',
+          '════════════════════════════════════',
+          'OUTPUT FORMAT',
+          '════════════════════════════════════',
+          'Return a single JSON object with:',
+          '- A "_meta" key describing pages received and any page-level issues.',
+          '- One key per row: "row_1", "row_2", … "row_N" — continuous across all pages.',
+          '',
+          'Each row value is either:',
+          '- A string (one answer or comma-separated answers for multi-slot rows)',
+          '- null (row exists but student left it blank)',
+          '- An object with an "error" key (row belongs to an unreadable page)',
+          '',
+          'Example (2-page sheet, page 2 unreadable):',
+          '{',
+          '  "_meta": {',
+          '    "total_pages_received": 2,',
+          '    "pages_processed": [1],',
+          '    "page_errors": {',
+          '      "page_2": "Unreadable — could not extract answers. Please check scan quality."',
+          '    }',
+          '  },',
+          '  "row_1": "7, null, 9",',
+          '  "row_2": ">",',
+          '  "row_3": "left",',
+          '  "row_4": "A→3, B→1, C→2",',
+          '  "row_5": "circle, square, circle",',
+          '  "row_6": "heart",',
+          '  "row_7": "unclear",',
+          '  "row_8": null,',
+          '  "row_9": { "error": "Page unreadable — could not extract answer. Please check scan quality." },',
+          '  "row_10": { "error": "Page unreadable — could not extract answer. Please check scan quality." }',
+          '}',
           '',
           'Rules:',
-          '- "answers" is a flat array of strings, one entry per VISUAL ROW on the page (top-to-bottom).',
-          '- For each row, output ONE string. If a row contains multiple digit-boxes side by side, the string is the answers in left-to-right order separated by commas. Use the literal "null" (no quotes around it) for any unanswered box in that row.',
-          '- For a wide multi-line area, output the full handwritten text the student wrote there as one string.',
-          '- Empty rows (no box, no writing) — emit a literal "null" string for that row index, OR skip it. Prefer skipping if you can.',
-          '- A row containing one wide multi-line area — emit as one string.',
-          '- Preserve what the student wrote exactly. Do not correct, normalize, or compute.',
-          '- If a box has only a smudge or stray dot, output "unclear". If the box is empty, output "null".',
           '- Output ONLY the JSON object. No prose, no markdown fences, no commentary.',
-        ].join('\n');
+          '- Preserve exactly what the student wrote. Do not compute, correct, or normalise.',
+          '- For LEFT/RIGHT answers, base the decision purely on horizontal position on that page.',
+          '- If you cannot confidently read a character, output "unclear" — do not guess.',
+          '- Never invent rows that do not exist on the physical sheet.',
+          '- Process ALL pages before writing any output.',
+                ].join('\n');
 
         const ollamaRes = await fetch(apiBase, {
           method: 'POST',
@@ -988,28 +1078,58 @@ export function registerEvaluationRoutes(app: express.Express) {
         const rawText = (ollamaJson && ollamaJson.message && ollamaJson.message.content)
           ? String(ollamaJson.message.content)
           : '';
-        // The user wants only the handwritten answers as a flat list.
-        let flatAnswers: string[] | null = null;
-        let parseError: string | null = null;
-        if (rawText) {
-          // Strip ```json / ``` fences if the model wrapped anyway.
-          const stripped = rawText
-            .replace(/^```(?:json)?\s*/i, '')
-            .replace(/\s*```\s*$/i, '')
-            .trim();
-          try {
-            const parsed = JSON.parse(stripped);
-            if (parsed && Array.isArray(parsed.answers)) {
-              flatAnswers = parsed.answers.map((s: any) => String(s ?? ''));
-            } else {
-              parseError = 'model output did not contain answers array';
-            }
-          } catch (e: any) {
-            parseError = 'JSON parse failed: ' + (e?.message || String(e));
-          }
-        } else {
-          parseError = 'empty model output';
-        }
+        // Parse the model's row_N schema (new prompt) — keep the existing
+                // flat `answers[]` shape stable for downstream consumers (the
+                // IcrTwoStageScan → IcrScanner pipeline reads answers[] by index).
+                // We derive flatAnswers from sorted row_N keys so row 1, row 2,
+                // ... row N come out in order, and skip rows whose value is an
+                // { error: ... } object (the model emits those for unreadable
+                // pages).
+                let flatAnswers: string[] | null = null;
+                let parseError: string | null = null;
+                let pageErrors: Record<string, string> | null = null;
+                let meta: any = null;
+                if (rawText) {
+                  // Strip ```json / ``` fences if the model wrapped anyway.
+                  const stripped = rawText
+                    .replace(/^```(?:json)?\s*/i, '')
+                    .replace(/\s*```\s*$/i, '')
+                    .trim();
+                  try {
+                    const parsed = JSON.parse(stripped);
+                    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                      meta = parsed._meta ?? null;
+                      pageErrors = (meta && typeof meta.page_errors === 'object') ? meta.page_errors : null;
+                      // Collect every "row_N" key in numeric order. Anything that
+                      // isn't a row_N key is ignored — the prompt's spec says row_1
+                      // ... row_N are the only data entries; _meta is metadata.
+                      const rowKeys = Object.keys(parsed)
+                        .filter(k => /^row_\d+$/.test(k))
+                        .sort((a, b) => parseInt(a.slice(4), 10) - parseInt(b.slice(4), 10));
+                      if (rowKeys.length > 0) {
+                        flatAnswers = rowKeys.map(k => {
+                          const v = parsed[k];
+                          if (v === null || v === undefined) return '';
+                          if (typeof v === 'object' && v && 'error' in v) {
+                            // Per-page error — emit a sentinel token so the verify
+                            // UI can show it. Use the literal "unclear" so the
+                            // existing post-processing handles it consistently.
+                            return 'unclear';
+                          }
+                          return String(v);
+                        });
+                      } else {
+                        parseError = 'model output did not contain any row_N keys';
+                      }
+                    } else {
+                      parseError = 'model output was not a JSON object';
+                    }
+                  } catch (e: any) {
+                    parseError = 'JSON parse failed: ' + (e?.message || String(e));
+                  }
+                } else {
+                  parseError = 'empty model output';
+                }
         // Build a flat token list (whitespace split) for the existing
         // downstream consumers (Verify table + EasyOCR-style fill).
         const tokens = rawText
@@ -1018,25 +1138,30 @@ export function registerEvaluationRoutes(app: express.Express) {
           .filter(Boolean)
           .map(text => ({ text, confidence: 0.7 }));
         return {
-          status: 200, body: {
-            success: true,
-            provider: 'ollama-gemma4',
-            model: modelName,
-            mimeUsed,
-            // The cleaned, flat answer list — exactly what the verify UI consumes.
-            answers: flatAnswers || [],
-            // Keep raw text + tokens for the OCR analysis preview pane.
-            extractedText: rawText,
-            extractedTokens: tokens,
-            rawOcrText: rawText,
-            // When JSON parsing fails we still want the UI to show the raw text
-            // and an explicit warning — the question-classifier flow can then
-            // try to parse it client-side as a fallback.
-            structured: flatAnswers != null,
-            structuredError: parseError,
-            processingTimeMs: Date.now() - t0,
-          }
-        };
+                  status: 200, body: {
+                    success: true,
+                    provider: 'ollama-gemma4',
+                    model: modelName,
+                    mimeUsed,
+                    // The cleaned, flat answer list — exactly what the verify UI consumes.
+                    answers: flatAnswers || [],
+                    // Keep raw text + tokens for the OCR analysis preview pane.
+                    extractedText: rawText,
+                    extractedTokens: tokens,
+                    rawOcrText: rawText,
+                    // New-prompt metadata: page-level errors (e.g. unreadable pages
+                    // the model couldn't read) and the model's _meta block. The UI
+                    // can show a banner per error page.
+                    pageErrors: pageErrors || {},
+                    meta: meta || null,
+                    // When JSON parsing fails we still want the UI to show the raw text
+                    // and an explicit warning — the question-classifier flow can then
+                    // try to parse it client-side as a fallback.
+                    structured: flatAnswers != null,
+                    structuredError: parseError,
+                    processingTimeMs: Date.now() - t0,
+                  }
+                };
       }
 
 
