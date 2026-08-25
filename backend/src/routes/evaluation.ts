@@ -2,10 +2,12 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
-import { dbStore, EvaluationReport, Student, AnswerSubmission, UserRole, CYCLE_NAMES } from '../db';
+import { dbStore, EvaluationReport, Student, AnswerSubmission, UserRole, CYCLE_NAMES, dedupeQuestionsById } from '../db';
 import { getAuthUser, canAccessStudent } from '../auth';
 import { evaluateAIWorksheet } from '../gemini';
 import { PYTHON_BIN, AI_SERVICES_DIR } from '../config';
+import { CURRICULUM_MAPPING } from '../config/curriculumMap';
+import { directPrerequisites, describeConcept } from '../competencyPrerequisites';
 
 export function registerEvaluationRoutes(app: express.Express) {
   // ICR Blue-Pen Filter Stage (standalone — runs only the cv2 blue-pen
@@ -378,9 +380,15 @@ export function registerEvaluationRoutes(app: express.Express) {
         (rawOcrText.match(/\d+/g) || []);
 
       for (let sIdx = 0; sIdx < evalStudents.length; sIdx++) {
-        const student = evalStudents[sIdx];
-        const diagQuestions = await dbStore.getStudentAssignedQuestions(student.id, classNumber);
-        const totalQ = (diagQuestions && diagQuestions.length > 0) ? diagQuestions.length : 10;
+              const student = evalStudents[sIdx];
+              // De-dupe by question_id before iterating: the cached paper may
+              // contain duplicate rows for the same question (overlapping sources
+              // during paper generation), which would otherwise inflate the total
+              // question count and silently double-count correct/incorrect on the
+              // donut. Duplicate answer values get comma-joined into one row.
+              const rawDiagQuestions = await dbStore.getStudentAssignedQuestions(student.id, classNumber);
+              const diagQuestions = dedupeQuestionsById(rawDiagQuestions);
+              const totalQ = (diagQuestions && diagQuestions.length > 0) ? diagQuestions.length : 10;
         const extractedAnswers: Record<string, string> = {};
         const extractedCorrectness: Record<string, boolean> = {};
         let score = 0;
@@ -414,55 +422,88 @@ export function registerEvaluationRoutes(app: express.Express) {
               extractedAnswers[q.question_id] = textMatch ? String(q.answer).trim() : String(q.answer).trim();
               extractedCorrectness[q.question_id] = textMatch;
               if (textMatch) score++;
-            }
-          });
-        }
+                          }
+                        });
+                      }
 
-        const percentage = Math.round((score / totalQ) * 100);
-        const recommendedLevel = Math.max(1, Math.min(93, (classNumber - 1) * 10 + Math.ceil(percentage / 10)));
-        const subLevel = percentage >= 80 ? 0 : percentage >= 50 ? 1 : 2;
+                      const percentage = Math.round((score / totalQ) * 100);
 
-        const levelHistory = [...(student.levelHistory || []), {
-          level: recommendedLevel,
-          subLevel,
-          date: new Date().toISOString().split('T')[0],
-          reason: CYCLE_NAMES[0] // 'Baseline' - this ICR path is the scanned diagnostic-placement flow
-        }];
+                      // Diagnostic placement is intentionally score-driven (no classNumber-based
+                // hardcode): bucket each question into passed / failed by its
+                // source_level, then derive skill gaps from the failed concepts via
+                // the cross-skill graph. The student record is NOT mutated with a
+                // placement level here — analytics & placement are separate phases.
+                const passedLevelSet = new Set<number>();
+                const failedLevelSet = new Set<number>();
+                for (const q of diagQuestions) {
+                  const lvl = q.source_level;
+                  if (!Number.isFinite(lvl)) continue;
+                  const correct = extractedCorrectness[q.question_id] ?? false;
+                  (correct ? passedLevelSet : failedLevelSet).add(lvl);
+                }
+                const passedLevels = Array.from(passedLevelSet).sort((a, b) => a - b);
+                const failedLevels = Array.from(failedLevelSet).sort((a, b) => a - b);
 
-        await dbStore.updateStudent(student.id, {
-          currentLevel: recommendedLevel,
-          currentSubLevel: subLevel,
-          targetLevel: Math.min(93, recommendedLevel + 1),
-          levelHistory
-        });
+                // Skill gaps: conceptIds of the failed levels + their direct
+                // prerequisites from CONCEPT_PREREQUISITES. Same builder as the
+                // diagnostic submit path (routes/students.ts) so the UI can render
+                // gaps identically regardless of which entry point produced the
+                // report.
+                const skillGapMap = new Map<string, { conceptId: string; level: number; levelTitle: string; strand: string }>();
+                for (const lvl of failedLevels) {
+                  const cfg = CURRICULUM_MAPPING[lvl];
+                  if (!cfg) continue;
+                  const desc = describeConcept(cfg.conceptId);
+                  if (desc && !skillGapMap.has(desc.conceptId)) {
+                    skillGapMap.set(desc.conceptId, desc);
+                  }
+                  for (const prereqId of directPrerequisites(cfg.conceptId)) {
+                    const desc2 = describeConcept(prereqId);
+                    if (desc2 && !skillGapMap.has(desc2.conceptId)) {
+                      skillGapMap.set(desc2.conceptId, desc2);
+                    }
+                  }
+                }
+                const skillGaps = Array.from(skillGapMap.values()).sort((a, b) => a.level - b.level);
 
-        const report: EvaluationReport = {
-          id: 'rep_icr_file_' + randomUUID().slice(0, 8),
-          studentId: student.id,
-          worksheetId: 'icr_file_scan',
-          score,
-          totalQuestions: diagQuestions.length,
-          conceptMastery: {
-            'Number Sense': percentage >= 70 ? 'Strong' : 'Needs Practice',
-            'Shapes': percentage >= 60 ? 'Strong' : 'Needs Practice',
-            'Operations': percentage >= 50 ? 'Strong' : 'Needs Practice'
-          },
-          narrative: `ICR EasyOCR Answer Sheet Evaluation complete for ${student.name}. Score: ${score}/${diagQuestions.length} (${percentage}%). Assessed at Level ${recommendedLevel}.${subLevel}. Raw OCR: "${rawOcrText.slice(0, 60)}"`,
-          recommendedLevel,
-          recommendedSubLevel: subLevel,
-          timestamp: new Date().toISOString(),
-          // Issue #180: per-question breakdown so a teacher can later correct
-          // individual mis-scanned answers via the override endpoint.
-          questionResults: diagQuestions.length > 0
-            ? diagQuestions.map(q => ({
-                questionId: q.question_id,
-                question: q.question,
-                correctAnswer: q.answer,
-                submittedAnswer: extractedAnswers[q.question_id] ?? '',
-                isCorrect: extractedCorrectness[q.question_id] ?? false,
-              }))
-            : undefined,
-        };
+                // recommendedLevel is retained on the report for backward compat
+                // (other UI surfaces read it) but the value is a placeholder and is
+                // not written back to the student. Analytics & placement live
+                // elsewhere now.
+                const recommendedLevel = 1;
+                const subLevel = 0;
+
+                const report: EvaluationReport = {
+                  id: 'rep_icr_file_' + randomUUID().slice(0, 8),
+                  studentId: student.id,
+                  worksheetId: 'icr_file_scan',
+                  score,
+                  totalQuestions: diagQuestions.length,
+                  conceptMastery: {
+                    'Number Sense': percentage >= 70 ? 'Strong' : 'Needs Practice',
+                    'Shapes': percentage >= 60 ? 'Strong' : 'Needs Practice',
+                    'Operations': percentage >= 50 ? 'Strong' : 'Needs Practice'
+                  },
+                  narrative: `ICR Answer Sheet Evaluation complete for ${student.name}. Score: ${score}/${diagQuestions.length} (${percentage}%). Per-level breakdown attached — see passedLevels / failedLevels.`,
+                  recommendedLevel,
+                  recommendedSubLevel: subLevel,
+                  timestamp: new Date().toISOString(),
+                  // Issue #180: per-question breakdown so a teacher can later correct
+                  // individual mis-scanned answers via the override endpoint.
+                  questionResults: diagQuestions.length > 0
+                    ? diagQuestions.map(q => ({
+                        questionId: q.question_id,
+                        question: q.question,
+                        correctAnswer: q.answer,
+                        submittedAnswer: extractedAnswers[q.question_id] ?? '',
+                        isCorrect: extractedCorrectness[q.question_id] ?? false,
+                      }))
+                    : undefined,
+                  // Score-driven diagnostic breakdown (no level assignment).
+                  passedLevels,
+                  failedLevels,
+                  skillGaps,
+                };
 
         await dbStore.addEvaluationReport(report);
 

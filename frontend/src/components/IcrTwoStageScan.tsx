@@ -176,6 +176,10 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
 
   // OCR stage state
   const [ocrState, setOcrState] = useState<OcrState>('idle');
+  // Separate state for the cloud OCR path so clicking "Run via Cloud API"
+  // doesn't light up the local "Run OCR on Filtered Image" button (which
+  // shares ocrState visually). Each button owns its own status.
+  const [cloudOcrState, setCloudOcrState] = useState<OcrState>('idle');
   const [ocrResult, setOcrResult] = useState<ScanResponse | null>(null);
   const [ocrTiming, setOcrTiming] = useState<ScanTiming | null>(null);
   const [ocrError, setOcrError] = useState<string | null>(null);
@@ -454,8 +458,8 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
         );
         return;
       }
-      setOcrState('running');
-      setCloudError(null);
+      setCloudOcrState('running');
+            setCloudError(null);
       const t0 = performance.now();
       try {
         // Prefer the pages[] shape (same as the local OCR path) so the
@@ -495,8 +499,8 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
               ? ` The upstream provider rejected the request — likely an invalid/revoked key, billing not enabled, or rate limit. Ask the admin to verify the ICR_CLOUD_API_KEY_${cloudProvider.toUpperCase()} value.`
               : '';
           setCloudError(providerMsg + adminHint);
-          setOcrState('error');
-          return;
+                    setCloudOcrState('error');
+                    return;
         }
         // Prefer the structured `studentResponses` from Ollama's JSON-output mode
         // (question_number → response, with status: answered|blank|unclear).
@@ -565,13 +569,13 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
           serverMs: data.processingTimeMs ?? null,
           startedAt: new Date().toISOString(),
         });
-        setOcrState('done');
-        onOcrSuccess(normalized);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        setCloudError(`Network or client error: ${msg}`);
-        setOcrState('error');
-      }
+        setCloudOcrState('done');
+                onOcrSuccess(normalized);
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                setCloudError(`Network or client error: ${msg}`);
+                setCloudOcrState('error');
+              }
     };
 
   const disabled = !uploadedFile;
@@ -674,20 +678,20 @@ export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
                         })()}
 
                 <BigButton
-                                  providerKey={cloudProvider}
-                                  icon={<CloudIcon />}
-                                  title="3. Run via Cloud API"
-                                  subtitle={
-                                    cloudProvidersConfigured[cloudProvider]
-                                      ? `Using ${cloudProvider.toUpperCase()} — admin-configured on server`
-                                      : 'No API key configured — ask admin to set ICR_CLOUD_API_KEY_' + cloudProvider.toUpperCase()
-                                  }
-                                  timeTaken={null}
-                                  liveElapsed={ocrState === 'running' ? elapsedMs : null}
-                                  state={ocrState}
-                                  onClick={runCloudOcr}
-                                  disabled={disabled || !cloudProvidersConfigured[cloudProvider]}
-                                />
+                                                                  providerKey={cloudProvider}
+                                                                  icon={<CloudIcon />}
+                                                                  title="3. Run via Cloud API"
+                                                                  subtitle={
+                                                                    cloudProvidersConfigured[cloudProvider]
+                                                                      ? `Using ${cloudProvider.toUpperCase()} — admin-configured on server`
+                                                                      : 'No API key configured — ask admin to set ICR_CLOUD_API_KEY_' + cloudProvider.toUpperCase()
+                                                                  }
+                                                                  timeTaken={null}
+                                                                  liveElapsed={cloudOcrState === 'running' ? elapsedMs : null}
+                                                                  state={cloudOcrState}
+                                                                  onClick={runCloudOcr}
+                                                                  disabled={disabled || !cloudProvidersConfigured[cloudProvider]}
+                                                                />
       </div>
 
       {/* Filtered preview + stats panel */}

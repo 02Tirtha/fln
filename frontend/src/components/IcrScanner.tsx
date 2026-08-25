@@ -41,6 +41,109 @@ interface BulkResultItem {
   status: string;
 }
 
+// Lightweight SVG donut chart — correct vs incorrect counts. No external
+// chart library; the math is just arc-length-to-percentage on two slices.
+// `correct` and `incorrect` may be null (e.g. when the report predates
+// per-question truth and we can't reconstruct it) — in that case we show a
+// clear "no data" placeholder instead of silently rendering a wrong chart.
+const DonutChart: React.FC<{
+  correct: number | null;
+  incorrect: number | null;
+  totalQuestions?: number;
+}> = ({ correct, incorrect, totalQuestions }) => {
+  const hasData = typeof correct === 'number' && typeof incorrect === 'number';
+  const total = hasData ? (correct as number) + (incorrect as number) : 0;
+  const correctPct = hasData && total > 0 ? ((correct as number) / total) * 100 : 0;
+  const incorrectPct = hasData && total > 0 ? ((incorrect as number) / total) * 100 : 0;
+
+  // Donut geometry: outer radius 70, inner radius 44, stroke-based arcs.
+  // Use stroke-dasharray on a single circle to draw the two slices; the
+  // circle's circumference is 2πr.
+  const R = 70;
+  const C = 2 * Math.PI * R;
+  // dasharray = "<correct-arc-length> <gap>" — gap = full circumference so
+  // we only ever paint one slice. Rotate the circle so the correct slice
+  // starts at 12 o'clock.
+  const correctArc = (correctPct / 100) * C;
+
+  if (!hasData || total === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-4">
+        <div className="w-40 h-40 rounded-full border-4 border-zinc-200 dark:border-zinc-700 flex items-center justify-center">
+          <div className="text-center">
+            <div className="text-2xl font-display font-bold text-zinc-400">
+              {totalQuestions ?? '—'}
+            </div>
+            <div className="text-[10px] font-mono uppercase tracking-wider text-zinc-400 mt-1">
+              Questions · No per-question data
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-center justify-center py-2">
+      <div className="relative w-40 h-40">
+        <svg viewBox="0 0 160 160" className="w-full h-full -rotate-90">
+          {/* Base ring (incorrect slice in red) — full circle, then we
+              overlay the correct slice on top using dasharray to mask. */}
+          <circle
+            cx="80" cy="80" r={R}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="26"
+            className="text-red-200 dark:text-red-900/40"
+          />
+          {/* Incorrect slice — explicit arc so the red is only where the
+              incorrect percentage is, not bleeding into the correct zone. */}
+          {incorrectPct > 0 && (
+            <circle
+              cx="80" cy="80" r={R}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="26"
+              strokeDasharray={`${(incorrectPct / 100) * C} ${C}`}
+              strokeDashoffset={-(correctPct / 100) * C}
+              className="text-red-500 dark:text-red-500"
+            />
+          )}
+          {/* Correct slice — emerald, starts at the top. */}
+          {correctPct > 0 && (
+            <circle
+              cx="80" cy="80" r={R}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="26"
+              strokeDasharray={`${correctArc} ${C}`}
+              className="text-emerald-500 dark:text-emerald-500"
+            />
+          )}
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <div className="text-2xl font-display font-bold text-zinc-900 dark:text-white">
+            {correct}<span className="text-zinc-400 dark:text-zinc-500 text-lg">/{total}</span>
+          </div>
+          <div className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mt-0.5">
+            Correct
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center gap-4 mt-3 text-xs">
+        <div className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" />
+          <span className="text-zinc-700 dark:text-zinc-300 font-mono">{correct} correct</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-sm bg-red-500" />
+          <span className="text-zinc-700 dark:text-zinc-300 font-mono">{incorrect} incorrect</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) => {
   const [classes, setClasses] = useState<ClassGroup[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
@@ -357,7 +460,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
             if (data.isBulk || selectedStudentId === 'ALL_STUDENTS') {
               setBulkResults(data.results);
               setStep('result');
-              setSuccess(`Fast EasyOCR evaluation complete! Evaluated ${data.totalEvaluated} student answer sheets.`);
+              setSuccess(`Fast OCR evaluation complete! Evaluated ${data.totalEvaluated} student answer sheets.`);
             } else if (data.results && data.results.length > 0) {
               const firstRes: BulkResultItem & { questions?: Array<{ id: string; question: string; correctAnswer: string; topic?: string }> } = data.results[0];
               setOcrPreviewData(firstRes.ocrAnalysis || {
@@ -388,13 +491,13 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                   'Shapes': firstRes.percentage >= 60 ? 'Strong' : 'Needs Practice',
                   'Operations': firstRes.percentage >= 50 ? 'Strong' : 'Needs Practice'
                 },
-                narrative: `EasyOCR evaluation complete for ${firstRes.studentName}. Score: ${firstRes.score}/${firstRes.totalQuestions} (${firstRes.percentage}%). Placed at Level ${firstRes.newLevel}.${firstRes.subLevel}.`,
+                narrative: `OCR evaluation complete for ${firstRes.studentName}. Score: ${firstRes.score}/${firstRes.totalQuestions} (${firstRes.percentage}%). Placed at Level ${firstRes.newLevel}.${firstRes.subLevel}.`,
                 recommendedLevel: firstRes.newLevel,
                 recommendedSubLevel: firstRes.subLevel,
                 timestamp: new Date().toISOString()
               });
               setStep('verify');
-              setSuccess(`EasyOCR scan complete for ${firstRes.studentName}. Review detected text & side-by-side question comparison below. You can edit any OCR mistake before saving!`);
+              setSuccess(`OCR scan complete for ${firstRes.studentName}. Review detected text & side-by-side question comparison below. You can edit any OCR mistake before saving!`);
             }
           } else {
             setError(data.error || 'Failed to process answer sheet file.');
@@ -435,37 +538,63 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
     const ocrValues: string[] = Object.entries(answers).map(([, v]) => String(v.value || ''));
 
     // Fetch the answer key for the selected class (mirrors the Pass OCR
-    // flow). This gives us the actual number of questions (e.g. 15) and
-    // their question text + correctAnswer for the verify table.
-    const cls = classes.find(c => c.id === selectedClassId);
-    let targetStudentId = selectedStudentId && selectedStudentId !== 'ALL_STUDENTS'
-      ? selectedStudentId
-      : students.find(s => cls && (s.classGroup === cls.className || (s.classGroup || '').includes(cls.className)))?.id;
+        // flow). This gives us the actual number of questions (e.g. 15) and
+        // their question text + correctAnswer for the verify table.
+        const cls = classes.find(c => c.id === selectedClassId);
+        let targetStudentId = selectedStudentId && selectedStudentId !== 'ALL_STUDENTS'
+          ? selectedStudentId
+          : students.find(s => cls && (s.classGroup === cls.className || (s.classGroup || '').includes(cls.className)))?.id;
 
-    let loadedQuestions: Array<{ id: string; question: string; correctAnswer: string; topic?: string }> = [];
-    let sourceLabel = '';
-    if (targetStudentId) {
-      try {
-        const res = await apiFetch(
-          `/api/diagnostic/student/${encodeURIComponent(targetStudentId)}/answer-key`,
-          { headers: { 'Authorization': `Bearer ${token}` } }
-        );
-        if (res.ok) {
-          const ak = (await res.json())?.answerKey || [];
-          if (Array.isArray(ak) && ak.length > 0) {
-            loadedQuestions = ak.map((item: any, i: number) => ({
-              id: item.qid || item.question_id || item.id || `q_${i + 1}`,
-              question: item.question || item.prompt || `Question #${i + 1}`,
-              correctAnswer: String(item.answer ?? item.expected ?? ''),
-              topic: item.topic,
-            }));
-            sourceLabel = `mapped ${Math.min(ocrValues.length, loadedQuestions.length)} OCR values into ${loadedQuestions.length} answer-key fields`;
+        let loadedQuestions: Array<{ id: string; question: string; correctAnswer: string; topic?: string }> = [];
+        let sourceLabel = '';
+        if (targetStudentId) {
+          try {
+            const res = await apiFetch(
+              `/api/diagnostic/student/${encodeURIComponent(targetStudentId)}/answer-key`,
+              { headers: { 'Authorization': `Bearer ${token}` } }
+            );
+            if (res.ok) {
+              const ak = (await res.json())?.answerKey || [];
+              if (Array.isArray(ak) && ak.length > 0) {
+                loadedQuestions = ak.map((item: any, i: number) => ({
+                  id: item.qid || item.question_id || item.id || `q_${i + 1}`,
+                  question: item.question || item.prompt || `Question #${i + 1}`,
+                  correctAnswer: String(item.answer ?? item.expected ?? ''),
+                  topic: item.topic,
+                }));
+                sourceLabel = `mapped ${Math.min(ocrValues.length, loadedQuestions.length)} OCR values into ${loadedQuestions.length} answer-key fields`;
+              }
+            }
+          } catch {
+            // non-fatal, fall through to class-level fallback
           }
         }
-      } catch {
-        // non-fatal, fall through to placeholder grid
-      }
-    }
+        // Fallback: no per-student key resolved. Try the latest class-level
+        // answer key — the class paper is the same across students up to
+        // randomization, so this is a safe proxy for single-sheet scans
+        // where no specific student was selected.
+        if (loadedQuestions.length === 0 && cls?.classNumber) {
+          try {
+            const res = await apiFetch(
+              `/api/diagnostic/class/${encodeURIComponent(String(cls.classNumber))}/answer-key`,
+              { headers: { 'Authorization': `Bearer ${token}` } }
+            );
+            if (res.ok) {
+              const ak = (await res.json())?.answerKey || [];
+              if (Array.isArray(ak) && ak.length > 0) {
+                loadedQuestions = ak.map((item: any, i: number) => ({
+                  id: item.qid || item.question_id || item.id || `q_${i + 1}`,
+                  question: item.question || item.prompt || `Question #${i + 1}`,
+                  correctAnswer: String(item.answer ?? item.expected ?? ''),
+                  topic: item.topic,
+                }));
+                sourceLabel = `class-level answer key (${loadedQuestions.length} fields) — no student selected`;
+              }
+            }
+          } catch {
+            // non-fatal, fall through to placeholder grid
+          }
+        }
 
     // Fallback: if no answer key, build N rows from the OCR'd count.
     if (loadedQuestions.length === 0) {
@@ -608,7 +737,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
             ICR Answer Sheet OCR Scanner Engine
           </h2>
           <p className="text-zinc-500 dark:text-zinc-400 text-sm mt-0.5">
-            Dedicated EasyOCR optical character extraction for handwritten student answer sheets (Images & PDFs).
+            Dedicated optical character extraction for handwritten student answer sheets (Images & PDFs).
           </p>
         </div>
         {step !== 'select' && (
@@ -658,7 +787,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
             </div>
             <h3 className="text-xl font-display font-semibold text-zinc-900 dark:text-white">Optical Character Recognition (OCR) Scanner</h3>
             <p className="text-zinc-500 dark:text-zinc-400 text-sm max-w-md mx-auto">
-              Select a class, upload photo images (PNG/JPG) or PDF files of student answer sheets, and run EasyOCR.
+              Select a class, upload photo images (PNG/JPG) or PDF files of student answer sheets, and run OCR.
             </p>
           </div>
 
@@ -766,7 +895,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                       disabled={loading}
                       className="bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs py-2 px-5 rounded-lg transition-colors shadow-sm"
                     >
-                      {loading ? 'Running…' : 'Run EasyOCR Scan (Legacy)'}
+                      {loading ? 'Running…' : 'Run OCR Scan (Legacy)'}
                     </button>
                   </div>
 
@@ -780,7 +909,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                         <span className="text-[10px] font-mono font-bold uppercase text-blue-700 dark:text-blue-300 tracking-wider">
                           {scanStage === 'reading' && 'Reading file…'}
                           {scanStage === 'filtering' && 'Filtering blue ink (~50ms)…'}
-                          {scanStage === 'ocr' && 'Running EasyOCR (~2–3s)…'}
+                          {scanStage === 'ocr' && 'Running OCR (~2–3s)…'}
                         </span>
                       </div>
                       <div className="flex gap-1">
@@ -828,7 +957,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                     OCR Extracted: {Object.values(extractedAnswers).filter(v => v && String(v).trim()).length} answers
                   </h3>
                   <p className="text-emerald-50 text-sm">
-                    EasyOCR read the following values from the scanned sheet. Edit any mistakes in the table below.
+                    OCR read the following values from the scanned sheet. Edit any mistakes in the table below.
                   </p>
                 </div>
               </div>
@@ -862,7 +991,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                 </div>
                 <div>
                   <h4 className="text-sm font-display font-semibold text-zinc-900">
-                    {ocrPreviewData?.ocrEngine?.startsWith('Cloud OCR') ? 'Cloud Scan Complete' : 'EasyOCR Scan Complete'}
+                    {ocrPreviewData?.ocrEngine?.startsWith('Cloud OCR') ? 'Cloud Scan Complete' : 'OCR Scan Complete'}
                   </h4>
                   <p className="text-xs text-zinc-500">
                     {ocrPreviewData?.ocrEngine || 'Sub-second PyTorch character extraction'}
@@ -870,7 +999,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                 </div>
               </div>
               <p className="text-xs text-zinc-600 leading-relaxed bg-white/60 p-3 rounded-lg border border-emerald-100">
-                Inspect raw EasyOCR detection output and token confidence below before final verification!
+                Inspect raw OCR detection output and token confidence below before final verification!
               </p>
             </div>
 
@@ -879,11 +1008,11 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                   <h5 className="text-[11px] font-mono font-bold uppercase tracking-wider text-slate-300">
-                    Raw EasyOCR Inspection Panel
+                    Raw OCR Inspection Panel
                   </h5>
                 </div>
                 <span className="text-[10px] font-mono bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded border border-blue-500/30">
-                  EasyOCR Fast
+                  OCR Fast
                 </span>
               </div>
 
@@ -914,10 +1043,10 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
               <div className="flex justify-between items-center border-b border-zinc-200 dark:border-zinc-700 pb-3">
                 <div>
                   <h4 className="text-lg font-display font-medium text-zinc-900 dark:text-white mb-0.5">
-                    Step 2: Verify & Rectify EasyOCR Character Detection
+                    Step 2: Verify & Rectify Character Detection
                   </h4>
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                    Verify the handwritten digits recognized by EasyOCR. If the OCR engine misread a student digit, rectify it below before confirming evaluation.
+                    Verify the handwritten digits recognized by OCR. If the OCR engine misread a student digit, rectify it below before confirming evaluation.
                   </p>
                 </div>
                 <div>
@@ -1024,7 +1153,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                                 ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
                                 : 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
                             }`}>
-                              {isTeacherEdited ? '✏️ Teacher Rectified' : '✓ EasyOCR Detected'}
+                              {isTeacherEdited ? '✏️ Teacher Rectified' : '✓ OCR Detected'}
                             </span>
                           </td>
                         </tr>
@@ -1060,9 +1189,9 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
-                <h3 className="text-2xl font-display font-semibold text-zinc-900 dark:text-white">Class-Wide EasyOCR Evaluation Complete</h3>
+                <h3 className="text-2xl font-display font-semibold text-zinc-900 dark:text-white">Class-Wide OCR Evaluation Complete</h3>
                 <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                  Evaluated <strong>{bulkResults.length} student answer sheets</strong> via Fast PyTorch EasyOCR Engine.
+                  Evaluated <strong>{bulkResults.length} student answer sheets</strong> via Fast PyTorch OCR Engine.
                 </p>
               </div>
 
@@ -1223,28 +1352,75 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
-                <h3 className="text-xl font-display font-semibold text-zinc-900 dark:text-white">ICR EasyOCR Evaluation Complete</h3>
+                <h3 className="text-xl font-display font-semibold text-zinc-900 dark:text-white">ICR Evaluation Complete</h3>
                 <p className="text-sm text-zinc-500 dark:text-zinc-400">
                   Answer sheet has been verified & saved to student records.
                 </p>
               </div>
 
-              <div className="grid grid-cols-3 gap-4 border-y border-zinc-200 dark:border-zinc-700 py-4">
-                <div className="text-center">
-                  <span className="block text-xs font-mono text-zinc-400 uppercase">Final Score</span>
-                  <span className="text-2xl font-display font-bold text-zinc-900 dark:text-white">
-                    {questions.reduce((acc, q) => (q && (extractedAnswers[q.id] || '').trim() === (q.correctAnswer || '').trim() ? acc + 1 : acc), 0)} / {questions.length || report.totalQuestions}
-                  </span>
-                </div>
-                <div className="text-center border-x border-zinc-200 dark:border-zinc-700">
-                  <span className="block text-xs font-mono text-zinc-400 uppercase">Placed Level</span>
-                  <span className="text-2xl font-display font-bold text-zinc-900 dark:text-white">L{report.recommendedLevel}.{report.recommendedSubLevel ?? 0}</span>
-                </div>
-                <div className="text-center">
-                  <span className="block text-xs font-mono text-zinc-400 uppercase">Status</span>
-                  <span className="text-2xl font-display font-bold text-green-600">Verified & Certified</span>
-                </div>
-              </div>
+              <div className="space-y-4">
+                              {/* Donut chart: correct vs incorrect questions. Centered,
+                                  visually prominent — this is now the primary outcome of
+                                  the diagnostic. SVG-only, no chart library. Counts come
+                                  from questionResults (per-question truth) when present,
+                                  falling back to derived accuracy from the submitted
+                                  answers. */}
+                              <DonutChart
+                                                                correct={report.questionResults?.filter((r) => r.isCorrect).length
+                                                                  ?? null}
+                                                                incorrect={report.questionResults?.filter((r) => !r.isCorrect).length
+                                                                  ?? null}
+                                                                totalQuestions={report.totalQuestions}
+                                                              />
+
+                              {/* Per-level breakdown — driven by passedLevels / failedLevels
+                                  populated by the backend. The "Placed Level" column was
+                                  intentionally removed: the diagnostic is analytics-first
+                                  and does not assign a level to the student. */}
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 p-3">
+                                  <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300 mb-1">
+                                    Levels Passed ({report.passedLevels?.length ?? 0})
+                                  </div>
+                                  <div className="text-sm text-emerald-900 dark:text-emerald-100">
+                                    {(report.passedLevels?.length ?? 0) > 0
+                                      ? report.passedLevels!.map((l) => `L${l}`).join(', ')
+                                      : 'No levels passed in this diagnostic.'}
+                                  </div>
+                                </div>
+                                <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 p-3">
+                                  <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300 mb-1">
+                                    Levels To Work On ({report.failedLevels?.length ?? 0})
+                                  </div>
+                                  <div className="text-sm text-amber-900 dark:text-amber-100">
+                                    {(report.failedLevels?.length ?? 0) > 0
+                                      ? report.failedLevels!.map((l) => `L${l}`).join(', ')
+                                      : 'None — great work!'}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {(report.skillGaps?.length ?? 0) > 0 && (
+                                <div className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900/60 p-3">
+                                  <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1.5">
+                                    Skills To Build (from cross-skill graph)
+                                  </div>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {report.skillGaps!.map((g) => (
+                                      <span
+                                        key={g.conceptId}
+                                        title={`${g.strand} — L${g.level}: ${g.levelTitle}`}
+                                        className="inline-flex items-center gap-1 rounded-full border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-slate-800 px-2.5 py-1 text-xs text-zinc-800 dark:text-zinc-100"
+                                      >
+                                        <span className="font-mono text-[10px] text-zinc-500 dark:text-zinc-400">L{g.level}</span>
+                                        <span>{g.levelTitle}</span>
+                                        <span className="text-[10px] text-zinc-400 dark:text-zinc-500">· {g.strand}</span>
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
 
               {questions.length > 0 && (
                 <div className="space-y-3">
