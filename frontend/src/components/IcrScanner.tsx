@@ -93,7 +93,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
     } else if (questions && questions.length > 0) {
       questions.forEach((q, idx) => {
         const qId = q.id || `Q${idx + 1}`;
-        const userVal = String(originalOcrAnswers[qId] || (report as any).extractedAnswers?.[qId] || '');
+        const userVal = String(extractedAnswers[qId] || originalOcrAnswers[qId] || (report as any).extractedAnswers?.[qId] || '');
         const isMatch = String(q.correctAnswer).trim().toLowerCase() === userVal.trim().toLowerCase();
         if (!isMatch) failedQuestionIds.push(qId);
       });
@@ -1185,9 +1185,9 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
-                <h3 className="text-2xl font-display font-semibold text-zinc-900 dark:text-white">Class-Wide EasyOCR Evaluation Complete</h3>
+                <h3 className="text-2xl font-display font-semibold text-zinc-900 dark:text-white">Class-Wide OCR Evaluation Complete</h3>
                 <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                  Evaluated <strong>{bulkResults.length} student answer sheets</strong> via Fast PyTorch EasyOCR Engine.
+                  Evaluated <strong>{bulkResults.length} student answer sheets</strong> via Fast PyTorch OCR Engine.
                 </p>
               </div>
 
@@ -1348,7 +1348,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
-                <h3 className="text-xl font-display font-semibold text-zinc-900 dark:text-white">ICR EasyOCR Evaluation Complete</h3>
+                <h3 className="text-xl font-display font-semibold text-zinc-900 dark:text-white">ICR Evaluation Complete</h3>
                 <p className="text-sm text-zinc-500 dark:text-zinc-400">
                   Answer sheet has been verified & saved to student records.
                 </p>
