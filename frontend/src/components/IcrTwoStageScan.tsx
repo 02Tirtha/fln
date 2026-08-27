@@ -64,8 +64,14 @@ function formatMs(ms: number): string {
   return `${(ms / 1000).toFixed(2)} s`;
 }
 
-const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // matches backend's 8MB cap
-const MAX_UPLOAD_LABEL = '8 MB';
+// The old 8MB figure was a leftover from a since-deleted code path (the
+// removed /api/icr/filter + local-EasyOCR flow). The current backend
+// rasterizes PDFs itself (evaluation.ts) and only rejects a PDF above
+// MAX_TOTAL_BASE64 = 24MB base64 (~18MB binary); nginx's /fln location caps
+// request bodies at 25MB. 18MB raw stays safely under both once base64
+// inflation (~1.33x) is accounted for.
+const MAX_UPLOAD_BYTES = 18 * 1024 * 1024;
+const MAX_UPLOAD_LABEL = '18 MB';
 
 export const IcrTwoStageScan: React.FC<IcrTwoStageScanProps> = ({
   token,
