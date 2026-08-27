@@ -381,10 +381,21 @@ export interface EvaluationReport {
   // correcting, since a correction is meaningless without knowing which
   // question is being corrected.
   questionResults?: { questionId: string; question?: string; correctAnswer?: string; submittedAnswer: string; isCorrect: boolean }[];
-  teacherReviewed?: boolean;
-  reviewedBy?: string; // reviewing teacher's email
-  reviewedAt?: string;
-}
+    teacherReviewed?: boolean;
+    reviewedBy?: string; // reviewing teacher's email
+    reviewedAt?: string;
+    // Per-level pass/fail breakdown for diagnostic reports — the diagnostic
+    // intentionally does NOT assign a placement level (we are heading toward
+    // analytics & reports, which read these instead). Populated wherever the
+    // grading code knows the per-question source_level.
+    passedLevels?: number[];
+    failedLevels?: number[];
+    // Skills the student is struggling with — conceptIds of the failed levels
+    // plus any direct prerequisites (so the panel can show "you have gaps in
+    // Number Sense: Counting 6-10"). Drives the status text in the diagnostic
+    // panel instead of the old hardcoded "Verified & Certified".
+    skillGaps?: { conceptId: string; level: number; levelTitle: string; strand: string }[];
+  }
 
 export interface Ticket {
   id: string;
@@ -518,7 +529,7 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
   examBlueprints: 'exam_blueprints',
 };
 
-export class DBStore {
+  export class DBStore {
   private data: DatabaseSchema | null = null;
   public useMongo: boolean = false;
   private mongoDb: Db | null = null;
@@ -1047,27 +1058,27 @@ export class DBStore {
   }
 
   async getStudentAssignedQuestions(studentId: string, classNumber: number = 2): Promise<Question[]> {
-    let student: Student | null = null;
-    if (this.mongoDb) {
-      student = await this.mongoDb.collection<Student>('students').findOne({ id: studentId });
+      let student: Student | null = null;
+      if (this.mongoDb) {
+        student = await this.mongoDb.collection<Student>('students').findOne({ id: studentId });
+      }
+      if (!student && this.data && this.data.students) {
+        student = this.data.students.find(s => s.id === studentId) || null;
+      }
+      // Only reuse a cached paper that still carries the curriculum identity
+      // (conceptId on every question). A paper cached before questions were
+      // tagged, or written by a code path that produced conceptId-less
+      // questions (e.g. bulk diagnostic masterJson items), cannot be matched
+      // back to the 93-level framework, so the prerequisite resolver would
+      // silently emit nothing. Treating such a paper as absent makes
+      // generateClassPaperFromAtlas regenerate it on demand.
+      const cached = student?.assignedDiagnosticQuestions;
+      if (cached && cached.length > 0 && cached.every(q => q.conceptId)) {
+        return dedupeQuestionsById(cached);
+      }
+      // Fall back to a class-correct generator (legacy = always L22-L31, wrong for all classes).
+      return await this.generateClassPaperFromAtlas(studentId, classNumber);
     }
-    if (!student && this.data && this.data.students) {
-      student = this.data.students.find(s => s.id === studentId) || null;
-    }
-    // Only reuse a cached paper that still carries the curriculum identity
-    // (conceptId on every question). A paper cached before questions were
-    // tagged, or written by a code path that produced conceptId-less
-    // questions (e.g. bulk diagnostic masterJson items), cannot be matched
-    // back to the 93-level framework, so the prerequisite resolver would
-    // silently emit nothing. Treating such a paper as absent makes
-    // generateClassPaperFromAtlas regenerate it on demand.
-    const cached = student?.assignedDiagnosticQuestions;
-    if (cached && cached.length > 0 && cached.every(q => q.conceptId)) {
-      return cached;
-    }
-    // Fall back to a class-correct generator (legacy = always L22-L31, wrong for all classes).
-    return await this.generateClassPaperFromAtlas(studentId, classNumber);
-  }
 
   async getAnswerSubmissions() {
     if (this.mongoDb) return await this.mongoDb.collection<AnswerSubmission>('answerSubmissions').find({}).toArray();
@@ -1582,14 +1593,31 @@ export class DBStore {
   }
 
   async getStudentDiagnosticAnswerKey(studentId: string, jobId?: string): Promise<DiagnosticAnswerKey | null> {
-    if (this.mongoDb) {
-      const query: any = { studentId };
-      if (jobId) query.jobId = jobId;
-      return await this.mongoDb.collection<DiagnosticAnswerKey>('diagnostic_answer_keys').findOne(query, { sort: { createdAt: -1 } });
+      if (this.mongoDb) {
+        const query: any = { studentId };
+        if (jobId) query.jobId = jobId;
+        return await this.mongoDb.collection<DiagnosticAnswerKey>('diagnostic_answer_keys').findOne(query, { sort: { createdAt: -1 } });
+      }
+      const keys = (this.data?.diagnosticAnswerKeys || []).filter(k => k.studentId === studentId && (!jobId || k.jobId === jobId));
+      return keys[keys.length - 1] || null;
     }
-    const keys = (this.data?.diagnosticAnswerKeys || []).filter(k => k.studentId === studentId && (!jobId || k.jobId === jobId));
-    return keys[keys.length - 1] || null;
-  }
+
+    // Fetch the latest diagnostic answer key for any student in a given class —
+    // used when a single sheet scan is performed without a specific student
+    // selected (the OCR can't ask "which student", so it grabs the most
+    // recently generated paper for that class). All students in the same class
+    // get the same paper up to per-student randomization, so this is a safe
+    // approximation when no per-student answer key is available.
+    async getLatestClassAnswerKey(classNumber: number): Promise<DiagnosticAnswerKey | null> {
+      if (this.mongoDb) {
+        return await this.mongoDb.collection<DiagnosticAnswerKey>('diagnostic_answer_keys')
+          .findOne({ classNumber }, { sort: { createdAt: -1 } });
+      }
+      const keys = (this.data?.diagnosticAnswerKeys || [])
+        .filter(k => k.classNumber === classNumber)
+        .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+      return keys[0] || null;
+    }
 
   async findQuestionInAnyDiagnosticAnswerKey(questionId: string): Promise<any | null> {
     const baseId = questionId.replace(/_b\d+$/, '');
