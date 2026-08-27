@@ -368,7 +368,7 @@ export function registerEvaluationRoutes(app: express.Express) {
             }
             const pagePaths: string[] = pdfJson.pages.map((p: any) => p.output_path).filter(Boolean);
             // Safety caps: refuse to OCR absurdly long PDFs.
-            const MAX_PAGES = 10;
+            const MAX_PAGES = 25;
             if (pagePaths.length > MAX_PAGES) {
               try { fs.rmSync(pdfPath, { force: true }); } catch { /* noop */ }
               try { fs.rmSync(pagesDir, { recursive: true, force: true }); } catch { /* noop */ }
@@ -384,7 +384,7 @@ export function registerEvaluationRoutes(app: express.Express) {
             // Safety cap on cumulative base64 size — Ollama's /api/chat
             // accepts large request bodies but we shouldn't push 50+ MB.
             const totalBase64Bytes = imageBase64s.reduce((n, s) => n + s.length, 0);
-            const MAX_TOTAL_BASE64 = 24 * 1024 * 1024; // ~24 MB base64 ≈ 18 MB binary
+            const MAX_TOTAL_BASE64 = 60 * 1024 * 1024; // ~60 MB base64 ≈ 45 MB binary — sized for MAX_PAGES=25 at up to ~2.4MB base64/page avg
             if (totalBase64Bytes > MAX_TOTAL_BASE64) {
               try { fs.rmSync(pdfPath, { force: true }); } catch { /* noop */ }
               try { fs.rmSync(pagesDir, { recursive: true, force: true }); } catch { /* noop */ }
