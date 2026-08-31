@@ -724,8 +724,8 @@ export const LEVEL_SKILL_MAP: LevelSkillMapping[] = [
     { prerequisites: ['L67','L68'], relationshipType: 'often_precedes' }),
   makeLevel(90, 'Decimals (Tenths & Hundredths)',       ['SK08','SK17'], ['SK11','SK12'],
     { prerequisites: [
-      { levelId: 'L63', relationshipType: 'required_for_procedure',
-        rationale: 'Decimal place value is a direct extension of whole-number decomposition (weakest of the surviving #279 edges — worth a second opinion)' },
+      { levelId: 'L63', relationshipType: 'supports',
+        rationale: "Demoted from required_for_procedure on review: L90's objective is reading/writing/comparing tenths and hundredths, which does not require flexibly decomposing 3-digit whole numbers. Curricula (Common Core, NCERT) introduce decimals as an extension of fraction notation (L81), not whole-number decomposition. A whole-number place-value link exists but is closer to L62 (3-digit place value/expanded form) than to L63 specifically." },
       { levelId: 'L81', relationshipType: 'required_for_procedure',
         rationale: 'Decimals are standardly introduced as an extension of fraction notation' }] }),
   makeLevel(91, 'Angles & Turn',                        ['SK19'], ['SK10'],

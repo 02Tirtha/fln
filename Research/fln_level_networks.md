@@ -342,8 +342,8 @@ The reduction against testing every level is still substantial (Class 1: 22 ques
 
 Part 4b's reconciliation covered edges present in *both* graphs. Separately, the code carries **66 edges the research graph doesn't have at all** — cross-links that fell out of the code's skill-first construction (linking through shared SK skills) rather than this document's chain-first one (see issue #279 for the full 66; **28 of those are typed `required_for_procedure`** in the code, which is the set adjudicated here, applying the same surmise test as Part 2: *does passing the downstream node make upstream mastery near-certain?*
 
-- **25 edges survive as hard (→).** Added below, each with a rationale, per the standing rule.
-- **3 edges are demoted** (→ to a soft type in the code): `S4.5→S4.6` (L32→L33, single-digit addition doesn't need place-value understanding), `S6.5→S6.11` (L66→L72, money arithmetic doesn't require 3-digit fluency specifically), `S7.7→S7.18` (L82→L93, perimeter/area doesn't require unit conversion — only the mixed-unit subset of problems does).
+- **24 edges survive as hard (→).** Added below, each with a rationale, per the standing rule.
+- **4 edges are demoted** (→ to a soft type in the code): `S4.5→S4.6` (L32→L33, single-digit addition doesn't need place-value understanding), `S6.5→S6.11` (L66→L72, money arithmetic doesn't require 3-digit fluency specifically), `S7.7→S7.18` (L82→L93, perimeter/area doesn't require unit conversion — only the mixed-unit subset of problems does), `S6.2→S7.15` (L63→L90, decimals are reading/writing/comparing tenths and hundredths, which doesn't need flexible 3-digit whole-number decomposition — see below).
 
 | Edge | L-notation | Rationale |
 |---|---|---|
@@ -365,7 +365,6 @@ Part 4b's reconciliation covered edges present in *both* graphs. Separately, the
 | S5.8→S7.4 | L50→L79 | Extended multiplication requires basic multiplication-table fluency |
 | S6.1→S6.4 | L62→L65 | Place-value range extension, 3 to 4 digits |
 | S6.1→S7.1 | L62→L76 | Place-value range extension, 3 to 4/5 digits |
-| S6.2→S7.15 | L63→L90 | Decimal place value is a direct extension of whole-number decomposition — weakest of the 25, flagged for a second opinion rather than treated as settled |
 | S6.5→S7.2 | L66→L77 | 3-digit regrouping is foundational to large-number regrouping |
 | S6.6→S7.4 | L67→L79 | Extended multiplication requires the fuller table set, parallel to S5.8→S7.4 |
 | S6.7→S7.5 | L68→L80 | Long division requires division-fact fluency |
@@ -373,7 +372,9 @@ Part 4b's reconciliation covered edges present in *both* graphs. Separately, the
 | S7.1→S7.5 | L76→L80 | Long division of large numbers needs the same place-value grounding |
 | S7.6→S7.15 | L81→L90 | Decimals are standardly introduced as an extension of fraction notation |
 
-**Edge types after this adjudication: 92 prereq (→), 34 sequence (⇢), 6 parallel (∥) = 132** (Part 4b's 104 named-graph edges, plus 28 newly-adjudicated code-only edges: 25 promoted to →, 3 already ⇢).
+**L63→L90 (Flexible 3-Digit Decomposition → Decimals) — demoted on review, not kept hard.** L90's actual objective is reading/writing/comparing tenths and hundredths; nothing in it requires flexibly decomposing a 3-digit whole number. Common Core and NCERT both introduce decimals as fraction notation (denominators 10/100) converted to decimal form — i.e. via L81, already a separate hard prerequisite here — not via whole-number decomposition. A whole-number place-value link to decimals does exist eventually (e.g. 3.47 = 3 ones + 4 tenths + 7 hundredths), but the closer match for that is L62 (3-digit place value/expanded form), not L63 specifically. Demoted to `supports`.
+
+**Edge types after this adjudication: 91 prereq (→), 35 sequence (⇢), 6 parallel (∥) = 132** (Part 4b's 104 named-graph edges, plus 28 newly-adjudicated code-only edges: 24 promoted to →, 4 already ⇢).
 
 Apex-set sizes were not recomputed against this addition — Part 4b's table above predates it. Whoever next touches apex selection should treat those numbers as stale pending a recompute over the fuller edge set.
 
