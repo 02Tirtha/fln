@@ -1,11 +1,14 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { randomUUID } from 'crypto';
 import { dbStore, EvaluationReport, Student, AnswerSubmission, UserRole, CYCLE_NAMES, dedupeQuestionsById } from '../db';
 import { getAuthUser, canAccessStudent } from '../auth';
 import { evaluateAIWorksheet } from '../gemini';
 import { PYTHON_BIN, AI_SERVICES_DIR } from '../config';
+import { invalidateFingerprintCache } from './misconceptions';
+import { assignStudentToArchetype } from '../studentArchetypeService';
 import { CURRICULUM_MAPPING } from '../config/curriculumMap';
 import { directPrerequisites, describeConcept } from '../competencyPrerequisites';
 
@@ -820,6 +823,7 @@ export function registerEvaluationRoutes(app: express.Express) {
     };
 
     await dbStore.addAnswerSubmission(submission);
+    invalidateFingerprintCache();
 
     // Save Evaluation Report
     const report: EvaluationReport = {
@@ -845,6 +849,12 @@ export function registerEvaluationRoutes(app: express.Express) {
     };
 
     await dbStore.addEvaluationReport(report);
+
+    try {
+      await assignStudentToArchetype(studentId);
+    } catch (error) {
+      console.error('[archetype] Failed to assign student to misconception archetype:', error);
+    }
 
     // If correct, update student levels
     const levelHistory = [...student.levelHistory];
