@@ -39,6 +39,7 @@ import { registerAnalyticsRoutes } from './routes/analytics';
 import { registerDiagnosticBulkRoutes } from './routes/diagnosticBulk';
 import remediationRoutes from './routes/remediation.routes';
 import blueprintRoutes from './routes/blueprint.routes';
+import { registerMisconceptionRoutes } from './routes/misconceptions';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
 import bcrypt from 'bcrypt';
@@ -144,6 +145,10 @@ registerStatsRoutes(app);
   
   app.use('/api/remediation', remediationRoutes);
   app.use('/api/blueprint', blueprintRoutes);
+
+  // Read-only analysis over already-graded submissions: clusters a cohort on
+  // HOW its children fail rather than how much they score.
+  registerMisconceptionRoutes(app);
 
   // --- Intervention Tracking & Best Practices Repository ---
 

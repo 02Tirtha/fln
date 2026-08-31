@@ -183,6 +183,27 @@ export interface DiagnosticAnswerKey {
   questionPaperJson: any;
   questions: Question[];
   answerKey?: any;
+  /**
+   * One physical answer region per gradable question, keyed by the real
+   * question id, measured from the rendered worksheet at generation time.
+   *
+   * Distinct from `coords` above, which is keyed by layout name and cannot be
+   * joined to a question id. This is what a scan reads: crop the region for
+   * question X, recognise what is inside it, and the result is question X's
+   * answer — no inference from ordering.
+   */
+  answerRegions?: Array<{
+    question_id: string;
+    /** Section heading the offset is measured from; found in the PDF text layer. */
+    anchor?: string;
+    dx_mm?: number;
+    dy_mm?: number;
+    page: number;
+    x_mm: number;
+    y_mm: number;
+    w_mm: number;
+    h_mm: number;
+  }>;
   createdAt: string;
 }
 
@@ -273,6 +294,22 @@ export interface AnswerSubmission {
   submittedAt: string;
   isDelayed: boolean;
   answers: { [questionId: string]: string }; // Q1 -> A, Q2 -> 5, etc.
+  /**
+   * The paper this submission was written against, for assessments that have no
+   * persisted `Worksheet` to join to.
+   *
+   * A worksheet submission resolves its questions through `worksheetId`. A
+   * diagnostic and an ICR scan do not: both are generated per child and neither
+   * is stored as a `Worksheet`, so `answers` alone is an unreadable map of ids
+   * to strings — there is nothing to say what was asked or what the right answer
+   * was. Recording the paper here makes the submission self-describing rather
+   * than inventing synthetic `Worksheet` rows that would surface in the
+   * generation and lock screens.
+   *
+   * Optional: submissions written before this field existed, and worksheet
+   * submissions that do not need it, simply omit it.
+   */
+  questions?: Question[];
 }
 
 export type ConfidenceLevel = 'Very High' | 'High' | 'Moderate' | 'Low';
@@ -373,6 +410,29 @@ export interface EvaluationReport {
   recommendedLevel: number;
   recommendedSubLevel?: number;
   timestamp: string;
+  /**
+   * Per-wrong-answer root causes from the Python pipeline (`ai-services`,
+   * step 2 `evaluate_child`).
+   *
+   * The pipeline has always produced these; until now the backend read only
+   * `topics_to_focus` out of its JSON and discarded the rest, so the analysis
+   * was recomputed on every diagnostic and then thrown away. Optional because
+   * the worksheet-evaluation path does not run the pipeline.
+   */
+  rootCauses?: Array<{
+    questionId: string;
+    error: string;
+    topic: string;
+    flnLevel: number;
+    /** conceptual = doesn't understand · careless = slip · prerequisite = missing foundation */
+    errorType: 'conceptual' | 'careless' | 'prerequisite' | string;
+    analysis: string;
+  }>;
+  levelsFailed?: number[];
+  prerequisitesToCheck?: string[];
+  performanceByDifficulty?: {
+    [difficulty: string]: { attempted: number; correct: number };
+  };
   reasoning?: EvaluationReasoning;
   // Issue #180: per-question breakdown, populated at creation time wherever
   // the grading logic already has this data. Optional because older reports
@@ -482,6 +542,40 @@ export interface BestPractice {
   viewCount: number;
   createdAt: string;
 }
+export interface MisconceptionCluster {
+  id: string;
+  name: string;
+  description: string;
+  teacherAction: string;
+  forwardRisk: string;
+  studentIds: string[];
+  centroid?: number[];
+  /**
+   * The class this archetype belongs to. Archetypes never span classes: the
+   * same-looking error means something different at each level (an off-by-one
+   * in Class 2 counting is not the off-by-one of Class 4 regrouping), and a
+   * teaching group a teacher can act on has to be one class they actually
+   * teach. Optional only because clusters created before this field existed
+   * carry no class; those are treated as belonging to no class and skipped.
+   */
+  classGroup?: string;
+  /**
+   * Who last renamed this archetype by hand, if anyone.
+   *
+   * Presence marks the name as human-authored, which is what stops automation
+   * from taking it back: the deterministic re-naming pass skips these outright
+   * rather than relying on the name merely not *looking* like a placeholder.
+   *
+   * Worth knowing when reading these: an archetype is scoped by `classGroup`
+   * alone and carries no `schoolId`, so a rename is visible to every school
+   * teaching that class — hence recording who did it.
+   */
+  nameSetBy?: string;
+  nameSetByRole?: UserRole;
+  nameSetAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 interface DatabaseSchema {
   users: User[];
@@ -501,6 +595,7 @@ interface DatabaseSchema {
   interventions: Intervention[];
   bestPractices: BestPractice[];
   diagnosticAnswerKeys: DiagnosticAnswerKey[];
+  misconceptionClusters: MisconceptionCluster[];
   testHistory: TestHistoryEntry[];
   remediationLedgers: any[];
   examBlueprints: any[];
@@ -528,6 +623,51 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
   remediationLedgers: 'remediation_ledgers',
   examBlueprints: 'exam_blueprints',
 };
+  misconceptionClusters: 'misconception_clusters',
+  testHistory: 'testHistory',
+};
+
+  /**
+   * Collapse multiple `Question` rows that share the same `question_id` into a
+   * single row, comma-joining their `answer` values so no information is lost.
+   *
+   * The diagnostic paper can be assembled from several sources (cached
+   * `assignedDiagnosticQuestions`, the freshly-generated class paper, the
+   * `questionBank` collection). When those paths overlap the same question
+   * can appear more than once. Without deduping, the OCR scan would treat
+   * the duplicate as a separate row, inflate the total count, and silently
+   * double-count correct/incorrect in the donut.
+   *
+   * Behavior:
+   *   - First occurrence of each `question_id` wins for the metadata fields
+   *     (conceptId, source_level, topic, ...).
+   *   - Subsequent duplicates contribute their `answer` value to a comma-
+   *     separated list on the merged row (de-duplicated within the join so
+   *     the same answer string isn't repeated).
+   *   - Order of the original list is preserved (first-seen order), so
+   *     downstream iteration matches the paper the student was actually shown.
+   */
+  export function dedupeQuestionsById(questions: Question[]): Question[] {
+    const byId = new Map<string, Question>();
+    const order: string[] = [];
+    for (const q of questions) {
+      const id = q.question_id;
+      if (!id) continue;
+      if (!byId.has(id)) {
+        order.push(id);
+        byId.set(id, { ...q });
+        continue;
+      }
+      const existing = byId.get(id)!;
+      const parts = new Set<string>();
+      const existingParts = String(existing.answer ?? '').split(',').map(s => s.trim()).filter(Boolean);
+      existingParts.forEach(p => parts.add(p));
+      const incoming = String(q.answer ?? '').split(',').map(s => s.trim()).filter(Boolean);
+      incoming.forEach(p => parts.add(p));
+      existing.answer = Array.from(parts).join(', ');
+    }
+    return order.map(id => byId.get(id)!);
+  }
 
   export class DBStore {
   private data: DatabaseSchema | null = null;
@@ -754,6 +894,19 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
     if (opts?.offset) result = result.slice(opts.offset);
     if (opts?.limit) result = result.slice(0, opts.limit);
     return result;
+  }
+  /**
+   * One student by business id, without pulling the collection.
+   *
+   * `getStudents()` ships all 86k student documents to the caller; anything
+   * that needs a single child (archetype assignment runs once per evaluation,
+   * and once per student inside the bulk ICR loop) must not pay that.
+   */
+  async getStudentById(id: string): Promise<Student | null> {
+    if (this.mongoDb) {
+      return await this.mongoDb.collection<Student>('students').findOne({ id });
+    }
+    return (this.data?.students || []).find(s => s.id === id) || null;
   }
   async countStudents(opts?: { schoolId?: string; teacherId?: string }) {
     if (this.mongoDb) {
@@ -1252,6 +1405,39 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
     return this.data?.announcements || [];
   }
 
+  /** Archetypes for one class, or every class when no class is named. */
+  async getMisconceptionClusters(classGroup?: string) {
+    const filter = classGroup ? { classGroup } : {};
+    if (this.mongoDb) {
+      return await this.mongoDb
+        .collection<MisconceptionCluster>('misconception_clusters')
+        .find(filter)
+        .toArray();
+    }
+    const all = this.data?.misconceptionClusters || [];
+    return classGroup ? all.filter(c => c.classGroup === classGroup) : all;
+  }
+
+  async createMisconceptionCluster(cluster: MisconceptionCluster) {
+    if (this.mongoDb) await this.mongoDb.collection('misconception_clusters').insertOne(cluster);
+    if (this.data) {
+      if (!this.data.misconceptionClusters) this.data.misconceptionClusters = [];
+      this.data.misconceptionClusters.push(cluster);
+    }
+    return cluster;
+  }
+
+  async updateMisconceptionCluster(cluster: MisconceptionCluster) {
+    if (this.mongoDb) await this.mongoDb.collection('misconception_clusters').replaceOne({ id: cluster.id }, cluster, { upsert: true });
+    if (this.data) {
+      if (!this.data.misconceptionClusters) this.data.misconceptionClusters = [];
+      const idx = this.data.misconceptionClusters.findIndex(x => x.id === cluster.id);
+      if (idx !== -1) this.data.misconceptionClusters[idx] = cluster;
+      else this.data.misconceptionClusters.push(cluster);
+    }
+    return cluster;
+  }
+
   // --- Write / Update Helpers ---
 
   async addUser(user: User) {
@@ -1262,13 +1448,6 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
 
   async updateUserPasswordHash(userId: string, passwordHash: string) {
     await this.mongoDb!.collection('users').updateOne({ id: userId }, { $set: { passwordHash } });
-  }
-
-  async getStudentById(id: string): Promise<Student | null> {
-    if (this.mongoDb) {
-      return await this.mongoDb.collection<Student>('students').findOne({ id });
-    }
-    return this.data?.students.find(s => s.id === id) || null;
   }
 
   async getExistingAadhars(aadhars: string[]): Promise<Set<string>> {
@@ -3516,9 +3695,10 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
       interventions,
       bestPractices,
       diagnosticAnswerKeys: [],
-      testHistory: [],
       remediationLedgers: [],
       examBlueprints: []
+      misconceptionClusters: [],
+      testHistory: []
     };
   }
 }
