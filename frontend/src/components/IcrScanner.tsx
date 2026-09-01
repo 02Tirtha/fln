@@ -308,6 +308,17 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
   const [originalOcrAnswers, setOriginalOcrAnswers] = useState<{ [questionId: string]: string }>({});
   const [questions, setQuestions] = useState<Array<{ id: string; question: string; correctAnswer: string; topic?: string }>>([]);
   const [report, setReport] = useState<EvaluationReport | null>(null);
+  // Toggle for the "show full report card" panel below the placement
+  // callout. Off by default — the donut + level summary is enough at-a-
+  // glance; the full narrative opens on demand.
+  const [showFullReport, setShowFullReport] = useState(false);
+  // Toggle + cached list for the "past reports" popover. Lets the teacher
+  // see the full history of diagnostic placements for this student (not
+  // just the current one) without leaving the scanner flow.
+  const [showPastReports, setShowPastReports] = useState(false);
+  const [pastReports, setPastReports] = useState<EvaluationReport[]>([]);
+  const [pastReportsLoading, setPastReportsLoading] = useState(false);
+  const [pastReportsError, setPastReportsError] = useState<string | null>(null);
   const answerInputRefs = React.useRef<Array<HTMLInputElement | null>>([]);
 
   // Issue #176: teacher-review/override screen for the bulk ICR results
@@ -1134,6 +1145,36 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
     }
   };
 
+  // Lazy-load this student's diagnostic placement history via
+  // GET /api/evaluation/:studentId/history. Cached per-open so toggling
+  // the popover is instant. Filters to worksheetId='diagnostic' since
+  // worksheet reports and other assessment types aren't part of the
+  // placement conversation the teacher is having here.
+  const loadPastReports = async () => {
+    if (!selectedStudentId || pastReportsLoading) return;
+    setPastReportsLoading(true);
+    setPastReportsError(null);
+    try {
+      const res = await apiFetch(
+        `/api/evaluation/${encodeURIComponent(selectedStudentId)}/history`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+      if (!res.ok) {
+        setPastReportsError(`Failed to load history (HTTP ${res.status})`);
+        return;
+      }
+      const data = await res.json();
+      const diagnostic = (Array.isArray(data) ? data : []).filter(
+        (r: any) => r?.worksheetId === 'diagnostic'
+      );
+      setPastReports(diagnostic);
+    } catch (e: any) {
+      setPastReportsError(e?.message || 'Failed to load history');
+    } finally {
+      setPastReportsLoading(false);
+    }
+  };
+
   const resetScanner = () => {
     setExtractedAnswers({});
     setReport(null);
@@ -1159,6 +1200,13 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
     setError('');
     setSuccess('');
     setScanStage('idle');
+    // Report-toggle state. Clear so a fresh scan starts with the placement
+    // callout only (no expanded full-report panel or stale past-reports
+    // popover from the previous student's history).
+    setShowFullReport(false);
+    setShowPastReports(false);
+    setPastReports([]);
+    setPastReportsError(null);
   };
 
   return (
@@ -2070,6 +2118,24 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
                 </p>
               </div>
 
+              {/* Placement-level callout — the headline outcome of a diagnostic.
+                  Previously hidden behind a comment that said "the diagnostic
+                  is analytics-first and does not assign a level"; that turned
+                  out to hide the one number teachers care about most. Now
+                  surfaced prominently with the level the student was placed at
+                  and the sub-level (Mastery / Easier / Remedial). */}
+              <div className="rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white p-6 shadow-lg text-center space-y-2">
+                <div className="text-[10px] font-mono uppercase tracking-wider opacity-90">Placed at Level</div>
+                <div className="text-5xl font-display font-bold leading-none">
+                  L{report.recommendedLevel ?? '?'}.{report.recommendedSubLevel ?? 0}
+                </div>
+                <div className="text-xs font-mono opacity-90">
+                  {report.recommendedSubLevel === 2 ? 'Remedial'
+                    : report.recommendedSubLevel === 1 ? 'Easier'
+                    : 'Mastery'} · target L{Math.min(93, (report.recommendedLevel ?? 1) + 1)}
+                </div>
+              </div>
+
               <div className="space-y-4">
                               {/* Donut chart: correct vs incorrect questions. Centered,
                                   visually prominent — this is now the primary outcome of
@@ -2192,6 +2258,93 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
 
               {/* The same submission read for HOW the child failed, not just how much. */}
               {selectedStudent && <ChildErrorSignature studentId={selectedStudent.id} token={token} />}
+
+              {/* Full report card + past-reports panel — collapsed by default
+                  so the placement-level callout above stays the headline.
+                  The user complained that "it only tells save report, but
+                  how could the teacher see the report" — this section is
+                  the answer: an inline toggle for the full narrative plus
+                  a popover listing every prior diagnostic for this student. */}
+              <div className="border-t border-zinc-200 dark:border-zinc-700 pt-4 space-y-3">
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowFullReport(s => !s)}
+                    className="flex-1 text-xs font-mono font-bold uppercase tracking-wider px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-slate-800 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-700"
+                  >
+                    {showFullReport ? '▾ Hide Full Report' : '▸ View Full Report'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      const next = !showPastReports;
+                      setShowPastReports(next);
+                      if (next && pastReports.length === 0) loadPastReports();
+                    }}
+                    className="flex-1 text-xs font-mono font-bold uppercase tracking-wider px-3 py-2 rounded-lg border border-violet-200 dark:border-violet-800 bg-violet-50 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-900/60"
+                  >
+                    {showPastReports ? '▾ Hide Past Reports' : '📜 Past Reports'}
+                  </button>
+                </div>
+
+                {showFullReport && (
+                  <div className="rounded-lg bg-zinc-900 text-emerald-200 font-mono text-xs p-4 max-h-72 overflow-y-auto whitespace-pre-wrap">
+                    {report.narrative && report.narrative.trim().length > 0
+                      ? report.narrative
+                      : 'No narrative recorded for this placement.'}
+                  </div>
+                )}
+
+                {showPastReports && (
+                  <div className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-slate-800/50 p-3 space-y-2">
+                    {pastReportsLoading && (
+                      <div className="text-xs text-zinc-500 italic">Loading past diagnostic reports…</div>
+                    )}
+                    {pastReportsError && (
+                      <div className="text-xs text-red-600">{pastReportsError}</div>
+                    )}
+                    {!pastReportsLoading && !pastReportsError && pastReports.length === 0 && (
+                      <div className="text-xs text-zinc-500 italic">
+                        No prior diagnostic placements for this student.
+                      </div>
+                    )}
+                    {!pastReportsLoading && pastReports.length > 0 && (
+                      <div className="space-y-2 max-h-72 overflow-y-auto">
+                        {pastReports.map((r) => {
+                          const isCurrent = r.id === report.id;
+                          return (
+                            <div
+                              key={r.id}
+                              className={`rounded-lg border p-2 ${
+                                isCurrent
+                                  ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/30'
+                                  : 'border-zinc-200 dark:border-zinc-700 bg-white dark:bg-slate-900'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="text-xs">
+                                  <span className="font-mono text-zinc-500">
+                                    {(r.timestamp || '').slice(0, 10)}
+                                  </span>
+                                  <span className="ml-2 font-display font-bold">
+                                    L{r.recommendedLevel}.{r.recommendedSubLevel ?? 0}
+                                  </span>
+                                  <span className="ml-2 text-zinc-500">
+                                    {r.score ?? 0}/{r.totalQuestions ?? '?'}
+                                  </span>
+                                </div>
+                                {isCurrent && (
+                                  <span className="text-[10px] font-mono uppercase font-bold text-emerald-700 dark:text-emerald-300">
+                                    this placement
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
 
               <div className="flex gap-3 pt-2">
                 <button

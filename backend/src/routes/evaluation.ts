@@ -1354,11 +1354,13 @@ export function registerEvaluationRoutes(app: express.Express) {
     res.json(reports);
   });
 
-  // Evaluation History
+  // Student-scoped evaluation history. Issue #174 wired the Student
+  // Profile exam-history view to this route. The earlier implementation
+  // fetched ALL reports then filtered in JS, which timed out at ~140k
+  // reports and hung the request indefinitely. Pass the studentIds
+  // filter to the store layer so Mongo (or the file DB) only returns
+  // matching documents.
   app.get('/api/evaluation/:studentId/history', async (req, res) => {
-    // Was missing auth entirely — any unauthenticated request could read
-    // any student's full evaluation history. Fixed while wiring #174's
-    // Student Profile exam-history view to this route.
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -1366,9 +1368,32 @@ export function registerEvaluationRoutes(app: express.Express) {
     if (!student) return res.status(404).json({ error: 'Student not found.' });
     if (!canAccessStudent(user, student)) return res.status(403).json({ error: 'Forbidden.' });
 
-    const reps = await dbStore.getEvaluationReports();
-    const filtered = reps.filter(r => r.studentId === req.params.studentId);
-    res.json(filtered);
+    const reps = await dbStore.getEvaluationReports({ studentIds: [req.params.studentId] });
+    // Sort newest first so the UI's "most recent placement" view shows
+    // the latest report at the top without further client-side work.
+    reps.sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
+    res.json(reps);
+  });
+
+  // Latest diagnostic placement report for a student — convenience
+  // endpoint for the teacher dashboard's "current level" badge and the
+  // single-flow result-step's "view full report" link. Returns the most
+  // recent worksheetId='diagnostic' report, or null if none exists.
+  app.get('/api/students/:studentId/diagnostic-report', async (req, res) => {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+    const student = await dbStore.getStudentById(req.params.studentId);
+    if (!student) return res.status(404).json({ error: 'Student not found.' });
+    if (!canAccessStudent(user, student)) return res.status(403).json({ error: 'Forbidden.' });
+
+    const reps = await dbStore.getEvaluationReports({ studentIds: [req.params.studentId] });
+    const diagnosticReports = reps.filter(r => r.worksheetId === 'diagnostic');
+    if (diagnosticReports.length === 0) {
+      return res.json({ report: null });
+    }
+    diagnosticReports.sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
+    res.json({ report: diagnosticReports[0] });
   });
 
   // Issue #180: teacher-override/confirm endpoint for post-ICR answer
