@@ -863,6 +863,21 @@ export function registerStudentRoutes(app: express.Express) {
       };
     });
     score = questionResults.filter((r) => r.isCorrect).length;
+    // One-to-one correspondence log: print every question's verdict so the
+    // backend trace shows exactly what was matched against what. Format:
+    //   [diag] qid=Q_L20_1_1_b1  submitted="2"  expected="2"  ✓  L20  S1.1
+    // Lets the teacher + dev correlate the UI table with the grading pass
+    // without needing to log every question's full payload.
+    console.log(`[diag] ${student.id} (${student.name}, Class ${classNumber}) — grading ${questionResults.length} questions, ${score} correct`);
+    for (const r of questionResults) {
+      const submitted = String(answers[r.q.question_id] ?? '').trim();
+      const mark = r.isCorrect ? '✓' : (submitted ? '✗' : '—');
+      const lvl = Number.isFinite(r.sourceLevel) ? `L${r.sourceLevel}` : 'L?';
+      const concept = r.q.conceptId ? ` ${r.q.conceptId}` : '';
+      console.log(
+        `[diag]   ${mark} qid=${r.q.question_id}  submitted=${JSON.stringify(submitted)}  expected=${JSON.stringify(String(r.q.answer ?? ''))}  ${lvl}${concept}`
+      );
+    }
     const allCorrect = questionResults.every((r) => r.isCorrect);
     const failedLevels: number[] = (Array.from(new Set(
       questionResults
