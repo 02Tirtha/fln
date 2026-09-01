@@ -36,6 +36,7 @@ import { registerStudentRoutes } from './routes/students';
 import { registerWorksheetRoutes } from './routes/worksheets';
 import { registerEvaluationRoutes } from './routes/evaluation';
 import { registerAnalyticsRoutes } from './routes/analytics';
+import { registerQuestionLogicRoutes } from './routes/questionLogics';
 import { registerDiagnosticBulkRoutes } from './routes/diagnosticBulk';
 import { registerMisconceptionRoutes } from './routes/misconceptions';
 import { randomUUID } from 'crypto';
@@ -127,6 +128,7 @@ registerStatsRoutes(app);
   registerEvaluationRoutes(app);
   registerWorksheetRoutes(app);
   registerAnalyticsRoutes(app);
+  registerQuestionLogicRoutes(app);
   registerDiagnosticBulkRoutes(app);
 
   // Read-only analysis over already-graded submissions: clusters a cohort on
