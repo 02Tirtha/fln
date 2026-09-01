@@ -424,3 +424,42 @@ export interface CurriculumCoverage {
   /** False while no level has a legacyLevel59 — i.e. the crosswalk has not landed. */
   crosswalkLanded: boolean;
 }
+
+/** Review state of one question in the bank. */
+export type QuestionReviewStatus = 'untagged' | 'mapped' | 'retired';
+
+export interface QuestionBankEntry {
+  questionId: string;
+  level: number;
+  levelTitle: string;
+  section: string;
+  sectionType: string;
+  questionNumber: number;
+  questionText: string;
+  answer: string;
+  svgHtml: string;
+  mappedLevel?: number | null;
+  conceptId?: string;
+  reviewStatus?: QuestionReviewStatus;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  reviewNote?: string;
+}
+
+export interface QuestionBankProgress {
+  total: number;
+  mapped: number;
+  retired: number;
+  untagged: number;
+  legacyLevelsInBank: number[];
+  targetLevelsCovered: number[];
+  byLevel: Array<{ level: number; total: number; mapped: number; retired: number }>;
+}
+
+/** A retired-numbering level with no stored questions — mapped whole, not per question. */
+export interface LegacyLevelRow {
+  legacyId: number;
+  hasQuestions: boolean;
+  mappedLevel: number | null;
+  mappedCapability: string | null;
+}

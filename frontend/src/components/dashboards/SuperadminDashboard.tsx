@@ -11,12 +11,13 @@ import { SuperAdminExecutiveDashboard } from '../SuperAdminExecutiveDashboard';
 import { RegionalAnalyticsView } from './RegionalAnalyticsView';
 import { QuestionInterventionPanel } from '../panels/QuestionInterventionPanel';
 import { CurriculumLevelsPanel } from '../panels/CurriculumLevelsPanel';
+import { QuestionReviewPanel } from '../panels/QuestionReviewPanel';
 
 export type { DashboardProps };
 
 
 export const SuperadminDashboard: React.FC<DashboardProps> = ({ user, token }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'coordinators' | 'analytics' | 'intervention' | 'curriculum'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'coordinators' | 'analytics' | 'intervention' | 'curriculum' | 'qreview'>('overview');
   
   // Overview data
   const [schools, setSchools] = useState<School[]>([]);
@@ -309,6 +310,14 @@ export const SuperadminDashboard: React.FC<DashboardProps> = ({ user, token }) =
             }`}
           >
             🎯 Curriculum Levels
+          </button>
+          <button
+            onClick={() => setActiveTab('qreview')}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+              activeTab === 'qreview' ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm' : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+            }`}
+          >
+            📝 Question Review
           </button>
         </div>
 
@@ -685,6 +694,10 @@ export const SuperadminDashboard: React.FC<DashboardProps> = ({ user, token }) =
 
       {activeTab === 'curriculum' && (
         <CurriculumLevelsPanel />
+      )}
+
+      {activeTab === 'qreview' && (
+        <QuestionReviewPanel />
       )}
     </div>
   );
