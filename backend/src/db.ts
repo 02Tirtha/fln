@@ -577,6 +577,46 @@ export interface MisconceptionCluster {
   updatedAt: string;
 }
 
+/**
+ * A Superadmin-authored instruction describing *what to ask* at a given level —
+ * not a question itself. One logic is the prompt the question-generation
+ * pipeline turns into many concrete `Question` rows across many worksheets.
+ *
+ * Deliberately a separate collection from `questions`: these have different
+ * authors (human vs. generator), different consumers (generation pipeline vs.
+ * renderer and ICR scanner), and different lifecycles (editable in place vs.
+ * immutable once a child has answered them). Folding them together would make
+ * one collection carry two incompatible lifecycles.
+ */
+export interface QuestionLogic {
+  id: string;
+  /** 1..LEVEL_COUNT, L-notation. Mutable — a logic filed under the wrong level can be re-tagged. */
+  level: number;
+  /** Denormalized for display so the list view needs no join. */
+  levelName: string;
+  /** At least one. Validated server-side against the level's primary+supporting skills. */
+  skills: string[];
+  /** Optional. Empty means "assess the skill at full granularity", which is a valid choice. */
+  subskills: string[];
+  logicText: string;
+  /**
+   * Which relationship taxonomy was in force when this was authored.
+   * The project is moving from the code's 4-type model to the research's
+   * 3-type model; pinning it per-document means both can coexist through the
+   * migration instead of forcing a schema break.
+   */
+  taxonomy: '3-type' | '4-type';
+  createdBy: string;
+  createdByEmail: string;
+  createdAt: string;
+  updatedAt: string;
+  updatedBy: string;
+  updatedByEmail: string;
+  /** Soft delete: the generation pipeline may already hold this id, so the row stays for audit. */
+  deletedAt: string | null;
+  deletedBy: string | null;
+}
+
 interface DatabaseSchema {
   users: User[];
   schools: School[];
@@ -597,6 +637,7 @@ interface DatabaseSchema {
   diagnosticAnswerKeys: DiagnosticAnswerKey[];
   misconceptionClusters: MisconceptionCluster[];
   testHistory: TestHistoryEntry[];
+  questionLogics: QuestionLogic[];
 }
 
 const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
@@ -619,6 +660,7 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
   diagnosticAnswerKeys: 'diagnostic_answer_keys',
   misconceptionClusters: 'misconception_clusters',
   testHistory: 'testHistory',
+  questionLogics: 'questionLogics',
 };
 
   /**
@@ -1677,6 +1719,49 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
       if (idx !== -1) this.data.bestPractices[idx] = bp;
     }
     return bp || undefined;
+  }
+
+  // --- Question Logic Methods ---
+
+  /** Live logics only unless `includeDeleted`, since soft-deleted rows exist purely for audit. */
+  async getQuestionLogics(includeDeleted = false) {
+    const filter = includeDeleted ? {} : { deletedAt: null };
+    return await this.mongoDb!.collection<QuestionLogic>('questionLogics')
+      .find(filter).sort({ createdAt: -1 }).toArray();
+  }
+
+  async getQuestionLogicById(id: string) {
+    return (await this.mongoDb!.collection<QuestionLogic>('questionLogics').findOne({ id })) || undefined;
+  }
+
+  async addQuestionLogic(logic: QuestionLogic) {
+    await this.mongoDb!.collection('questionLogics').insertOne(logic);
+    if (this.data) this.data.questionLogics.push(logic);
+    return logic;
+  }
+
+  async updateQuestionLogic(id: string, updates: Partial<QuestionLogic>) {
+    await this.mongoDb!.collection('questionLogics').updateOne({ id }, { $set: updates });
+    const l = await this.mongoDb!.collection<QuestionLogic>('questionLogics').findOne({ id });
+    if (l && this.data) {
+      const idx = this.data.questionLogics.findIndex(x => x.id === id);
+      if (idx !== -1) this.data.questionLogics[idx] = l;
+    }
+    return l || undefined;
+  }
+
+  /**
+   * Counts for the header cards. `levelsWithLogic` is a distinct count over live
+   * rows — authoring five logics for one level still covers exactly one level.
+   */
+  async getQuestionLogicStats(totalLevels: number) {
+    const live = await this.mongoDb!.collection<QuestionLogic>('questionLogics')
+      .find({ deletedAt: null }).toArray();
+    return {
+      totalLogics: live.length,
+      totalLevels,
+      levelsWithLogic: new Set(live.map(l => l.level)).size,
+    };
   }
 
   // --- Diagnostic Answer Key Methods ---
@@ -3596,7 +3681,11 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
       bestPractices,
       diagnosticAnswerKeys: [],
       misconceptionClusters: [],
-      testHistory: []
+      testHistory: [],
+      // Seeded empty on purpose: question logics are pedagogy authored by a real
+      // Superadmin, and inventing demo ones would put fabricated curriculum
+      // intent in front of the question-generation pipeline.
+      questionLogics: []
     };
   }
 }
