@@ -216,8 +216,19 @@ export interface LevelHtmlTemplate {
 }
 
 export interface QuestionBankEntry {
+  /**
+   * Stable identity, derived from (level, section, questionNumber) — verified
+   * unique across all 1202 seeded questions. Deliberately NOT derived from the
+   * question text: 314 questions share their text with another, and fixing a
+   * typo must not orphan a reviewer's mapping.
+   *
+   * This exists so review work survives a re-seed. Before it, `seedQuestionBank`
+   * did deleteMany + insertMany, so every re-seed rotated the Mongo _ids and
+   * would have silently destroyed every mapping a superadmin had made.
+   */
+  questionId: string;
+
   level: number;
-  conceptId?: string; // Immutable concept tag (S1.1 - S7.18)
   levelTitle: string;
   section: string;
   sectionType: string;
@@ -225,6 +236,28 @@ export interface QuestionBankEntry {
   questionText: string;
   answer: string;
   svgHtml: string;
+
+  // --- Review state. Written by a human, never by the seeder. ---
+
+  /** The 93-space level this question actually assesses, once a human says so. */
+  mappedLevel?: number | null;
+  /** Immutable concept tag (S1.1 - S7.18), set from the mapped level. */
+  conceptId?: string;
+  /**
+   * `untagged` — nobody has looked at it yet.
+   * `mapped`   — a human assigned it to a 93-space level.
+   * `retired`  — a human judged it not worth keeping. Kept, not deleted, so the
+   *              decision is auditable and reversible; readers must filter it out.
+   */
+  reviewStatus?: 'untagged' | 'mapped' | 'retired';
+  reviewedBy?: string;
+  reviewedAt?: string;
+  reviewNote?: string;
+}
+
+/** The one place the question identity is computed. Seeder and API must agree. */
+export function questionBankId(level: number | string, section: string, questionNumber: number | string): string {
+  return `qb_L${level}_${String(section).replace(/[^A-Za-z0-9.]+/g, '-')}_${questionNumber}`;
 }
 
 // Canonical set of assessment cycle names, used everywhere a cycle name is
@@ -1828,6 +1861,105 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
   // a feature that cannot get what it needs from these is a signal the schema
   // is missing a field, not licence to start a seventh copy of the taxonomy.
 
+  // --- Question bank review ---------------------------------------------
+  //
+  // The bank holds the concrete questions that already exist (levels 22-59 of
+  // the retired numbering). Mapping each one to a 93-space level is what lets
+  // the 59 space be retired WITHOUT a level-to-level crosswalk: content is
+  // addressed by the question's own tag rather than by the level it came from.
+
+  async getQuestionBank(opts: {
+    level?: number;
+    sectionType?: string;
+    status?: 'untagged' | 'mapped' | 'retired';
+    mappedLevel?: number;
+    limit?: number;
+    skip?: number;
+  } = {}) {
+    const filter: any = {};
+    if (opts.level !== undefined) filter.level = opts.level;
+    if (opts.sectionType) filter.sectionType = opts.sectionType;
+    if (opts.status) filter.reviewStatus = opts.status;
+    if (opts.mappedLevel !== undefined) filter.mappedLevel = opts.mappedLevel;
+    const coll = this.mongoDb!.collection<QuestionBankEntry>('questionBank');
+    const [items, total] = await Promise.all([
+      coll.find(filter).sort({ level: 1, section: 1, questionNumber: 1 })
+        .skip(opts.skip || 0).limit(opts.limit || 50).toArray(),
+      coll.countDocuments(filter),
+    ]);
+    return { items, total };
+  }
+
+  async getQuestionBankEntry(questionId: string) {
+    return (await this.mongoDb!.collection<QuestionBankEntry>('questionBank')
+      .findOne({ questionId })) || undefined;
+  }
+
+  /** Apply a review decision to one question. Returns the updated row. */
+  async reviewQuestion(questionId: string, patch: {
+    mappedLevel?: number | null;
+    conceptId?: string;
+    reviewStatus: 'untagged' | 'mapped' | 'retired';
+    reviewedBy: string;
+    reviewNote?: string;
+  }) {
+    const coll = this.mongoDb!.collection<QuestionBankEntry>('questionBank');
+    await coll.updateOne({ questionId }, {
+      $set: { ...patch, reviewedAt: new Date().toISOString() } as any,
+    });
+    return await this.getQuestionBankEntry(questionId);
+  }
+
+  /** Apply one decision to every question in a (level, section). */
+  async reviewQuestionsBulk(filter: { level: number; section?: string; sectionType?: string }, patch: {
+    mappedLevel?: number | null;
+    conceptId?: string;
+    reviewStatus: 'untagged' | 'mapped' | 'retired';
+    reviewedBy: string;
+  }) {
+    const q: any = { level: filter.level };
+    if (filter.section) q.section = filter.section;
+    if (filter.sectionType) q.sectionType = filter.sectionType;
+    const res = await this.mongoDb!.collection<QuestionBankEntry>('questionBank').updateMany(q, {
+      $set: { ...patch, reviewedAt: new Date().toISOString() } as any,
+    });
+    return { matched: res.matchedCount, modified: res.modifiedCount };
+  }
+
+  /**
+   * Review progress, plus the shape of the work remaining.
+   *
+   * `legacyLevelsWithoutQuestions` is the honest other half: the bank only
+   * covers levels 22-59, so those legacy levels have nothing to tag and must be
+   * mapped level-to-level instead.
+   */
+  async getQuestionBankProgress() {
+    const coll = this.mongoDb!.collection<QuestionBankEntry>('questionBank');
+    const [total, mapped, retired, untagged, levels, targets] = await Promise.all([
+      coll.countDocuments({}),
+      coll.countDocuments({ reviewStatus: 'mapped' }),
+      coll.countDocuments({ reviewStatus: 'retired' }),
+      coll.countDocuments({ reviewStatus: 'untagged' }),
+      coll.distinct('level'),
+      coll.distinct('mappedLevel', { reviewStatus: 'mapped' }),
+    ]);
+    const byLevel = await coll.aggregate([
+      { $group: {
+          _id: '$level',
+          total: { $sum: 1 },
+          mapped: { $sum: { $cond: [{ $eq: ['$reviewStatus', 'mapped'] }, 1, 0] } },
+          retired: { $sum: { $cond: [{ $eq: ['$reviewStatus', 'retired'] }, 1, 0] } },
+      } },
+      { $sort: { _id: 1 } },
+    ]).toArray();
+    return {
+      total, mapped, retired, untagged,
+      legacyLevelsInBank: levels.sort((a: number, b: number) => a - b),
+      targetLevelsCovered: (targets as (number | null)[]).filter((n): n is number => typeof n === 'number').sort((a, b) => a - b),
+      byLevel: byLevel.map((r: any) => ({ level: r._id, total: r.total, mapped: r.mapped, retired: r.retired })),
+    };
+  }
+
   async getCurriculumLevels() {
     return await this.mongoDb!.collection<CurriculumLevel>('curriculumLevels')
       .find({}).sort({ levelNumber: 1 }).toArray();
@@ -1848,6 +1980,24 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
   async getCurriculumLevelByLegacy59(legacyLevel59: number) {
     return (await this.mongoDb!.collection<CurriculumLevel>('curriculumLevels')
       .findOne({ legacyLevel59 })) || undefined;
+  }
+
+  /**
+   * Point a 93-space level at a retired 1-59 level, or clear the pointer.
+   *
+   * Passing `null` as the target clears whichever level currently claims
+   * `legacyLevel59`, so a mis-mapping can be undone without knowing where it
+   * landed.
+   */
+  async setCurriculumLegacyMapping(levelNumber: number | null, legacyLevel59: number) {
+    const coll = this.mongoDb!.collection<CurriculumLevel>('curriculumLevels');
+    // Only one 93-space level may claim a given legacy id.
+    await coll.updateMany({ legacyLevel59 }, { $set: { legacyLevel59: null } });
+    if (levelNumber !== null) {
+      await coll.updateOne({ levelNumber }, {
+        $set: { legacyLevel59, updatedAt: new Date().toISOString() },
+      });
+    }
   }
 
   /** Coverage summary — how much of the 93 can actually be rendered today. */
