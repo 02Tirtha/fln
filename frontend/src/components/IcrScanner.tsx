@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Student, ClassGroup, EvaluationReport, User } from '../types';
 import { ChildErrorSignature } from './MisconceptionFingerprint';
 import { IcrTwoStageScan } from './IcrTwoStageScan';
+import { BulkIcrScan, BulkChunkResult, BulkOcrResponse } from './BulkIcrScan';
 
 interface IcrScannerProps {
   token: string;
@@ -10,7 +11,7 @@ interface IcrScannerProps {
   onBack: () => void;
 }
 
-type ScannerStep = 'select' | 'verify' | 'result';
+type ScannerStep = 'select' | 'verify' | 'result' | 'bulk-select';
 
 interface OcrAnalysisData {
   rawOcrText: string;
@@ -159,6 +160,26 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [bulkResults, setBulkResults] = useState<BulkResultItem[] | null>(null);
   const [ocrPreviewData, setOcrPreviewData] = useState<OcrAnalysisData | null>(null);
+
+  // Bulk-class scan mode (separate from the legacy single-sheet flow).
+  // The dropdown option in the UI toggles scanMode; pagesPerStudent is
+  // user-controlled so a class-1 paper (1 page) and class-4 paper (2-3
+  // pages) can both be scanned without code changes.
+  const [scanMode, setScanMode] = useState<'single' | 'bulk'>('single');
+  const [pagesPerStudent, setPagesPerStudent] = useState<number>(2);
+  // Result of the latest /api/icr/evaluate-bulk call. One entry per student
+  // chunk (pageFrom..pageTo) with the OCR'd answers + extracted student name.
+  const [bulkChunkResults, setBulkChunkResults] = useState<BulkChunkResult[] | null>(null);
+  // Per-call metadata for the verify step's banner (total pages, chunk count, etc.).
+  const [bulkMeta, setBulkMeta] = useState<{
+    totalPages: number;
+    totalStudents: number;
+    successfulStudents: number;
+    failedStudents: number;
+    processingTimeMs: number;
+  } | null>(null);
+  // Which student (chunk) is currently selected in the dropdown. Index into bulkChunkResults.
+  const [selectedChunkIndex, setSelectedChunkIndex] = useState<number>(0);
 
   const [step, setStep] = useState<ScannerStep>('select');
   const [loading, setLoading] = useState(false);
@@ -662,6 +683,32 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
     }
   };
 
+  // Handler for BulkIcrScan's onBulkOcrSuccess callback. Stores the per-chunk
+  // OCR results + name extraction results, then switches to a dedicated
+  // 'bulk-select' step where the teacher picks one chunk (one student) at a
+  // time and verifies their 42-row answer table. Chunk index is the
+  // authoritative key — the chunk order matches the student order in the
+  // original /api/diagnostic/bulk paper generation, so chunk N = student[N]
+  // in the teacher's batch.
+  const handleBulkOcrSuccess = (resp: BulkOcrResponse) => {
+    setBulkChunkResults(resp.results || []);
+    setBulkMeta({
+      totalPages: resp.totalPages,
+      totalStudents: resp.totalStudents,
+      successfulStudents: resp.successfulStudents,
+      failedStudents: resp.failedStudents,
+      processingTimeMs: resp.processingTimeMs,
+    });
+    setSelectedChunkIndex(0);
+    setStep('bulk-select');
+    const withName = (resp.results || []).filter(r => r.studentName).length;
+    setSuccess(
+      `Bulk OCR complete — ${resp.successfulStudents}/${resp.totalStudents} chunks succeeded, ` +
+      `${withName} name(s) extracted from page-1 headers.`
+    );
+    setError('');
+  };
+
   const handleAnswerChange = (qId: string, value: string) => {
     setExtractedAnswers(prev => ({ ...prev, [qId]: value }));
   };
@@ -736,6 +783,11 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
     setOcrPreviewData(null);
     setQuestions([]);
     answerInputRefs.current = [];
+    // Bulk-flow state. Clearing these lets the teacher run a fresh bulk
+    // batch without leftover chunk results polluting the next dropdown.
+    setBulkChunkResults(null);
+    setBulkMeta(null);
+    setSelectedChunkIndex(0);
     setStep('select');
     setError('');
     setSuccess('');
@@ -775,15 +827,27 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
           const stepsMap: Record<ScannerStep, string> = {
             select: '1. Upload Answer Sheet',
             verify: '2. Inspect OCR & Verify',
-            result: '3. Diagnostic Placement'
+            result: '3. Diagnostic Placement',
+            'bulk-select': '2. Pick Student & Verify',
           };
-          const orderedSteps: ScannerStep[] = ['select', 'verify', 'result'];
+          // The bulk flow uses 'select' -> 'bulk-select' (not 'select' -> 'verify').
+          // When the user is on bulk-select, only show step 1 as completed and
+          // step 2 as in-progress; hide the verify/result markers because they
+          // belong to the single-student flow. This avoids the confusing state
+          // where the stepper shows "verify done" while the bulk flow is in
+          // mid-progress.
+          const inBulkFlow = step === 'bulk-select';
+          if (inBulkFlow && (s === 'verify' || s === 'result')) return null;
+          const orderedSteps: ScannerStep[] = inBulkFlow
+            ? ['select', 'bulk-select']
+            : ['select', 'verify', 'result'];
           const stepIndex = orderedSteps.indexOf(step);
           const thisIndex = orderedSteps.indexOf(s);
+          if (thisIndex === -1) return null;
           return (
             <React.Fragment key={s}>
               {i > 0 && <span className="text-zinc-300 dark:text-zinc-600">→</span>}
-              <span className={`${thisIndex < stepIndex ? 'text-green-600 dark:text-green-400 font-bold' : thisIndex === stepIndex ? 'text-blue-600 dark:text-blue-400 font-bold' : 'text-zinc-300 dark:text-zinc-600'}`}>
+              <span className={`${thisIndex < stepIndex ? 'text-green-600 dark:text-green-400 font-bold' : thisIndex === stepIndex ? 'text-violet-600 dark:text-violet-400 font-bold' : 'text-zinc-300 dark:text-zinc-600'}`}>
                 {thisIndex < stepIndex ? '✓ ' : ''}{stepsMap[s]}
               </span>
             </React.Fragment>
@@ -874,46 +938,141 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
               </select>
             </div>
 
-            {/* Answer Sheet Upload */}
-            <div className="border-t border-zinc-200 dark:border-zinc-700 pt-4 space-y-3">
-              <label className="block text-xs font-mono font-bold text-zinc-500 dark:text-zinc-400 uppercase">
-                📷 Upload Answer Sheet Image or PDF (PNG, JPG, WEBP, PDF)
+            {/* Scan mode toggle: single sheet vs bulk class. The two flows
+                share the file picker but split at the OCR step — single uses
+                IcrTwoStageScan (one student), bulk uses BulkIcrScan (whole
+                class split into per-student chunks). Bulk mode disables the
+                per-student picker because the student identity comes from
+                page-1 name extraction (or chunk order) inside the bulk flow. */}
+            <div className="border-t border-zinc-200 dark:border-zinc-700 pt-4">
+              <label className="block text-xs font-mono font-bold text-zinc-500 dark:text-zinc-400 uppercase mb-1.5">
+                Scan Mode
               </label>
-              <div className="flex items-stretch gap-2">
-                <input
-                  type="file"
-                  accept="application/pdf,image/png,image/jpeg,image/jpg,image/webp"
-                  onChange={handleFileChange}
-                  disabled={!selectedClassId}
-                  className="flex-1 block w-full text-xs text-zinc-500 dark:text-zinc-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer disabled:opacity-50"
-                />
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={passOcrManualEntry}
-                  disabled={!selectedClassId || loading}
-                  title="Skip the OCR engine — go straight to the Inspect & Verify page to fill answers manually"
-                  className="shrink-0 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white font-medium text-xs py-2.5 px-4 rounded-lg transition-colors shadow-sm whitespace-nowrap"
+                  onClick={() => setScanMode('single')}
+                  className={`py-2.5 px-3 text-center border font-display font-bold text-xs rounded-xl transition-all ${
+                    scanMode === 'single'
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                      : 'bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-700'
+                  }`}
                 >
-                  {loading ? 'Loading…' : '✏️ Pass OCR (Manual Entry)'}
+                  📄 Single Sheet
+                  <div className="text-[10px] font-mono font-normal mt-0.5 opacity-80">One student at a time</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScanMode('bulk')}
+                  className={`py-2.5 px-3 text-center border font-display font-bold text-xs rounded-xl transition-all ${
+                    scanMode === 'bulk'
+                      ? 'bg-violet-600 text-white border-violet-600 shadow-sm'
+                      : 'bg-zinc-50 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-700'
+                  }`}
+                >
+                  📚 Bulk Class
+                  <div className="text-[10px] font-mono font-normal mt-0.5 opacity-80">Whole class in one PDF</div>
                 </button>
               </div>
-              <p className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono leading-relaxed">
-                Use <strong>Pass OCR</strong> to skip the scan and fill the student's answers manually on the next step — useful for verifying question→row mapping against a known answer key.
-              </p>
             </div>
 
-            {/* Two-stage ICR scan: blue-pen filter with visible preview, then
-                OCR on the filtered image. The IcrTwoStageScan component owns
-                its own state (file picker, filter button, preview, OCR
-                button, timing display, error handling). On OCR success it
-                calls handleTwoStageResult to push the answers into the
-                existing verify step. */}
-            <IcrTwoStageScan
-              token={token}
-              uploadedFile={uploadedFile}
-              onOcrSuccess={handleTwoStageResult}
-              expectedCount={expectedQuestionCount}
-            />
+            {/* Bulk-only controls: how many pages make up one student's paper.
+                FLN papers are 1-3 pages depending on the class; the teacher
+                tells us so we can split the merged PDF correctly. */}
+            {scanMode === 'bulk' && (
+              <div>
+                <label className="block text-xs font-mono font-bold text-zinc-500 dark:text-zinc-400 uppercase mb-1.5">
+                  Pages Per Student
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={pagesPerStudent}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value, 10);
+                      if (Number.isFinite(v) && v >= 1 && v <= 10) setPagesPerStudent(v);
+                    }}
+                    className="w-24 text-sm border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 bg-white dark:bg-slate-800 text-zinc-900 dark:text-white focus:border-zinc-500 outline-none"
+                  />
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400 font-mono leading-relaxed">
+                    How many pages make up one student's paper in the merged scan PDF.
+                    Default 2 (FLN classes 2-4). Set to 1 for class-1 single-page papers.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Answer Sheet Upload — hidden in bulk mode because BulkIcrScan
+                owns its own upload UX (the bulk flow is upload-then-run, not
+                upload-then-pick-student). The single-sheet flow keeps the
+                original picker + Pass OCR button. */}
+            {scanMode === 'single' && (
+              <div className="border-t border-zinc-200 dark:border-zinc-700 pt-4 space-y-3">
+                <label className="block text-xs font-mono font-bold text-zinc-500 dark:text-zinc-400 uppercase">
+                  📷 Upload Answer Sheet Image or PDF (PNG, JPG, WEBP, PDF)
+                </label>
+                <div className="flex items-stretch gap-2">
+                  <input
+                    type="file"
+                    accept="application/pdf,image/png,image/jpeg,image/jpg,image/webp"
+                    onChange={handleFileChange}
+                    disabled={!selectedClassId}
+                    className="flex-1 block w-full text-xs text-zinc-500 dark:text-zinc-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer disabled:opacity-50"
+                  />
+                  <button
+                    type="button"
+                    onClick={passOcrManualEntry}
+                    disabled={!selectedClassId || loading}
+                    title="Skip the OCR engine — go straight to the Inspect & Verify page to fill answers manually"
+                    className="shrink-0 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-50 text-white font-medium text-xs py-2.5 px-4 rounded-lg transition-colors shadow-sm whitespace-nowrap"
+                  >
+                    {loading ? 'Loading…' : '✏️ Pass OCR (Manual Entry)'}
+                  </button>
+                </div>
+                <p className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono leading-relaxed">
+                  Use <strong>Pass OCR</strong> to skip the scan and fill the student's answers manually on the next step — useful for verifying question→row mapping against a known answer key.
+                </p>
+              </div>
+            )}
+
+            {/* Single-sheet scan button (existing flow). The IcrTwoStageScan
+                component owns its own file picker internally if uploadedFile
+                is null — but for the bulk flow we own the picker here. */}
+            {scanMode === 'single' && (
+              <IcrTwoStageScan
+                token={token}
+                uploadedFile={uploadedFile}
+                onOcrSuccess={handleTwoStageResult}
+                expectedCount={expectedQuestionCount}
+              />
+            )}
+
+            {/* Bulk-class scan button (new flow). Owns its own file picker
+                + button. On OCR success, handleBulkOcrSuccess switches to
+                the 'bulk-select' step where the teacher picks one chunk at
+                a time. */}
+            {scanMode === 'bulk' && (
+              <div className="space-y-3">
+                <label className="block text-xs font-mono font-bold text-zinc-500 dark:text-zinc-400 uppercase">
+                  📚 Upload Merged Class PDF
+                </label>
+                <input
+                  type="file"
+                  accept="application/pdf"
+                  onChange={handleFileChange}
+                  disabled={!selectedClassId}
+                  className="block w-full text-xs text-zinc-500 dark:text-zinc-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100 cursor-pointer disabled:opacity-50"
+                />
+                <BulkIcrScan
+                  token={token}
+                  uploadedFile={uploadedFile}
+                  pagesPerStudent={pagesPerStudent}
+                  onBulkOcrSuccess={handleBulkOcrSuccess}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1155,6 +1314,139 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
             </div>
           </div>
         </div>
+        </div>
+      )}
+
+      {/* Bulk-class step: per-chunk (per-student) selector + summary table.
+          Chunk 3 will replace the placeholder 42-row table with the full
+          per-student verify view (question prompts, correct answers from the
+          student's stored paper, and per-row grading). This step is the
+          intermediate UI: pick a student, see their answers. */}
+      {step === 'bulk-select' && bulkChunkResults && (
+        <div className="space-y-6 max-w-4xl mx-auto">
+          {/* Header banner with scan-level metadata. */}
+          <div className="bg-gradient-to-r from-violet-500 to-purple-500 text-white rounded-2xl p-6 shadow-lg">
+            <h3 className="text-2xl font-display font-bold leading-tight">
+              Bulk OCR: {bulkMeta?.successfulStudents ?? bulkChunkResults.length}/{bulkMeta?.totalStudents ?? bulkChunkResults.length} chunks succeeded
+            </h3>
+            <p className="text-violet-50 text-sm mt-1">
+              {bulkMeta?.totalPages ?? '?'} pages scanned
+              {(bulkMeta?.processingTimeMs ?? 0) > 0 && ` · ${(bulkMeta!.processingTimeMs / 1000).toFixed(1)}s total`}
+              {' '}· {bulkChunkResults.filter(r => r.studentName).length}/{bulkChunkResults.length} name(s) extracted
+            </p>
+            <p className="text-violet-100 text-xs mt-2 font-mono">
+              Pick a student from the dropdown to verify their extracted answers.
+              Chunk index = position in the original batch (matches the order the papers were generated in).
+            </p>
+          </div>
+
+          {/* Per-chunk card grid — shows status at a glance for the whole
+              batch. Each card is clickable to jump straight to that student. */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {bulkChunkResults.map((chunk, idx) => {
+              const isSelected = idx === selectedChunkIndex;
+              const isFailed = !chunk.success;
+              return (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => setSelectedChunkIndex(idx)}
+                  className={`text-left p-4 rounded-xl border-2 transition-all ${
+                    isSelected
+                      ? 'bg-violet-50 dark:bg-violet-950/40 border-violet-500 shadow-md'
+                      : isFailed
+                      ? 'bg-red-50/40 dark:bg-red-950/20 border-red-200 dark:border-red-900 hover:border-red-400'
+                      : 'bg-white dark:bg-slate-900 border-zinc-200 dark:border-zinc-700 hover:border-violet-300'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-mono text-xs uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                      Chunk {idx + 1}
+                    </span>
+                    {isFailed && (
+                      <span className="text-[10px] font-mono font-bold text-red-700 dark:text-red-300 bg-red-100 dark:bg-red-900/50 px-2 py-0.5 rounded">
+                        FAILED
+                      </span>
+                    )}
+                    {!isFailed && isSelected && (
+                      <span className="text-[10px] font-mono font-bold text-violet-700 dark:text-violet-300 bg-violet-100 dark:bg-violet-900/50 px-2 py-0.5 rounded">
+                        SELECTED
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-base font-display font-bold text-zinc-900 dark:text-white truncate">
+                    {chunk.studentName || (chunk.studentNameError ? <span className="italic text-zinc-400">name unreadable</span> : <span className="italic text-zinc-400">unnamed</span>)}
+                  </div>
+                  <div className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 mt-1">
+                    pages {chunk.pageFrom}-{chunk.pageTo} · {chunk.answers.filter(a => a && a.trim()).length} answer(s)
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Selected chunk's 42-row answer table (placeholder for Chunk 3). */}
+          <div className="bg-white dark:bg-slate-900 border border-zinc-200 dark:border-zinc-700 rounded-2xl p-6 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-lg font-display font-bold text-zinc-900 dark:text-white">
+                Student {selectedChunkIndex + 1}: {bulkChunkResults[selectedChunkIndex]?.studentName || '(no name extracted)'}
+              </h4>
+              <div className="text-xs font-mono text-zinc-500 dark:text-zinc-400">
+                pages {bulkChunkResults[selectedChunkIndex]?.pageFrom}-{bulkChunkResults[selectedChunkIndex]?.pageTo}
+              </div>
+            </div>
+            {bulkChunkResults[selectedChunkIndex]?.success === false ? (
+              <div className="p-4 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-300">
+                OCR failed for this chunk: {bulkChunkResults[selectedChunkIndex]?.error || 'unknown error'}
+              </div>
+            ) : (
+              <div className="overflow-x-auto border border-zinc-200 dark:border-zinc-700 rounded-xl">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="bg-zinc-50 dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 font-mono uppercase">
+                      <th className="p-3">Row</th>
+                      <th className="p-3">Extracted Answer</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                    {(bulkChunkResults[selectedChunkIndex]?.answers || []).map((ans, i) => (
+                      <tr key={i} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/40">
+                        <td className="p-3 font-mono text-zinc-500 dark:text-zinc-400">row {i + 1}</td>
+                        <td className="p-3 font-mono font-bold">
+                          {ans && String(ans).trim() ? String(ans) : <span className="text-zinc-300 dark:text-zinc-600">—</span>}
+                        </td>
+                      </tr>
+                    ))}
+                    {(!bulkChunkResults[selectedChunkIndex]?.answers || bulkChunkResults[selectedChunkIndex]!.answers.length === 0) && (
+                      <tr>
+                        <td colSpan={2} className="p-4 text-center text-zinc-400 italic">
+                          No answers extracted for this chunk.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono">
+              Chunk 3 will add the full question prompt + correct-answer comparison + per-student placement report here.
+            </p>
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={resetScanner}
+              className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-sm py-2.5 rounded-lg transition-colors"
+            >
+              Scan Another Batch
+            </button>
+            <button
+              onClick={onBack}
+              className="flex-1 bg-white dark:bg-slate-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 font-medium text-sm py-2.5 rounded-lg transition-colors"
+            >
+              Back to Dashboard
+            </button>
+          </div>
         </div>
       )}
 
