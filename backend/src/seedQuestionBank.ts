@@ -55,6 +55,39 @@ async function seed() {
   await client.connect();
   const collection = client.db().collection('questionBank');
 
+  // Migrate rows seeded before questionId existed.
+  //
+  // The previous seeder wrote rows with no stable id, so an existing
+  // deployment has 1202 of them with `questionId` unset. The unique index
+  // below would then fail to build with a bare
+  //   E11000 duplicate key ... dup key: { questionId: null }
+  // which stops the deploy with nothing an operator can act on.
+  //
+  // Those rows are safe to drop: they predate review state entirely, so they
+  // carry no human decision to lose, and every one of them is re-inserted from
+  // the JSON immediately below with a proper id. Anything that DOES carry a
+  // decision has a questionId by definition and is left alone.
+  const legacyRows = await collection.countDocuments({ questionId: { $exists: false } });
+  if (legacyRows > 0) {
+    const withDecisions = await collection.countDocuments({
+      questionId: { $exists: false },
+      reviewStatus: { $in: ['mapped', 'retired'] },
+    });
+    if (withDecisions > 0) {
+      console.error(
+        `ABORT: ${withDecisions} row(s) carry a review decision but have no questionId. ` +
+        `That should be impossible — review state is only ever written alongside an id. ` +
+        `Refusing to delete a human decision; inspect the collection by hand.`
+      );
+      process.exit(1);
+    }
+    await collection.deleteMany({ questionId: { $exists: false } });
+    console.log(
+      `Migrated: removed ${legacyRows} row(s) seeded before questionId existed ` +
+      `(no review decisions on them; re-inserted below with stable ids).`
+    );
+  }
+
   await collection.createIndex({ questionId: 1 }, { unique: true });
   await collection.createIndex({ level: 1 });
   await collection.createIndex({ level: 1, sectionType: 1 });
