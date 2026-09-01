@@ -617,6 +617,61 @@ export interface QuestionLogic {
   deletedBy: string | null;
 }
 
+/**
+ * One row per FLN level in the canonical 93-level taxonomy.
+ *
+ * This collection exists to give the curriculum a single queryable home. Before
+ * it, the 93 levels lived only as TypeScript in the frontend package, so every
+ * backend feature that needed to reason about levels hand-authored its own copy
+ * — there were six such copies at last count, in two different id spaces.
+ *
+ * Seeded (idempotently) by `npm run seed:levels` from
+ * `frontend/src/data/skillProgressionMap.ts`. No route writes to it.
+ */
+export interface CurriculumLevel {
+  /**
+   * Canonical, immutable identity. Generated once at first insert and never
+   * regenerated — student evidence points here, so renumbering would orphan it.
+   * Every other identifier on this document is an alias of this one.
+   */
+  conceptId: string;
+
+  /** L-notation, 1..93. The alias the platform standardises on. */
+  levelNumber: number;
+  /** Research S-notation, e.g. "S4.3". */
+  sCode: string;
+  /**
+   * The retired 1..59 worksheet-engine id, where one maps.
+   *
+   * Deliberately temporary: it is the bridge that lets 59-keyed content be
+   * re-keyed by lookup rather than by hand, and lets anything still speaking
+   * 59 keep working mid-migration. Null once a level has no 59-space ancestor,
+   * and the field is dropped entirely once nothing reads it.
+   */
+  legacyLevel59: number | null;
+
+  stage: string;
+  capability: string;
+  strand: string;
+
+  /** From the skill map — a level is defined by the skills it assesses. */
+  primarySkills: string[];
+  supportingSkills: string[];
+  subskills: string[];
+
+  /**
+   * Content coverage, recomputed at every seed. These are the honest answer to
+   * "how many of the 93 can we actually render today" — false is a real gap,
+   * not a defect.
+   */
+  hasStaticHtml: boolean;
+  hasBuilder: boolean;
+
+  curriculumVersion: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface DatabaseSchema {
   users: User[];
   schools: School[];
@@ -638,6 +693,7 @@ interface DatabaseSchema {
   misconceptionClusters: MisconceptionCluster[];
   testHistory: TestHistoryEntry[];
   questionLogics: QuestionLogic[];
+  curriculumLevels: CurriculumLevel[];
 }
 
 const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
@@ -661,6 +717,7 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
   misconceptionClusters: 'misconception_clusters',
   testHistory: 'testHistory',
   questionLogics: 'questionLogics',
+  curriculumLevels: 'curriculumLevels',
 };
 
   /**
@@ -1761,6 +1818,47 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
       totalLogics: live.length,
       totalLevels,
       levelsWithLogic: new Set(live.map(l => l.level)).size,
+    };
+  }
+
+  // --- Curriculum Level Methods ---
+  //
+  // The single accessor path for curriculum data. Anything that needs to reason
+  // about levels goes through here rather than hand-authoring a lookup table —
+  // a feature that cannot get what it needs from these is a signal the schema
+  // is missing a field, not licence to start a seventh copy of the taxonomy.
+
+  async getCurriculumLevels() {
+    return await this.mongoDb!.collection<CurriculumLevel>('curriculumLevels')
+      .find({}).sort({ levelNumber: 1 }).toArray();
+  }
+
+  async getCurriculumLevel(levelNumber: number) {
+    return (await this.mongoDb!.collection<CurriculumLevel>('curriculumLevels')
+      .findOne({ levelNumber })) || undefined;
+  }
+
+  /**
+   * Resolve a retired 1..59 worksheet-engine id to its 93-space level.
+   *
+   * Exists only for the migration window: call sites that still hold a 59-space
+   * number use this to translate rather than carrying their own mapping. When
+   * the last such call site is gone, this method and `legacyLevel59` go with it.
+   */
+  async getCurriculumLevelByLegacy59(legacyLevel59: number) {
+    return (await this.mongoDb!.collection<CurriculumLevel>('curriculumLevels')
+      .findOne({ legacyLevel59 })) || undefined;
+  }
+
+  /** Coverage summary — how much of the 93 can actually be rendered today. */
+  async getCurriculumCoverage() {
+    const levels = await this.getCurriculumLevels();
+    return {
+      totalLevels: levels.length,
+      withStaticHtml: levels.filter(l => l.hasStaticHtml).length,
+      withBuilder: levels.filter(l => l.hasBuilder).length,
+      withAnyContent: levels.filter(l => l.hasStaticHtml || l.hasBuilder).length,
+      mappedFromLegacy59: levels.filter(l => l.legacyLevel59 !== null).length,
     };
   }
 
@@ -3685,7 +3783,10 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
       // Seeded empty on purpose: question logics are pedagogy authored by a real
       // Superadmin, and inventing demo ones would put fabricated curriculum
       // intent in front of the question-generation pipeline.
-      questionLogics: []
+      questionLogics: [],
+      // Populated by `npm run seed:levels`, not by the demo seed — the
+      // curriculum is real data with one source, not fixture content.
+      curriculumLevels: []
     };
   }
 }
