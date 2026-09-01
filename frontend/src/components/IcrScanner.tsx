@@ -909,10 +909,22 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
         return;
       }
       const data = await res.json();
-      // Prefer `questions[]` (has question_id, question prompt, answer,
-      // topic, subtopic) over `answerKey[]` (only qid + answer). The
-      // /diagnostic/student/:id/answer-key endpoint returns both; the
-      // questions field is the richer source for the verify table.
+      // Prefer `rows[]` (one entry per printed row on the physical sheet —
+      // multi-slot questions collapsed into a single row with
+      // comma-joined answers, e.g. correctAnswer: "2, 4, 7"). This is
+      // the row-coordinate-grouped shape the verify UI renders. Falls
+      // back to `questions[]` when no rows[] (older answer-key records)
+      // and finally to `answerKey[]` (just qid + answer, no prompts).
+      if (Array.isArray(data?.rows) && data.rows.length > 0) {
+        const qs = data.rows.map((r: any, i: number) => ({
+          id: r.rowId || `R${i + 1}`,
+          question: r.question || `Row ${i + 1}`,
+          correctAnswer: String(r.correctAnswer ?? ''),
+          topic: r.topic,
+        }));
+        setChunkQuestions(prev => ({ ...prev, [chunkIdx]: qs }));
+        return;
+      }
       const qsSrc = (Array.isArray(data?.questions) && data.questions.length > 0)
         ? data.questions
         : (data?.answerKey || []);
