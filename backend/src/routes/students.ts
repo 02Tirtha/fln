@@ -680,6 +680,45 @@ export function registerStudentRoutes(app: express.Express) {
         remapped++;
       }
     }
+    // Fallback: if the submitted answer keys don't match the student's
+    // assignedDiagnosticQuestions paper (a known issue when the answer-key
+    // endpoint returns IDs from the diagnostic_answer_keys collection using a
+    // different ID scheme than the assigned paper), try the diagnostic
+    // answer-key record directly. This unblocks the bulk-OCR submit path
+    // where the verify UI pulls from one source and the submit checks
+    // against another. Same translation rules as above.
+    if (Object.keys(positional).length === 0) {
+      try {
+        const ak = await dbStore.getStudentDiagnosticAnswerKey(student.id);
+        if (ak && Array.isArray(ak.questions) && ak.questions.length > 0) {
+          const akQuestions = ak.questions as Array<Question & { qid?: string }>;
+          const akIds = new Set(akQuestions.map((q) => q.question_id || q.qid || ''));
+          for (const [key, value] of Object.entries(answers as Record<string, string>)) {
+            if (akIds.has(key)) {
+              positional[key] = String(value);
+              continue;
+            }
+            const posMatch = /^Q(\d+)$/i.exec(key.trim());
+            const q = posMatch ? akQuestions[parseInt(posMatch[1], 10) - 1] : undefined;
+            if (q) {
+              positional[q.question_id || q.qid || ''] = String(value);
+              remapped++;
+            }
+          }
+          // If the answer-key questions actually match better, prefer them
+          // for grading too (so the report uses the right paper).
+          if (Object.keys(positional).length > 0) {
+            console.log(`[baseline] fell back to diagnostic_answer_keys for ${student.id} (${Object.keys(positional).length} matched)`);
+            questions = akQuestions.map((q) => ({
+              ...q,
+              question_id: q.question_id || q.qid || '',
+            })) as Question[];
+          }
+        }
+      } catch (_e) {
+        // Non-fatal — we'll fall through to the original 400 below.
+      }
+    }
     if (Object.keys(positional).length === 0) {
       return res.status(400).json({
         error: `None of the ${Object.keys(answers).length} answer key(s) match this student's paper. Expected question ids like "${questions[0].question_id}" or positions "Q1".."Q${questions.length}".`

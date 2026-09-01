@@ -43,6 +43,102 @@ interface BulkResultItem {
   status: string;
 }
 
+// Per-row verify table for the bulk-class OCR flow. Renders one row per
+// question in the student's stored diagnostic paper, with the OCR'd value
+// (editable), the correct answer, and a Correct/Incorrect badge driven by
+// positional matching. Falls back to OCR-only rows when no answer key
+// exists for this student (so the bulk flow still works end-to-end when
+// papers were generated outside the normal bulk-generation flow).
+const ChunkVerifyTable: React.FC<{
+  chunk: BulkChunkResult | undefined;
+  questions: Array<{ id: string; question: string; correctAnswer: string; topic?: string }>;
+  overrides: Record<string, string>;
+  onChange: (qId: string, value: string) => void;
+}> = ({ chunk, questions, overrides, onChange }) => {
+  // Empty-state path: no questions loaded AND no OCR answers to show.
+  if (questions.length === 0 && (!chunk?.answers || chunk.answers.length === 0)) {
+    return (
+      <div className="p-4 text-center text-zinc-400 italic text-sm border border-zinc-200 dark:border-zinc-700 rounded-xl">
+        No answers extracted and no answer key loaded for this student.
+      </div>
+    );
+  }
+  // Render rows from questions[] when available; fall back to OCR-only rows
+  // indexed 1..N when no answer key exists for this student.
+  const rowCount = Math.max(questions.length, chunk?.answers.length || 0);
+  return (
+    <div className="overflow-x-auto border border-zinc-200 dark:border-zinc-700 rounded-xl">
+      <table className="w-full text-left text-xs">
+        <thead>
+          <tr className="bg-zinc-50 dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 font-mono uppercase">
+            <th className="p-3 w-10">#</th>
+            <th className="p-3">Question Prompt</th>
+            <th className="p-3 text-center w-32">Correct Answer</th>
+            <th className="p-3 w-44">Student's Answer (OCR)</th>
+            <th className="p-3 text-center w-24">Result</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+          {Array.from({ length: rowCount }, (_, i) => {
+            const q = questions[i];
+            const qId = q?.id || `q_${i + 1}`;
+            const ocrVal = (i < (chunk?.answers.length || 0)) ? String(chunk!.answers[i] ?? '') : '';
+            const userVal = (qId in overrides) ? overrides[qId] : ocrVal;
+            const expected = (q?.correctAnswer || '').trim();
+            const isMatch = expected.length > 0 && userVal.trim() === expected;
+            const isEmpty = !userVal || !userVal.trim();
+            const isTeacherEdited = (qId in overrides) && overrides[qId] !== ocrVal;
+            return (
+              <tr key={qId} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/40">
+                <td className="p-3 font-mono text-zinc-500 dark:text-zinc-400">{i + 1}</td>
+                <td className="p-3 font-medium text-zinc-900 dark:text-white">
+                  {q?.question || <span className="italic text-zinc-400">no question prompt loaded</span>}
+                </td>
+                <td className="p-3 text-center font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                  {q?.correctAnswer || <span className="text-zinc-300 dark:text-zinc-600">—</span>}
+                </td>
+                <td className="p-3 font-mono">
+                  <input
+                    type="text"
+                    value={userVal}
+                    onChange={(e) => onChange(qId, e.target.value)}
+                    placeholder={isEmpty ? '(empty)' : ''}
+                    className={`w-full px-2 py-1 rounded border ${
+                      isEmpty
+                        ? 'border-red-200 dark:border-red-800 bg-red-50/40 dark:bg-red-950/30'
+                        : isMatch
+                        ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50/40 dark:bg-emerald-950/30'
+                        : 'border-zinc-200 dark:border-zinc-700 bg-white dark:bg-slate-800'
+                    } text-zinc-900 dark:text-white focus:outline-none focus:border-violet-500`}
+                  />
+                  {isTeacherEdited && (
+                    <span className="ml-1 text-[9px] font-mono font-bold text-amber-600 dark:text-amber-400">✏️ corrected</span>
+                  )}
+                </td>
+                <td className="p-3 text-center">
+                  {!q ? (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+                      no key
+                    </span>
+                  ) : isMatch ? (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                      ✓ Correct
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300">
+                      ✗ Incorrect
+                    </span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
 // Lightweight SVG donut chart — correct vs incorrect counts. No external
 // chart library; the math is just arc-length-to-percentage on two slices.
 // `correct` and `incorrect` may be null (e.g. when the report predates
@@ -180,6 +276,24 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
   } | null>(null);
   // Which student (chunk) is currently selected in the dropdown. Index into bulkChunkResults.
   const [selectedChunkIndex, setSelectedChunkIndex] = useState<number>(0);
+  // Per-chunk match from chunk index → studentId. Built on first bulk-success
+  // by matching chunk.studentName against the class roster; teacher can
+  // override per-chunk via the manual picker. Used to load the right
+  // diagnostic paper (answer key) for the per-row grading table.
+  const [chunkStudentMap, setChunkStudentMap] = useState<Record<number, string>>({});
+  // Per-chunk cached answer key once fetched (so jumping between students
+  // doesn't re-fetch). Keyed by chunk index → loaded question list.
+  const [chunkQuestions, setChunkQuestions] = useState<Record<number, Array<{ id: string; question: string; correctAnswer: string; topic?: string }>>>({});
+  const [chunkQuestionsLoading, setChunkQuestionsLoading] = useState<number | null>(null);
+  // Per-chunk editable extracted answers (overrides the raw OCR output).
+  const [chunkAnswersOverride, setChunkAnswersOverride] = useState<Record<number, Record<string, string>>>({});
+  // Per-chunk save state: 'idle' | 'saving' | 'saved' | 'error'.
+  const [chunkSaveState, setChunkSaveState] = useState<Record<number, 'idle' | 'saving' | 'saved' | 'error'>>({});
+  const [chunkSaveError, setChunkSaveError] = useState<Record<number, string>>({});
+  // "Save All" runs through every chunk and posts each one's report. Track
+  // overall progress so the button can show a spinner / progress label.
+  const [savingAll, setSavingAll] = useState(false);
+  const [saveAllProgress, setSaveAllProgress] = useState<{ done: number; total: number } | null>(null);
 
   const [step, setStep] = useState<ScannerStep>('select');
   const [loading, setLoading] = useState(false);
@@ -397,6 +511,24 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
     })();
     return () => { cancelled = true; };
   }, [selectedClassId, selectedStudentId, classes, students, token]);
+
+  // Lazy-load the answer key for the currently-selected chunk whenever the
+  // teacher switches chunks in the bulk-select step. Idempotent — the
+  // ensureChunkQuestions function short-circuits if the chunk's questions
+  // are already cached, so re-selecting the same chunk is free.
+  useEffect(() => {
+    if (step !== 'bulk-select') return;
+    if (selectedChunkIndex == null) return;
+    if (!bulkChunkResults || selectedChunkIndex >= bulkChunkResults.length) return;
+    if (chunkQuestions[selectedChunkIndex]) return;
+    let cancelled = false;
+    (async () => {
+      await ensureChunkQuestions(selectedChunkIndex);
+      if (cancelled) return;
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, selectedChunkIndex, chunkStudentMap]);
 
   const selectedStudent = students.find(s => s.id === selectedStudentId);
 
@@ -707,6 +839,221 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
       `${withName} name(s) extracted from page-1 headers.`
     );
     setError('');
+
+    // Auto-build the chunk → studentId map by:
+    //   1. Trying to match chunk.studentName against the class roster
+    //      (case-insensitive, ignoring extra spaces).
+    //   2. Falling back to chunk index → students[index] when name match
+    //      fails or no name was extracted.
+    // The teacher can override any individual match via the per-chunk
+    // student picker in the verify table.
+    const cls = classes.find(c => c.id === selectedClassId);
+    const classStudents = students.filter(s =>
+      cls && (s.classGroup === cls.className || (s.classGroup || '').includes(cls.className))
+    );
+    const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+    const newMap: Record<number, string> = {};
+    (resp.results || []).forEach((chunk, idx) => {
+      if (chunk.studentName) {
+        const match = classStudents.find(s => norm(s.name) === norm(chunk.studentName!));
+        if (match) { newMap[idx] = match.id; return; }
+      }
+      // Fallback to index-based assignment — same as the assumption the
+      // teacher makes ("papers were generated in this order").
+      if (idx < classStudents.length) newMap[idx] = classStudents[idx].id;
+    });
+    setChunkStudentMap(newMap);
+  };
+
+  // Re-run auto-matching when the teacher picks a different class. Useful
+  // when they realize they had the wrong class selected and want to retry
+  // the name-match without re-running the OCR.
+  const rematchStudents = () => {
+    const cls = classes.find(c => c.id === selectedClassId);
+    const classStudents = students.filter(s =>
+      cls && (s.classGroup === cls.className || (s.classGroup || '').includes(cls.className))
+    );
+    const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+    const newMap: Record<number, string> = {};
+    (bulkChunkResults || []).forEach((chunk, idx) => {
+      if (chunk.studentName) {
+        const match = classStudents.find(s => norm(s.name) === norm(chunk.studentName!));
+        if (match) { newMap[idx] = match.id; return; }
+      }
+      if (idx < classStudents.length) newMap[idx] = classStudents[idx].id;
+    });
+    setChunkStudentMap(newMap);
+    const matched = Object.keys(newMap).length;
+    setSuccess(`Re-matched: ${matched}/${(bulkChunkResults || []).length} chunks assigned to students.`);
+  };
+
+  // Fetch the diagnostic answer key (the student's stored paper) for the
+  // student assigned to a given chunk. Result is cached per chunk index so
+  // jumping between chunks doesn't re-fetch. If the chunk has no assigned
+  // student (manual override removed), skip the fetch and the verify table
+  // falls back to OCR-only rows.
+  const ensureChunkQuestions = async (chunkIdx: number) => {
+    if (chunkQuestions[chunkIdx]) return; // cached
+    const studentId = chunkStudentMap[chunkIdx];
+    if (!studentId) return; // no student assigned
+    setChunkQuestionsLoading(chunkIdx);
+    try {
+      const res = await apiFetch(
+        `/api/diagnostic/student/${encodeURIComponent(studentId)}/answer-key`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+      if (!res.ok) {
+        // No answer key for this student — that's fine; the verify table
+        // will show rows based on the OCR count alone, with empty correctAnswer.
+        setChunkQuestions(prev => ({ ...prev, [chunkIdx]: [] }));
+        return;
+      }
+      const data = await res.json();
+      // Prefer `questions[]` (has question_id, question prompt, answer,
+      // topic, subtopic) over `answerKey[]` (only qid + answer). The
+      // /diagnostic/student/:id/answer-key endpoint returns both; the
+      // questions field is the richer source for the verify table.
+      const qsSrc = (Array.isArray(data?.questions) && data.questions.length > 0)
+        ? data.questions
+        : (data?.answerKey || []);
+      if (Array.isArray(qsSrc) && qsSrc.length > 0) {
+        const qs = qsSrc.map((item: any, i: number) => ({
+          id: item.question_id || item.qid || item.id || `q_${i + 1}`,
+          question: item.question || item.prompt || `Question #${i + 1}`,
+          correctAnswer: String(item.answer ?? item.expected ?? ''),
+          topic: item.topic,
+        }));
+        setChunkQuestions(prev => ({ ...prev, [chunkIdx]: qs }));
+      } else {
+        setChunkQuestions(prev => ({ ...prev, [chunkIdx]: [] }));
+      }
+    } catch {
+      setChunkQuestions(prev => ({ ...prev, [chunkIdx]: [] }));
+    } finally {
+      setChunkQuestionsLoading(null);
+    }
+  };
+
+  // Update one answer cell in the per-chunk editable grid. Teachers correct
+  // OCR mistakes here before saving — without this the OCR row would either
+  // be wrong (the whole point of a verify step) or unsaveable.
+  const setChunkAnswer = (chunkIdx: number, qId: string, value: string) => {
+    setChunkAnswersOverride(prev => {
+      const cur = { ...(prev[chunkIdx] || {}) };
+      cur[qId] = value;
+      return { ...prev, [chunkIdx]: cur };
+    });
+  };
+
+  // Compute the answers map for a chunk: prefer the teacher's edit, fall
+  // back to the OCR value. The result is keyed by the question id from the
+  // student's answer-key paper.
+  const effectiveChunkAnswers = (chunkIdx: number): Record<string, string> => {
+    const chunk = bulkChunkResults?.[chunkIdx];
+    if (!chunk) return {};
+    const qs = chunkQuestions[chunkIdx] || [];
+    const overrides = chunkAnswersOverride[chunkIdx] || {};
+    const out: Record<string, string> = {};
+    qs.forEach((q, i) => {
+      if (q.id in overrides) {
+        out[q.id] = overrides[q.id];
+      } else {
+        // Map by index: chunk.answers[i] -> qs[i]
+        out[q.id] = (i < chunk.answers.length ? String(chunk.answers[i] ?? '') : '');
+      }
+    });
+    return out;
+  };
+
+  // Count correct/incorrect for a chunk — used for the per-chunk summary
+  // badge and for the "Save All" progress labels.
+  const gradeChunk = (chunkIdx: number): { correct: number; incorrect: number; total: number; missing: number } => {
+    const qs = chunkQuestions[chunkIdx] || [];
+    const answers = effectiveChunkAnswers(chunkIdx);
+    let correct = 0, incorrect = 0, missing = 0;
+    qs.forEach(q => {
+      const v = (answers[q.id] ?? '').trim();
+      if (!v) { missing++; return; }
+      if (q.correctAnswer && v === q.correctAnswer.trim()) correct++;
+      else incorrect++;
+    });
+    return { correct, incorrect, total: qs.length, missing };
+  };
+
+  // Save one chunk's report. Posts to /api/students/:studentId/diagnostic/submit
+  // (the same endpoint the single-sheet flow uses) — which grades + persists
+  // the placement and runs the misconception analysis.
+  const saveChunkReport = async (chunkIdx: number): Promise<boolean> => {
+    const studentId = chunkStudentMap[chunkIdx];
+    if (!studentId) {
+      setChunkSaveError(prev => ({ ...prev, [chunkIdx]: 'No student assigned to this chunk. Use the student picker above to assign one.' }));
+      setChunkSaveState(prev => ({ ...prev, [chunkIdx]: 'error' }));
+      return false;
+    }
+    const qs = chunkQuestions[chunkIdx] || [];
+    if (qs.length === 0) {
+      setChunkSaveError(prev => ({ ...prev, [chunkIdx]: 'No answer key loaded for this student. Generate a diagnostic paper first.' }));
+      setChunkSaveState(prev => ({ ...prev, [chunkIdx]: 'error' }));
+      return false;
+    }
+    const answers = effectiveChunkAnswers(chunkIdx);
+    // Drop blank entries — the grader treats empty as "not graded", distinct
+    // from "wrong" which would skew a child's placement downward.
+    const verified: Record<string, string> = {};
+    for (const [qId, v] of Object.entries(answers)) {
+      if (String(v ?? '').trim() !== '') verified[qId] = String(v).trim();
+    }
+    if (Object.keys(verified).length === 0) {
+      setChunkSaveError(prev => ({ ...prev, [chunkIdx]: 'No answers to submit.' }));
+      setChunkSaveState(prev => ({ ...prev, [chunkIdx]: 'error' }));
+      return false;
+    }
+    setChunkSaveState(prev => ({ ...prev, [chunkIdx]: 'saving' }));
+    setChunkSaveError(prev => ({ ...prev, [chunkIdx]: '' }));
+    try {
+      const res = await apiFetch(`/api/students/${encodeURIComponent(studentId)}/diagnostic/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ answers: verified }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setChunkSaveError(prev => ({ ...prev, [chunkIdx]: data?.error || `HTTP ${res.status}` }));
+        setChunkSaveState(prev => ({ ...prev, [chunkIdx]: 'error' }));
+        return false;
+      }
+      setChunkSaveState(prev => ({ ...prev, [chunkIdx]: 'saved' }));
+      return true;
+    } catch (e: any) {
+      setChunkSaveError(prev => ({ ...prev, [chunkIdx]: e?.message || 'Network error' }));
+      setChunkSaveState(prev => ({ ...prev, [chunkIdx]: 'error' }));
+      return false;
+    }
+  };
+
+  // Save reports for every chunk that has a student assigned. Sequential so
+  // we don't hammer the backend with N concurrent posts — placement
+  // submission hits Gemini in some flows, and 11+ concurrent submissions
+  // could trip rate limits or skew timing-sensitive logic.
+  const saveAllReports = async () => {
+    if (!bulkChunkResults) return;
+    setSavingAll(true);
+    setSaveAllProgress({ done: 0, total: bulkChunkResults.length });
+    let done = 0, failed = 0;
+    for (let idx = 0; idx < bulkChunkResults.length; idx++) {
+      // Skip failed OCR chunks — no answers to save.
+      if (!bulkChunkResults[idx].success) { done++; continue; }
+      const studentId = chunkStudentMap[idx];
+      if (!studentId) { failed++; done++; setSaveAllProgress({ done, total: bulkChunkResults.length }); continue; }
+      // Lazy-load the answer key if we haven't fetched it yet.
+      if (!chunkQuestions[idx]) await ensureChunkQuestions(idx);
+      const ok = await saveChunkReport(idx);
+      if (!ok) failed++;
+      done++;
+      setSaveAllProgress({ done, total: bulkChunkResults.length });
+    }
+    setSavingAll(false);
+    setSuccess(`Saved ${done - failed}/${bulkChunkResults.length} reports (${failed} failed).`);
   };
 
   const handleAnswerChange = (qId: string, value: string) => {
@@ -788,6 +1135,14 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
     setBulkChunkResults(null);
     setBulkMeta(null);
     setSelectedChunkIndex(0);
+    setChunkStudentMap({});
+    setChunkQuestions({});
+    setChunkQuestionsLoading(null);
+    setChunkAnswersOverride({});
+    setChunkSaveState({});
+    setChunkSaveError({});
+    setSavingAll(false);
+    setSaveAllProgress(null);
     setStep('select');
     setError('');
     setSuccess('');
@@ -1385,66 +1740,139 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
             })}
           </div>
 
-          {/* Selected chunk's 42-row answer table (placeholder for Chunk 3). */}
+          {/* Selected chunk's verify table: question prompt + correct answer
+              (from the student's stored diagnostic paper) + OCR'd answer
+              (editable) + per-row Correct/Incorrect badge. This is the
+              main review surface — the teacher scans down the rows, fixes
+              any OCR misreads, and saves. */}
           <div className="bg-white dark:bg-slate-900 border border-zinc-200 dark:border-zinc-700 rounded-2xl p-6 shadow-sm space-y-4">
-            <div className="flex items-center justify-between">
-              <h4 className="text-lg font-display font-bold text-zinc-900 dark:text-white">
-                Student {selectedChunkIndex + 1}: {bulkChunkResults[selectedChunkIndex]?.studentName || '(no name extracted)'}
-              </h4>
-              <div className="text-xs font-mono text-zinc-500 dark:text-zinc-400">
-                pages {bulkChunkResults[selectedChunkIndex]?.pageFrom}-{bulkChunkResults[selectedChunkIndex]?.pageTo}
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div>
+                <h4 className="text-lg font-display font-bold text-zinc-900 dark:text-white">
+                  {(() => {
+                    const cid = selectedChunkIndex;
+                    const ch = bulkChunkResults[cid];
+                    const sid = chunkStudentMap[cid];
+                    const matched = students.find(s => s.id === sid);
+                    const name = matched?.name || ch?.studentName || '(no name extracted)';
+                    return `Student ${cid + 1}: ${name}`;
+                  })()}
+                </h4>
+                <div className="text-xs font-mono text-zinc-500 dark:text-zinc-400 mt-1">
+                  pages {bulkChunkResults[selectedChunkIndex]?.pageFrom}-{bulkChunkResults[selectedChunkIndex]?.pageTo}
+                  {' · '}
+                  {(() => {
+                    const g = gradeChunk(selectedChunkIndex);
+                    return (
+                      <span>
+                        {g.correct}/{g.total} correct
+                        {g.incorrect > 0 && ` · ${g.incorrect} incorrect`}
+                        {g.missing > 0 && ` · ${g.missing} blank`}
+                      </span>
+                    );
+                  })()}
+                </div>
+              </div>
+              {/* Per-chunk student override picker — when the auto-match put
+                  the wrong student on this chunk, the teacher fixes it here.
+                  Saving reloads the answer key for the new student. */}
+              <div className="flex items-center gap-2">
+                <label className="text-[10px] font-mono uppercase text-zinc-500 dark:text-zinc-400">Assign to:</label>
+                <select
+                  value={chunkStudentMap[selectedChunkIndex] || ''}
+                  onChange={(e) => {
+                    const newId = e.target.value;
+                    setChunkStudentMap(prev => ({ ...prev, [selectedChunkIndex]: newId }));
+                    // Clear cached questions for this chunk so the table
+                    // reloads against the new student's paper.
+                    setChunkQuestions(prev => {
+                      const cp = { ...prev };
+                      delete cp[selectedChunkIndex];
+                      return cp;
+                    });
+                    setChunkSaveState(prev => ({ ...prev, [selectedChunkIndex]: 'idle' }));
+                  }}
+                  className="text-xs border border-zinc-200 dark:border-zinc-700 rounded-lg p-1.5 bg-white dark:bg-slate-800 text-zinc-900 dark:text-white"
+                >
+                  <option value="">— unassigned —</option>
+                  {(() => {
+                    const cls = classes.find(c => c.id === selectedClassId);
+                    return students.filter(s =>
+                      cls && (s.classGroup === cls.className || (s.classGroup || '').includes(cls.className))
+                    ).map(s => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ));
+                  })()}
+                </select>
               </div>
             </div>
+
             {bulkChunkResults[selectedChunkIndex]?.success === false ? (
               <div className="p-4 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-300">
                 OCR failed for this chunk: {bulkChunkResults[selectedChunkIndex]?.error || 'unknown error'}
               </div>
+            ) : chunkQuestionsLoading === selectedChunkIndex ? (
+              <div className="p-4 text-center text-zinc-500 italic text-sm">Loading this student's answer key…</div>
             ) : (
-              <div className="overflow-x-auto border border-zinc-200 dark:border-zinc-700 rounded-xl">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="bg-zinc-50 dark:bg-zinc-800 border-b border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 font-mono uppercase">
-                      <th className="p-3">Row</th>
-                      <th className="p-3">Extracted Answer</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-                    {(bulkChunkResults[selectedChunkIndex]?.answers || []).map((ans, i) => (
-                      <tr key={i} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/40">
-                        <td className="p-3 font-mono text-zinc-500 dark:text-zinc-400">row {i + 1}</td>
-                        <td className="p-3 font-mono font-bold">
-                          {ans && String(ans).trim() ? String(ans) : <span className="text-zinc-300 dark:text-zinc-600">—</span>}
-                        </td>
-                      </tr>
-                    ))}
-                    {(!bulkChunkResults[selectedChunkIndex]?.answers || bulkChunkResults[selectedChunkIndex]!.answers.length === 0) && (
-                      <tr>
-                        <td colSpan={2} className="p-4 text-center text-zinc-400 italic">
-                          No answers extracted for this chunk.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+              <ChunkVerifyTable
+                chunk={bulkChunkResults[selectedChunkIndex]}
+                questions={chunkQuestions[selectedChunkIndex] || []}
+                overrides={chunkAnswersOverride[selectedChunkIndex] || {}}
+                onChange={(qId, v) => setChunkAnswer(selectedChunkIndex, qId, v)}
+              />
             )}
-            <p className="text-[10px] text-zinc-400 dark:text-zinc-500 font-mono">
-              Chunk 3 will add the full question prompt + correct-answer comparison + per-student placement report here.
-            </p>
+
+            {/* Per-chunk save controls. */}
+            <div className="flex items-center gap-3 pt-2 border-t border-zinc-200 dark:border-zinc-700">
+              {(() => {
+                const st = chunkSaveState[selectedChunkIndex] || 'idle';
+                const err = chunkSaveError[selectedChunkIndex];
+                if (st === 'saving') return <span className="text-xs text-zinc-500">Saving…</span>;
+                if (st === 'saved') return <span className="text-xs text-emerald-600 font-mono font-bold">✓ Report saved</span>;
+                if (st === 'error') return <span className="text-xs text-red-600 font-mono">✗ {err || 'save failed'}</span>;
+                return null;
+              })()}
+              <div className="flex-1" />
+              <button
+                onClick={() => saveChunkReport(selectedChunkIndex)}
+                disabled={(chunkSaveState[selectedChunkIndex] === 'saving') || savingAll}
+                className="text-xs bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white font-medium px-3 py-1.5 rounded-lg"
+              >
+                Save This Student's Report
+              </button>
+            </div>
           </div>
 
-          <div className="flex gap-3">
+          {/* Bulk save controls — applies to all chunks with assigned students. */}
+          <div className="flex gap-3 items-center">
+            <button
+              onClick={saveAllReports}
+              disabled={savingAll || !bulkChunkResults || bulkChunkResults.length === 0}
+              className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-medium text-sm py-2.5 rounded-lg transition-colors shadow-sm"
+            >
+              {savingAll
+                ? `Saving ${saveAllProgress?.done ?? 0}/${saveAllProgress?.total ?? 0}…`
+                : `💾 Save All ${bulkChunkResults?.length ?? 0} Reports`}
+            </button>
+            <button
+              onClick={rematchStudents}
+              disabled={savingAll}
+              className="text-xs bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 font-medium px-3 py-2.5 rounded-lg"
+              title="Re-run auto-matching of chunk → student (useful after picking a different class)"
+            >
+              Re-match students
+            </button>
             <button
               onClick={resetScanner}
-              className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-sm py-2.5 rounded-lg transition-colors"
+              className="bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-sm py-2.5 px-4 rounded-lg transition-colors"
             >
-              Scan Another Batch
+              New Batch
             </button>
             <button
               onClick={onBack}
-              className="flex-1 bg-white dark:bg-slate-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 font-medium text-sm py-2.5 rounded-lg transition-colors"
+              className="bg-white dark:bg-slate-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 font-medium text-sm py-2.5 px-4 rounded-lg transition-colors"
             >
-              Back to Dashboard
+              Back
             </button>
           </div>
         </div>
