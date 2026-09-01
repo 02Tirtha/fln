@@ -10,12 +10,13 @@ import { Table, Column } from '../Table';
 import { SuperAdminExecutiveDashboard } from '../SuperAdminExecutiveDashboard';
 import { RegionalAnalyticsView } from './RegionalAnalyticsView';
 import { QuestionInterventionPanel } from '../panels/QuestionInterventionPanel';
+import { CurriculumLevelsPanel } from '../panels/CurriculumLevelsPanel';
 
 export type { DashboardProps };
 
 
 export const SuperadminDashboard: React.FC<DashboardProps> = ({ user, token }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'coordinators' | 'analytics' | 'intervention'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'coordinators' | 'analytics' | 'intervention' | 'curriculum'>('overview');
   
   // Overview data
   const [schools, setSchools] = useState<School[]>([]);
@@ -300,6 +301,14 @@ export const SuperadminDashboard: React.FC<DashboardProps> = ({ user, token }) =
             }`}
           >
             ❓ Question Intervention
+          </button>
+          <button
+            onClick={() => setActiveTab('curriculum')}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+              activeTab === 'curriculum' ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-sm' : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+            }`}
+          >
+            🎯 Curriculum Levels
           </button>
         </div>
 
@@ -672,6 +681,10 @@ export const SuperadminDashboard: React.FC<DashboardProps> = ({ user, token }) =
 
       {activeTab === 'intervention' && (
         <QuestionInterventionPanel />
+      )}
+
+      {activeTab === 'curriculum' && (
+        <CurriculumLevelsPanel />
       )}
     </div>
   );
