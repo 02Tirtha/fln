@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { dbStore, UserRole, Student, Question, AnswerSubmission, EvaluationReport, EvaluationReasoning, CYCLE_NAMES } from '../db';
+import { answersMatch } from '../answerMatching';
 import { getAuthUser, canAccessStudent } from '../auth';
 import { generateDiagnosticPaper } from '../paperGenerator';
 import { generateQuestionsForLevel } from '../levelGenerator';
@@ -853,12 +854,14 @@ export function registerStudentRoutes(app: express.Express) {
     //                       recommended level based on how many of that level's
     //                       questions were missed.
     const questionResults = questions.map((q) => {
-      const submitted = String(answers[q.question_id] ?? '').trim().toLowerCase();
-      const correct = String(q.answer ?? '').trim().toLowerCase();
       const srcLevel = Number(q.source_level);
       return {
         q,
-        isCorrect: submitted !== '' && submitted === correct,
+        // answersMatch, not string equality: these answers are OCR'd
+        // handwriting, and "07" vs "7" is notation rather than a wrong
+        // answer. Getting this wrong does not just lose a mark, it lowers
+        // the child's placement. See backend/src/answerMatching.ts.
+        isCorrect: answersMatch(answers[q.question_id], q.answer),
         sourceLevel: Number.isFinite(srcLevel) ? srcLevel : NaN,
       };
     });
@@ -879,20 +882,37 @@ export function registerStudentRoutes(app: express.Express) {
       );
     }
     const allCorrect = questionResults.every((r) => r.isCorrect);
+    const wrongResults = questionResults.filter((r) => !r.isCorrect);
+    const assessedLevels: number[] = questionResults
+      .map((r) => r.sourceLevel)
+      .filter((l): l is number => Number.isFinite(l));
     const failedLevels: number[] = (Array.from(new Set(
-      questionResults
-        .filter((r) => !r.isCorrect)
+      wrongResults
         .map((r) => r.sourceLevel)
         .filter((l): l is number => Number.isFinite(l))
     )) as number[]).sort((a, b) => a - b);
+
     if (failedLevels.length > 0) {
-      const firstFailed = failedLevels[0];
-      recommendedLevel = Math.max(1, firstFailed);
-    } else {
-      const maxLevel = Math.max(0, ...questionResults
-        .map((r) => r.sourceLevel)
-        .filter((l): l is number => Number.isFinite(l))
+      // Weakest-Level Mapping: place at the lowest level the child failed.
+      recommendedLevel = Math.max(1, failedLevels[0]);
+    } else if (wrongResults.length > 0) {
+      // The child got questions wrong, but none of those questions carries a
+      // usable `source_level`. Branching on `failedLevels` alone would fall
+      // through to the mastery case below and PROMOTE a child who failed —
+      // `source_level` is typed `number` but arrives from Mongo unchecked,
+      // which is why it is guarded at all. Hold at the lowest level the paper
+      // actually assessed instead, and say so loudly: this is a data defect
+      // in the paper, not a fact about the child.
+      const lowestAssessed = assessedLevels.length > 0 ? Math.min(...assessedLevels) : 1;
+      recommendedLevel = Math.max(1, lowestAssessed);
+      console.warn(
+        `[diag] ${student.id}: ${wrongResults.length} wrong answer(s) but none carry a numeric source_level. ` +
+        `Holding at Level ${recommendedLevel} rather than promoting. Question ids: ` +
+        wrongResults.map((r) => r.q.question_id).join(', ')
       );
+    } else {
+      // Genuinely all correct: advance one past the hardest level assessed.
+      const maxLevel = Math.max(0, ...assessedLevels);
       recommendedLevel = Math.min(93, maxLevel + 1);
     }
     pipelineDetail = readPipelineDetail({}, questions, answers);
@@ -948,16 +968,13 @@ export function registerStudentRoutes(app: express.Express) {
 
     // Determine the subLevel based on weakest-level mapping questions
     let subLevel = 0; // default Mastery
-    const levelQuestions = questions.filter(q => q.source_level === recommendedLevel);
+    // Reuses questionResults rather than re-grading: the same comparison
+    // implemented twice is the same comparison waiting to drift apart, and
+    // the second copy here previously used bare string equality even after
+    // the first was fixed.
+    const levelQuestions = questionResults.filter(r => r.sourceLevel === recommendedLevel);
     if (levelQuestions.length > 0) {
-      let failedCount = 0;
-      levelQuestions.forEach(q => {
-        const submitted = (answers[q.question_id] || '').trim().toLowerCase();
-        const correct = q.answer.trim().toLowerCase();
-        if (submitted !== correct) {
-          failedCount++;
-        }
-      });
+      const failedCount = levelQuestions.filter(r => !r.isCorrect).length;
 
       if (failedCount === levelQuestions.length) {
         subLevel = 2; // Remedial (failed all)
