@@ -384,3 +384,43 @@ export interface LevelMapPayload {
   }>;
 }
 
+
+/**
+ * Whether a curriculum level's worksheets can be produced today.
+ * Mirrors LevelContentStatus in backend/src/routes/curriculum.ts — three
+ * states because "not yet mapped to the 59-space worksheet engine" is not the
+ * same claim as "measured, and there is no content".
+ */
+export type LevelContentStatus = 'ready' | 'no-content' | 'unmapped';
+
+/** One row of the 93-level curriculum, as served by /api/curriculum/levels. */
+export interface CurriculumLevel {
+  conceptId: string;
+  levelNumber: number;
+  sCode: string;
+  legacyLevel59: number | null;
+  stage: string;
+  capability: string;
+  strand: string;
+  primarySkills: string[];
+  supportingSkills: string[];
+  subskills: string[];
+  hasStaticHtml: boolean;
+  hasBuilder: boolean;
+  curriculumVersion: string;
+  createdAt: string;
+  updatedAt: string;
+  contentStatus: LevelContentStatus;
+}
+
+/** Summary served by /api/curriculum/coverage. */
+export interface CurriculumCoverage {
+  totalLevels: number;
+  withStaticHtml: number;
+  withBuilder: number;
+  withAnyContent: number;
+  mappedFromLegacy59: number;
+  byStatus: Record<LevelContentStatus, number>;
+  /** False while no level has a legacyLevel59 — i.e. the crosswalk has not landed. */
+  crosswalkLanded: boolean;
+}
