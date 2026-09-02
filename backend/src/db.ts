@@ -3,6 +3,7 @@ import path from 'path';
 import bcrypt from 'bcrypt';
 import { MongoClient, Db } from 'mongodb';
 import { CURRICULUM_MAPPING } from './config/curriculumMap';
+import type { StudentCycleLock } from './paperLock';
 
 const DB_DIR = path.resolve(process.cwd(), 'data');
 const DB_FILE = path.resolve(DB_DIR, 'db.json');
@@ -817,6 +818,7 @@ interface DatabaseSchema {
   questionLogics: QuestionLogic[];
   questionTemplates: QuestionTemplate[];
   curriculumLevels: CurriculumLevel[];
+  studentCycleLocks: StudentCycleLock[];
 }
 
 const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
@@ -842,6 +844,7 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
   questionLogics: 'questionLogics',
   questionTemplates: 'questionTemplates',
   curriculumLevels: 'curriculumLevels',
+  studentCycleLocks: 'studentCycleLocks',
 };
 
   /**
@@ -4116,7 +4119,8 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
       questionTemplates: [],
       // Populated by `npm run seed:levels`, not by the demo seed — the
       // curriculum is real data with one source, not fixture content.
-      curriculumLevels: []
+      curriculumLevels: [],
+      studentCycleLocks: []
     };
   }
 }
