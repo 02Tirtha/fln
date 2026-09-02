@@ -152,5 +152,29 @@ test('diagnostic, baseline, mid-year, end-of-year ARE in the lock set', () => {
   }
 });
 
+console.log('\nrecordStudentCycleLock — DB-persisted scenario');
+test('returned lock from first call, when persisted, blocks second call', () => {
+  // Simulate the route flow: first call writes the lock to a "DB"
+  // array, second call reads that array and must see the lock.
+  const persisted: StudentCycleLock[] = [];
+  const first = expectLock(
+    recordStudentCycleLock(persisted, baseArgs),
+    'first'
+  );
+  persisted.push(first);
+
+  const second = recordStudentCycleLock(persisted, {
+    ...baseArgs,
+    generatedByEmail: 'someone-else@example.org',
+  });
+  assert.strictEqual(second.ok, false);
+  if (second.ok) throw new Error('unreachable');
+  assert.strictEqual(
+    second.existing.id,
+    first.id,
+    'expected the persisted lock to be returned, not a new one'
+  );
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
