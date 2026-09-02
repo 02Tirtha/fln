@@ -17,7 +17,8 @@
     "seed:question-bank": "tsx src/seedQuestionBank.ts",
     "seed:geo": "tsx src/utils/seedGeo.ts",
     "reseed": "tsx src/reseed.ts",
-    "test:answer-matching": "tsx src/answerMatching.test.ts"
+    "test:answer-matching": "tsx src/answerMatching.test.ts",
+    "test:paper-lock": "tsx src/paperLock.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
