@@ -36,10 +36,15 @@ import { registerStudentRoutes } from './routes/students';
 import { registerWorksheetRoutes } from './routes/worksheets';
 import { registerEvaluationRoutes } from './routes/evaluation';
 import { registerAnalyticsRoutes } from './routes/analytics';
+import { registerQuestionLogicRoutes } from './routes/questionLogics';
+import { registerQuestionTemplateRoutes } from './routes/questionTemplates';
+import { registerQuestionOptionRoutes } from './routes/questionOptions';
 import { registerDiagnosticBulkRoutes } from './routes/diagnosticBulk';
 import { registerRemediationRoutes } from './routes/remediation';
 import { registerBlueprintRoutes } from './routes/blueprint';
 import { registerMisconceptionRoutes } from './routes/misconceptions';
+import { registerCurriculumRoutes } from './routes/curriculum';
+import { registerQuestionBankRoutes } from './routes/questionBank';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
 import bcrypt from 'bcrypt';
@@ -141,6 +146,9 @@ async function startServer() {
   registerEvaluationRoutes(app);
   registerWorksheetRoutes(app);
   registerAnalyticsRoutes(app);
+  registerQuestionLogicRoutes(app);
+  registerQuestionTemplateRoutes(app);
+  registerQuestionOptionRoutes(app);
   registerDiagnosticBulkRoutes(app);
 
   registerRemediationRoutes(app);
@@ -149,6 +157,8 @@ async function startServer() {
   // Read-only analysis over already-graded submissions: clusters a cohort on
   // HOW its children fail rather than how much they score.
   registerMisconceptionRoutes(app);
+  registerCurriculumRoutes(app);
+  registerQuestionBankRoutes(app);
 
   // --- Intervention Tracking & Best Practices Repository ---
 
