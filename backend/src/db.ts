@@ -651,6 +651,95 @@ export interface QuestionLogic {
 }
 
 /**
+ * A Superadmin-authored question: the stem a child reads, how the answer is
+ * recorded, and the constraints that govern the numbers inside it.
+ *
+ * Distinct from `QuestionLogic`, which described a question in prose and left
+ * the generator to interpret it. A template says the same thing in fields that
+ * can be validated, compared and bulk-imported, so two authors describing the
+ * same variation produce the same row rather than two sentences that only a
+ * human can tell apart.
+ *
+ * Addressed by `conceptId`, never by level number. Levels are insertable and
+ * re-orderable; the concept a question assesses is not. See `CurriculumLevel`.
+ */
+export interface QuestionTemplate {
+  id: string;
+
+  /** Canonical curriculum identity, e.g. "S3.4". The thing this question assesses. */
+  conceptId: string;
+  /**
+   * Display alias only, resolved from `conceptId` at write time. Never the
+   * identity: it is denormalised so the list view needs no join, and it is
+   * recomputed whenever the concept changes.
+   */
+  levelNumber: number;
+  levelName: string;
+
+  /** At least one. Validated server-side against the level's primary+supporting skills. */
+  skills: string[];
+  /** Optional. Empty means "assess the skill at full granularity", which is a valid choice. */
+  subskills: string[];
+
+  /**
+   * What the child reads. Placeholders in braces are filled by the generator
+   * from the constraints below, e.g. "{a} + {b} = ___". A stem with no
+   * placeholder is a fixed question and is equally valid.
+   */
+  stem: string;
+  /**
+   * How the answer is derived, in the same placeholder vocabulary as the stem,
+   * e.g. "{a}+{b}". Held as text rather than evaluated here: nothing in this
+   * chunk generates questions, and pinning an evaluator now would fix a choice
+   * the generator work has not made yet.
+   */
+  answerSpec: string;
+
+  // --- Structured parameters. See backend/src/types/questionTemplateParams.ts ---
+  numeralRange: string | null;
+  digitCount: string | null;
+  /** Empty means "not specified", not "any operation". */
+  operations: string[];
+  maxOperandCount: number | null;
+  carryBehavior: string | null;
+  borrowBehavior: string | null;
+  maxSumOrDifference: string | null;
+  answerType: string | null;
+  blankCount: number | null;
+  questionCount: number | null;
+  subjectCategory: string | null;
+
+  /**
+   * Human-readable name for this variation, derived from the parameters at
+   * creation. Editable afterwards, and an edit is preserved: the derivation
+   * runs again only when an author asks for it.
+   */
+  name: string;
+  /**
+   * Fingerprint of (conceptId + parameters). Two templates constraining the
+   * same thing at the same concept share a key, which is what makes duplicate
+   * variations findable. Deliberately not a unique index — two Superadmins may
+   * legitimately author the same variation with different stems.
+   */
+  variantKey: string;
+  /** Free-form author tags, lowercased and de-duplicated on write. */
+  tags: string[];
+
+  /** Where the row came from. Bulk imports are worth being able to find again. */
+  source: 'form' | 'csv';
+
+  createdBy: string;
+  createdByEmail: string;
+  createdAt: string;
+  updatedAt: string;
+  updatedBy: string;
+  updatedByEmail: string;
+  /** Soft delete: a generated paper may already cite this id, so the row stays for audit. */
+  deletedAt: string | null;
+  deletedBy: string | null;
+}
+
+/**
  * One row per FLN level in the canonical 93-level taxonomy.
  *
  * This collection exists to give the curriculum a single queryable home. Before
@@ -726,6 +815,7 @@ interface DatabaseSchema {
   misconceptionClusters: MisconceptionCluster[];
   testHistory: TestHistoryEntry[];
   questionLogics: QuestionLogic[];
+  questionTemplates: QuestionTemplate[];
   curriculumLevels: CurriculumLevel[];
 }
 
@@ -750,6 +840,7 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
   misconceptionClusters: 'misconception_clusters',
   testHistory: 'testHistory',
   questionLogics: 'questionLogics',
+  questionTemplates: 'questionTemplates',
   curriculumLevels: 'curriculumLevels',
 };
 
@@ -871,6 +962,25 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
           console.log('Successfully ensured indexes on "users" collection');
         } catch (e: any) {
           console.warn('Failed to ensure indexes on "users" collection:', e.message);
+        }
+
+        // Ensure indexes on the authoring collections.
+        //
+        // `questionLogics` has never carried any index, including on `id`,
+        // which `getQuestionLogicById` queries by. Added here alongside the
+        // new collection rather than left for later.
+        try {
+          const logicsColl = db.collection('questionLogics');
+          await logicsColl.createIndex({ id: 1 }, { unique: true });
+
+          const templatesColl = db.collection('questionTemplates');
+          await templatesColl.createIndex({ id: 1 }, { unique: true });
+          await templatesColl.createIndex({ conceptId: 1, deletedAt: 1 });
+          await templatesColl.createIndex({ variantKey: 1, deletedAt: 1 });
+          await templatesColl.createIndex({ tags: 1, deletedAt: 1 });
+          console.log('Successfully ensured indexes on the question authoring collections');
+        } catch (e: any) {
+          console.warn('Failed to ensure indexes on the question authoring collections:', e.message);
         }
 
         // Ensure indexes on evaluationReports collection for performance
@@ -1854,6 +1964,69 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
     };
   }
 
+  // --- Question Template Methods ----------------------------------------
+  //
+  // Templates are addressed by `conceptId`. Nothing here takes a level number:
+  // levels are insertable and re-orderable, so a stored level number would be
+  // a reference that quietly stops meaning what it meant when it was written.
+
+  async getQuestionTemplates(includeDeleted = false) {
+    const filter = includeDeleted ? {} : { deletedAt: null };
+    return await this.mongoDb!.collection<QuestionTemplate>('questionTemplates')
+      .find(filter).sort({ createdAt: -1 }).toArray();
+  }
+
+  async getQuestionTemplateById(id: string) {
+    return (await this.mongoDb!.collection<QuestionTemplate>('questionTemplates').findOne({ id })) || undefined;
+  }
+
+  /** Live templates sharing a variant fingerprint. Drives the duplicate warning. */
+  async getQuestionTemplatesByVariantKey(variantKey: string) {
+    return await this.mongoDb!.collection<QuestionTemplate>('questionTemplates')
+      .find({ variantKey, deletedAt: null }).toArray();
+  }
+
+  async addQuestionTemplate(template: QuestionTemplate) {
+    await this.mongoDb!.collection('questionTemplates').insertOne(template);
+    if (this.data) this.data.questionTemplates.push(template);
+    return template;
+  }
+
+  /**
+   * Insert a validated batch in one round trip.
+   *
+   * Callers validate every row before calling: a CSV import that writes half a
+   * file and then rejects the rest leaves the author reconciling two states by
+   * hand, which is worse than importing nothing.
+   */
+  async addQuestionTemplates(templates: QuestionTemplate[]) {
+    if (templates.length === 0) return [];
+    await this.mongoDb!.collection('questionTemplates').insertMany(templates as any[]);
+    if (this.data) this.data.questionTemplates.push(...templates);
+    return templates;
+  }
+
+  async updateQuestionTemplate(id: string, updates: Partial<QuestionTemplate>) {
+    await this.mongoDb!.collection('questionTemplates').updateOne({ id }, { $set: updates });
+    const t = await this.mongoDb!.collection<QuestionTemplate>('questionTemplates').findOne({ id });
+    if (t && this.data) {
+      const idx = this.data.questionTemplates.findIndex(x => x.id === id);
+      if (idx !== -1) this.data.questionTemplates[idx] = t;
+    }
+    return t || undefined;
+  }
+
+  async getQuestionTemplateStats(totalLevels: number) {
+    const live = await this.mongoDb!.collection<QuestionTemplate>('questionTemplates')
+      .find({ deletedAt: null }).toArray();
+    return {
+      totalTemplates: live.length,
+      totalLevels,
+      levelsWithTemplate: new Set(live.map(t => t.conceptId)).size,
+      distinctVariants: new Set(live.map(t => t.variantKey)).size,
+    };
+  }
+
   // --- Curriculum Level Methods ---
   //
   // The single accessor path for curriculum data. Anything that needs to reason
@@ -1968,6 +2141,12 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
   async getCurriculumLevel(levelNumber: number) {
     return (await this.mongoDb!.collection<CurriculumLevel>('curriculumLevels')
       .findOne({ levelNumber })) || undefined;
+  }
+
+  /** Look a level up by its permanent identity rather than by its position. */
+  async getCurriculumLevelByConceptId(conceptId: string) {
+    return (await this.mongoDb!.collection<CurriculumLevel>('curriculumLevels')
+      .findOne({ conceptId })) || undefined;
   }
 
   /**
@@ -3934,6 +4113,7 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
       // Superadmin, and inventing demo ones would put fabricated curriculum
       // intent in front of the question-generation pipeline.
       questionLogics: [],
+      questionTemplates: [],
       // Populated by `npm run seed:levels`, not by the demo seed — the
       // curriculum is real data with one source, not fixture content.
       curriculumLevels: []
