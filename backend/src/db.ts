@@ -1305,6 +1305,10 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
     if (this.mongoDb) return await this.mongoDb.collection<Worksheet>('worksheets').find({}).toArray();
     return this.data?.worksheets || [];
   }
+  async getStudentCycleLocks() {
+    if (this.mongoDb) return await this.mongoDb.collection<StudentCycleLock>('studentCycleLocks').find({}).toArray();
+    return this.data?.studentCycleLocks || [];
+  }
   async getTestHistory(teacherId?: string) {
     if (this.mongoDb) {
       const filter = teacherId ? { teacherId } : {};
@@ -1770,6 +1774,12 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
     await this.mongoDb!.collection('worksheets').insertOne(ws);
     if (this.data) this.data.worksheets.push(ws);
     return ws;
+  }
+
+  async addStudentCycleLock(lock: StudentCycleLock) {
+    if (this.mongoDb) await this.mongoDb.collection('studentCycleLocks').insertOne(lock as any);
+    if (this.data) this.data.studentCycleLocks.push(lock);
+    return lock;
   }
 
   async addTestHistoryEntry(entry: TestHistoryEntry) {
