@@ -1,4 +1,4 @@
-import { IBlueprintQuestion } from '../../interfaces/examBlueprint.interface';
+import { BlueprintQuestion } from '../../routes/blueprint';
 import { numericEngine } from './numericEngine';
 import { matrixEngine } from './matrixEngine';
 import { generativeEngine } from './generativeEngine';
@@ -7,7 +7,7 @@ export class RouterService {
   /**
    * Reads the question type field from the blueprint and routes to the appropriate engine.
    */
-  async route(blueprint: IBlueprintQuestion) {
+  async route(blueprint: BlueprintQuestion) {
     switch (blueprint.type) {
       case 'NUMERIC':
         return numericEngine.generate(blueprint.templateText, blueprint.variableConstraints);

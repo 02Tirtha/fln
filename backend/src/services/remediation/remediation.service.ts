@@ -1,9 +1,6 @@
 import { dbStore } from '../../db';
-import { RemediationLedger } from '../../models/RemediationLedger.model';
-import mongoose from 'mongoose';
-import { ExamBlueprint } from '../../models/ExamBlueprint.model';
 import { routerService } from './router.service';
-import { IRemediationLedger, IGeneratedPracticeQuestion } from '../../interfaces/remediationLedger.interface';
+import { RemediationLedger } from '../../utils/remediationFormatter';
 import { randomUUID } from 'crypto';
 import { generativeEngine } from './generativeEngine';
 import { blueprintService } from './blueprintService';
@@ -23,25 +20,14 @@ export class RemediationService {
       })
     );
   }
+
   async startGeneration(studentId: string, examId: string, failedQuestionIds: string[], originalQuestions?: any[], studentNameHint: string = ''): Promise<{ ledgerId: string; status: string }> {
     console.log('[Remediation POST] CREATE INPUT', { studentId, examId, failedQuestionIdsCount: failedQuestionIds.length });
 
-    let ledger: any = null;
-    try {
-      if (mongoose.connection.readyState === 1) {
-        ledger = await RemediationLedger
-          .findOne({ studentId, examId })
-          .lean()
-          .exec();
-      }
-    } catch (err: any) { }
+    const existingLedger = await dbStore.getRemediationLedgerByStudentAndExam(studentId, examId);
 
-    if (!ledger) {
-      ledger = await dbStore.getRemediationLedgerByStudentAndExam(studentId, examId);
-    }
-
-    const isNew = !ledger;
-    const ledgerId = ledger ? ledger.id : 'rem_' + randomUUID().substring(0, 8);
+    const isNew = !existingLedger;
+    const ledgerId = existingLedger ? existingLedger.id : 'rem_' + randomUUID().substring(0, 8);
     const studentRecord = await dbStore.getStudentById(studentId);
     const student = studentRecord ? studentRecord.name : (studentNameHint || 'Unknown Student');
 
@@ -87,7 +73,7 @@ export class RemediationService {
       };
     });
 
-    const ledgerData: IRemediationLedger = {
+    const ledgerData: any = {
       id: ledgerId,
       studentId,
       studentName: student || 'Unknown Student',
@@ -95,31 +81,16 @@ export class RemediationService {
       worksheetId: examId,
       score: 0,
       totalQuestions: failedQuestionIds.length,
-      remediationStatus: 'generating', // As requested, set to 'generating' immediately
+      remediationStatus: 'generating',
       responses
     };
 
     console.log('[Remediation POST] Creating remediation ledger...');
-    try {
-      if (mongoose.connection.readyState === 1) {
-        console.log('[Remediation POST] Mongoose query: findOneAndUpdate', { studentId, examId }, 'upsert: true');
-        await RemediationLedger.findOneAndUpdate(
-          { studentId, examId },
-          { $set: ledgerData },
-          { upsert: true, new: true }
-        ).exec();
-      }
-    } catch (err: any) {
-      console.warn('Mongoose upsert failed:', err.message);
-    }
-
-    if (mongoose.connection.readyState !== 1) {
-      console.log('[Remediation POST] using dbStore (isNew =', isNew, ')');
-      if (isNew) {
-        await dbStore.addRemediationLedger(this.cleanForMongo(ledgerData));
-      } else {
-        await dbStore.updateRemediationLedger(ledgerData.id, this.cleanForMongo(ledgerData));
-      }
+    console.log('[Remediation POST] using dbStore (isNew =', isNew, ')');
+    if (isNew) {
+      await dbStore.addRemediationLedger(this.cleanForMongo(ledgerData));
+    } else {
+      await dbStore.updateRemediationLedger(ledgerData.id, this.cleanForMongo(ledgerData));
     }
 
     console.log('[Remediation POST] CREATED RECORD', ledgerData);
@@ -139,27 +110,12 @@ export class RemediationService {
    * background generation loop using the ledger's stored failed questions.
    */
   public async retryGeneration(ledgerId: string): Promise<{ ledgerId: string; status: string }> {
-    let ledger: any = null;
-    try {
-      if (mongoose.connection.readyState === 1) {
-        ledger = await RemediationLedger.findOne({ id: ledgerId }).lean().exec();
-      }
-    } catch (err) {
-      
-    }
-    if (!ledger) {
-      ledger = await dbStore.getRemediationLedgerById(ledgerId);
-    }
+    const ledger = await dbStore.getRemediationLedgerById(ledgerId);
     if (!ledger) {
       throw new Error(`Remediation ledger ${ledgerId} not found.`);
     }
 
     const failedQuestionNums = (ledger.responses || []).map((r: any) => r.questionNumber);
-    try {
-      if (mongoose.connection.readyState === 1) {
-        await RemediationLedger.updateOne({ id: ledgerId }, { $set: { remediationStatus: 'pending' } }).exec();
-      }
-    } catch { }
     await dbStore.updateRemediationLedger(ledgerId, { remediationStatus: 'pending' });
 
     this.runBackgroundGeneration(ledgerId, ledger.studentId, ledger.examId, failedQuestionNums).catch((err) => {
@@ -175,14 +131,6 @@ export class RemediationService {
   private async runBackgroundGeneration(ledgerId: string, studentId: string, examId: string, failedQuestionNums: (number | string)[]): Promise<void> {
     console.log(`[RemediationService] Starting background generation for ledger ${ledgerId}...`);
 
-    // Flip to generating status (Mongoose is optional — always persist to dbStore)
-    try {
-      if (mongoose.connection.readyState === 1) {
-        await RemediationLedger.updateOne({ id: ledgerId }, { $set: { remediationStatus: 'generating' } }).exec();
-      }
-    } catch (err) {
-      console.warn('Mongoose status update skipped (no MongoDB):', (err as any).message);
-    }
     try {
       await dbStore.updateRemediationLedger(ledgerId, { remediationStatus: 'generating' });
     } catch (err) {
@@ -190,20 +138,7 @@ export class RemediationService {
     }
 
     try {
-      // Fetch latest ledger
-      let ledger: any = null;
-      try {
-        if (mongoose.connection.readyState === 1) {
-          ledger = await RemediationLedger
-            .findOne({ id: ledgerId })
-            .lean()
-            .exec();
-        }
-      } catch { }
-      if (!ledger) {
-        ledger = await dbStore.getRemediationLedgerById(ledgerId);
-      }
-
+      const ledger: any = await dbStore.getRemediationLedgerById(ledgerId);
       if (!ledger) {
         throw new Error(`Ledger ${ledgerId} not found in background loop`);
       }
@@ -228,8 +163,7 @@ export class RemediationService {
         }
       }
 
-      // Generate all questions in PARALLEL — since blueprintEngine is pure JS with no I/O,
-      // this drops generation time from O(N * t) to O(t) regardless of how many questions failed.
+      // Generate all questions in PARALLEL
       await Promise.all(
         responses.map(async (response, qIdx) => {
           try {
@@ -238,9 +172,6 @@ export class RemediationService {
             const qType = response.questionType || 'standard';
             const baseOffset = (qIdx * 5) + setSeed;
 
-            // Detect placeholders: bare numbers, "Question #N", "Question text for Q#N",
-            // "Diagnostic Question #N", or synthesized labels like "Addition — Item 1 (answer: 7)"
-            // that were set during Phase A but need the DAK for the real concept name.
             const isMissingOrPlaceholder = !origQ ||
               /^Question text for Q#/i.test(origQ) ||
               /^Question #/i.test(origQ) ||
@@ -256,7 +187,6 @@ export class RemediationService {
               if (looked.questionText) { origQ = looked.questionText; response.originalQuestion = origQ; }
               if (looked.conceptName) { concept = looked.conceptName; response.conceptName = concept; }
               if (!origQ) {
-                // last-resort: try the old numeric lookup
                 const numId = parseInt(qIdStr, 10);
                 if (!isNaN(numId) && numId > 0 && numId < 1000) {
                   const legacyLooked = await this.findOriginalQuestion(ledger.examId || ledger.worksheetId, numId);
@@ -266,7 +196,6 @@ export class RemediationService {
               }
             }
 
-            // If we have no real question text AND no real concept, flag for review
             const stillPlaceholder = (!origQ || /^Question text for Q#/i.test(origQ) || /^Question #/i.test(origQ)) && /^Concept for Q#/i.test(concept);
 
             if (stillPlaceholder) {
@@ -282,7 +211,7 @@ export class RemediationService {
               return;
             }
 
-            console.log(`[Remediation] Generating Q#${response.questionNumber}: "${origQ.slice(0,60)}" | concept=${concept} | offset=${baseOffset}`);
+            console.log(`[Remediation] Generating Q#${response.questionNumber}: "${origQ.slice(0, 60)}" | concept=${concept} | offset=${baseOffset}`);
 
             let batch: Array<{ question: string; answer?: string; subQuestions?: any[]; options?: string[]; aiGenerated?: boolean; needsReview?: boolean }> = [];
 
@@ -315,34 +244,18 @@ export class RemediationService {
         })
       );
 
-
-      // Flip status to completed (Mongoose is optional — always persist to dbStore)
-      try {
-        if (mongoose.connection.readyState === 1) {
-          await RemediationLedger.updateOne({ id: ledgerId }, { $set: { remediationStatus: 'completed', responses } }).exec();
+      await dbStore.updateRemediationLedger(
+        ledgerId,
+        {
+          remediationStatus: 'completed',
+          responses: this.cleanForMongo(responses)
         }
-      } catch (err) {
-        console.warn('Mongoose completion update skipped (no MongoDB):', (err as any).message);
-      }
-      try {
-        await dbStore.updateRemediationLedger(
-          ledgerId,
-          {
-            remediationStatus: 'completed',
-            responses: this.cleanForMongo(responses)
-          }
-        );
-        console.log(`[RemediationService] Completed background generation for ledger ${ledgerId}`);
-      } catch (err) {
-        console.error('Failed to complete ledger update:', err);
-      }
+      );
+      console.log(`[RemediationService] Completed background generation for ledger ${ledgerId}`);
 
     } catch (bgError: any) {
       console.error(`[Remediation] Generation failed for ledger ${ledgerId}:`, bgError);
       try {
-        if (mongoose.connection.readyState === 1) {
-          await RemediationLedger.updateOne({ id: ledgerId }, { $set: { remediationStatus: 'failed' } }).exec();
-        }
         await dbStore.updateRemediationLedger(ledgerId, { remediationStatus: 'failed' });
       } catch { }
     }
@@ -428,7 +341,6 @@ export class RemediationService {
    * Returns null if the ID doesn't match the expected format.
    */
   private parseQuestionId(questionId: string): { level: number; sec: number; item: number; blank?: number } | null {
-    // Match: Q_L20_1_1 or Q_L20_1_1_b2
     const m = questionId.match(/^Q_L(\d+)_(\d+)_(\d+)(?:_b(\d+))?$/);
     if (!m) return null;
     return {
@@ -456,7 +368,6 @@ export class RemediationService {
       `Section ${parsed.sec}`;
 
     if (parsed.blank !== undefined) {
-      // Fill-in-the-blank sub-question
       return `${sectionName} — blank position ${parsed.blank}`;
     }
     return `${sectionName} — Item ${parsed.item}`;
@@ -464,8 +375,6 @@ export class RemediationService {
 
   /**
    * Look up a question by its string ID from the student's DiagnosticAnswerKey.
-   * This is the primary path for questions generated by the ICR paper generator
-   * whose IDs follow the format Q_L{level}_{section}_{item}[_b{blank}].
    */
   private async findOriginalQuestionById(studentId: string, examId: string, questionId: string): Promise<{
     questionText?: string;
@@ -476,7 +385,6 @@ export class RemediationService {
   }> {
     const buildResult = (q: any, answerValue: string) => {
       const isNumber = answerValue.trim() !== '' && !isNaN(Number(answerValue));
-      // If q.question is just a number or a positional label, synthesize readable text
       const rawQuestion = String(q.question ?? '');
       const isRawNumber = /^\d+$/.test(rawQuestion.trim()) ||
         /^\d+\s*\(position\s*\d+\)/.test(rawQuestion.trim()) ||
@@ -521,15 +429,14 @@ export class RemediationService {
         }
       }
 
-      // 3. FALLBACK: Try finding the question in ANY Diagnostic Answer Key in the database
-      // This allows scanning sheets for dummy students who don't have their own DAK yet.
+      // 3. FALLBACK: Try finding the question in ANY Diagnostic Answer Key
       const anyQ = await dbStore.findQuestionInAnyDiagnosticAnswerKey(questionId);
       if (anyQ) {
         const answerValue = typeof anyQ.answer === 'object' ? JSON.stringify(anyQ.answer) : String(anyQ.answer ?? '');
         return buildResult(anyQ, answerValue);
       }
 
-      // 3. No DAK entry found — synthesize purely from the ID if it's a Q_L format
+      // 4. No DAK entry found — synthesize purely from the ID if it's a Q_L format
       const parsed = this.parseQuestionId(questionId);
       if (parsed) {
         const sectionName =
@@ -576,7 +483,6 @@ export class RemediationService {
         }
       }
 
-      // 0. Look up diagnostic answer key
       let lookupStudentId = '';
       if (resolvedExamId.startsWith('rem_')) {
         const ledger = await dbStore.getRemediationLedgerById(resolvedExamId);
@@ -600,7 +506,7 @@ export class RemediationService {
         }
       }
 
-      // 1. Look up saved paper blueprint
+      // Look up saved paper blueprint
       let bp = blueprintService.getWorksheetBlueprint(resolvedExamId);
       if (!bp) {
         const allBps = (blueprintService as any).getAllBlueprints ? (blueprintService as any).getAllBlueprints() : [];
@@ -619,7 +525,7 @@ export class RemediationService {
         }
       }
 
-      // 2. Look up levelWorksheets in dbStore
+      // Look up levelWorksheets in dbStore
       const levelWs = (await dbStore.getLevelWorksheets()) || [];
       const lws = levelWs.find(w => w.id === examId || examId.includes(w.id) || w.id.includes(examId)) ||
         levelWs.sort((a, b) => new Date(b.generatedAt || 0).getTime() - new Date(a.generatedAt || 0).getTime())[0];
@@ -642,7 +548,7 @@ export class RemediationService {
         }
       }
 
-      // 3. Look up standard worksheets in dbStore
+      // Look up standard worksheets in dbStore
       const worksheets = (await dbStore.getWorksheets()) || [];
       const ws = worksheets.find(w => w.id === examId || examId.includes(w.id));
       if (ws && ws.questions && ws.questions[questionNumber - 1]) {
@@ -656,7 +562,7 @@ export class RemediationService {
         };
       }
 
-      // 4. Derive level from examId string (e.g. level_30_30.2_set1_...)
+      // Derive level from examId string (e.g. level_30_30.2_set1_...)
       const match = (examId || '').match(/level_?(\d+)/i);
       if (match) {
         const lvl = parseInt(match[1], 10);
@@ -679,7 +585,6 @@ export class RemediationService {
 
   /**
    * GUARANTEED FALLBACK — never fails, never returns empty, runs in-process only.
-   * Covers all 176 paper types with hardcoded presets matched to question text.
    */
   public async getInlineFallback(
     originalQuestion: string,
@@ -730,27 +635,13 @@ export class RemediationService {
   }
 
   /**
-   * Automatic Full Database Migration: Refreshes ALL previous remediation ledgers in MongoDB and dbStore
+   * Automatic Full Database Migration: Refreshes ALL previous remediation ledgers
    * ensuring 100% of previous practice questions are converted to topic-specific, human-readable questions.
    */
   public async migrateAllStaleLedgers(): Promise<void> {
     console.log('[RemediationService] Starting full database migration to refresh all previous remediation ledgers...');
     try {
-      let mongoLedgers: any[] = [];
-      if (mongoose && mongoose.connection && mongoose.connection.readyState === 1) {
-        try {
-          mongoLedgers = await RemediationLedger
-            .find({})
-            .lean()
-            .exec();
-        } catch (err: any) {
-          console.warn('MongoDB ledger query warning:', err.message);
-        }
-      }
-
-      const cachedLedgers = (await dbStore.getRemediationLedgers()) || [];
-      const allLedgers = [...mongoLedgers, ...cachedLedgers];
-
+      const allLedgers = (await dbStore.getRemediationLedgers()) || [];
       const processedIds = new Set<string>();
 
       for (const ledger of allLedgers) {
@@ -767,7 +658,6 @@ export class RemediationService {
           const baseOffset = qIdx * 5;
           qIdx++;
 
-          // If original question is missing or placeholder, look it up from the paper
           const isMissingOrPlaceholder = !origQ ||
             /^Question text for Q#/i.test(origQ) ||
             /^Question #/i.test(origQ) ||
@@ -796,8 +686,6 @@ export class RemediationService {
           const isMissingSubQuestions = pqs.length > 0 && !pqs[0]?.subQuestions;
           const hasDuplicateTitles = pqs.length > 1 && pqs[0]?.question === pqs[1]?.question;
 
-          // Underlined-digit questions must keep the 7_8_4 format; the old
-          // "Write each number in Tens and Ones / HTO form" output is stale.
           const isUnderlinedMismatch =
             isUnderlinedPlaceValueQuestion(origQ) &&
             !isUnderlinedPlaceValuePractice(pqs);
@@ -851,16 +739,9 @@ export class RemediationService {
 
         if (updated) {
           console.log(`[RemediationMigration] Updated ledger ${ledger.id} with topic-specific human-readable questions.`);
-          try {
-            if (mongoose.connection.readyState === 1) {
-              await RemediationLedger.updateOne({ id: ledger.id }, { $set: { responses } }).exec();
-            }
-          } catch { }
           await dbStore.updateRemediationLedger(
             ledger.id,
-            {
-              responses: this.cleanForMongo(responses)
-            }
+            { responses: this.cleanForMongo(responses) }
           );
         }
       }

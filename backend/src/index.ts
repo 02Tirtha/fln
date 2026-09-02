@@ -37,8 +37,8 @@ import { registerWorksheetRoutes } from './routes/worksheets';
 import { registerEvaluationRoutes } from './routes/evaluation';
 import { registerAnalyticsRoutes } from './routes/analytics';
 import { registerDiagnosticBulkRoutes } from './routes/diagnosticBulk';
-import remediationRoutes from './routes/remediation.routes';
-import blueprintRoutes from './routes/blueprint.routes';
+import { registerRemediationRoutes } from './routes/remediation';
+import { registerBlueprintRoutes } from './routes/blueprint';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
 import bcrypt from 'bcrypt';
@@ -142,8 +142,8 @@ registerStatsRoutes(app);
   registerAnalyticsRoutes(app);
   registerDiagnosticBulkRoutes(app);
   
-  app.use('/api/remediation', remediationRoutes);
-  app.use('/api/blueprint', blueprintRoutes);
+  registerRemediationRoutes(app);
+  registerBlueprintRoutes(app);
 
   // --- Intervention Tracking & Best Practices Repository ---
 

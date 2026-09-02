@@ -384,6 +384,17 @@ export interface EvaluationReport {
   teacherReviewed?: boolean;
   reviewedBy?: string; // reviewing teacher's email
   reviewedAt?: string;
+  // Per-level pass/fail breakdown for diagnostic reports — the diagnostic
+  // intentionally does NOT assign a placement level (we are heading toward
+  // analytics & reports, which read these instead). Populated wherever the
+  // grading code knows the per-question source_level.
+  passedLevels?: number[];
+  failedLevels?: number[];
+  // Skills the student is struggling with — conceptIds of the failed levels
+  // plus any direct prerequisites (so the panel can show "you have gaps in
+  // Number Sense: Counting 6-10"). Drives the status text in the diagnostic
+  // panel instead of the old hardcoded "Verified & Certified".
+  skillGaps?: { conceptId: string; level: number; levelTitle: string; strand: string }[];
 }
 
 export interface Ticket {
@@ -517,6 +528,48 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
   remediationLedgers: 'remediation_ledgers',
   examBlueprints: 'exam_blueprints',
 };
+
+/**
+ * Collapse multiple `Question` rows that share the same `question_id` into a
+ * single row, comma-joining their `answer` values so no information is lost.
+ *
+ * The diagnostic paper can be assembled from several sources (cached
+ * `assignedDiagnosticQuestions`, the freshly-generated class paper, the
+ * `questionBank` collection). When those paths overlap the same question
+ * can appear more than once. Without deduping, the OCR scan would treat
+ * the duplicate as a separate row, inflate the total count, and silently
+ * double-count correct/incorrect in the donut.
+ *
+ * Behavior:
+ *   - First occurrence of each `question_id` wins for the metadata fields
+ *     (conceptId, source_level, topic, ...).
+ *   - Subsequent duplicates contribute their `answer` value to a comma-
+ *     separated list on the merged row (de-duplicated within the join so
+ *     the same answer string isn't repeated).
+ *   - Order of the original list is preserved (first-seen order), so
+ *     downstream iteration matches the paper the student was actually shown.
+ */
+export function dedupeQuestionsById(questions: Question[]): Question[] {
+  const byId = new Map<string, Question>();
+  const order: string[] = [];
+  for (const q of questions) {
+    const id = q.question_id;
+    if (!id) continue;
+    if (!byId.has(id)) {
+      order.push(id);
+      byId.set(id, { ...q });
+      continue;
+    }
+    const existing = byId.get(id)!;
+    const parts = new Set<string>();
+    const existingParts = String(existing.answer ?? '').split(',').map(s => s.trim()).filter(Boolean);
+    existingParts.forEach(p => parts.add(p));
+    const incoming = String(q.answer ?? '').split(',').map(s => s.trim()).filter(Boolean);
+    incoming.forEach(p => parts.add(p));
+    existing.answer = Array.from(parts).join(', ');
+  }
+  return order.map(id => byId.get(id)!);
+}
 
 export class DBStore {
   private data: DatabaseSchema | null = null;
@@ -1617,6 +1670,17 @@ export class DBStore {
       if (q) return q;
     }
     return null;
+  }
+
+  async getLatestClassAnswerKey(classNumber: number): Promise<DiagnosticAnswerKey | null> {
+    if (this.mongoDb) {
+      return await this.mongoDb.collection<DiagnosticAnswerKey>('diagnostic_answer_keys')
+        .findOne({ classNumber }, { sort: { createdAt: -1 } });
+    }
+    const keys = (this.data?.diagnosticAnswerKeys || [])
+      .filter(k => k.classNumber === classNumber)
+      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    return keys[0] || null;
   }
 
   // --- Preloaded Question Pool (Mathematical Curriculum Questions Classes 2-4) ---
