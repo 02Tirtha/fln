@@ -39,6 +39,7 @@ import { registerAnalyticsRoutes } from './routes/analytics';
 import { registerDiagnosticBulkRoutes } from './routes/diagnosticBulk';
 import { registerRemediationRoutes } from './routes/remediation';
 import { registerBlueprintRoutes } from './routes/blueprint';
+import { registerMisconceptionRoutes } from './routes/misconceptions';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
 import bcrypt from 'bcrypt';
@@ -97,7 +98,7 @@ async function startServer() {
   console.log(`[competencyPrerequisites] prerequisite graph OK — ${prereqReport.totalConceptsWithPrerequisites} concepts, ${prereqReport.totalEdges} edges, 0 unknown ids, 0 cycles`);
 
   const app = express();
-  
+
   // Allow direct requests from Vite frontend dev server
   app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', 'http://localhost:5173');
@@ -118,7 +119,7 @@ async function startServer() {
 
   // --- API Endpoints ---
 
-registerStatsRoutes(app);
+  registerStatsRoutes(app);
 
   registerAuthRoutes(app);
   registerAnnouncementRoutes(app);
@@ -141,9 +142,13 @@ registerStatsRoutes(app);
   registerWorksheetRoutes(app);
   registerAnalyticsRoutes(app);
   registerDiagnosticBulkRoutes(app);
-  
+
   registerRemediationRoutes(app);
   registerBlueprintRoutes(app);
+
+  // Read-only analysis over already-graded submissions: clusters a cohort on
+  // HOW its children fail rather than how much they score.
+  registerMisconceptionRoutes(app);
 
   // --- Intervention Tracking & Best Practices Repository ---
 
