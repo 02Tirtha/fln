@@ -257,9 +257,19 @@ export const Layout: React.FC<LayoutProps> = ({
       {/* Accessibility / Top strip */}
       <div className="w-full bg-[#111827] text-gray-300 text-[10px] md:text-xs font-semibold px-6 py-2 flex justify-between items-center border-b border-gray-800 shrink-0">
         <div className="flex items-center gap-3">
-          <span className="font-bold text-white dark:text-gray-200">FLN Portal</span>
+          <img
+            src="/partners/iit-ropar-logo.svg"
+            alt="Indian Institute of Technology Ropar"
+            className="h-7 md:h-8 w-auto"
+          />
           <span className="text-gray-500 dark:text-gray-600">|</span>
-          <span className="text-gray-300 dark:text-gray-400 hidden sm:inline font-mono">Foundational Literacy & Numeracy</span>
+          <span className="inline-flex items-center bg-white rounded px-2 py-0.5">
+            <img
+              src="/partners/vicharanashala-logo.png"
+              alt="Vicharanashala — Lab for Education Design"
+              className="h-5 md:h-6 w-auto"
+            />
+          </span>
         </div>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1 text-[10px] md:text-xs font-bold">
