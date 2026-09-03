@@ -82,7 +82,7 @@ export const LandingView: React.FC<LandingViewProps> = ({ onNavigateToLogin, isL
       label: t('landing.stat.studentsTracked'), value: stats?.totalStudents?.toLocaleString() ?? null, desc: t('landing.stat.studentsTrackedDesc'), icon: Users,
       color: 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40',
       hoverDetail: stats?.certifiedCount != null && stats?.certifiedPercent != null
-        ? `${stats.certifiedCount.toLocaleString()} certified at FLN level 5+ (${stats.certifiedPercent}%).`
+        ? `${stats.certifiedCount.toLocaleString()} certified at level 5+ (${stats.certifiedPercent}%).`
         : null,
     },
     {
@@ -151,11 +151,6 @@ export const LandingView: React.FC<LandingViewProps> = ({ onNavigateToLogin, isL
         <div className="text-center relative">
             <div className="absolute inset-x-0 -top-12 flex justify-center -z-10 opacity-5">
             <span className="text-[140px] font-black select-none text-slate-200 dark:text-slate-800">FLN</span>
-          </div>
-          
-          <div className="inline-flex items-center gap-2 rounded-full bg-amber-100 dark:bg-amber-950/40 px-4 py-1.5 text-xs font-bold text-slate-900 dark:text-white mb-6 border border-amber-200 dark:border-amber-800">
-            <span className="h-2 w-2 rounded-full bg-amber-600 dark:bg-amber-500" />
-            <span>{t('landing.heroBadge')}</span>
           </div>
 
           <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white sm:text-5xl max-w-4xl mx-auto leading-tight">
@@ -250,7 +245,7 @@ export const LandingView: React.FC<LandingViewProps> = ({ onNavigateToLogin, isL
       <footer className="bg-[#111827] text-slate-400 dark:text-slate-400 py-8 border-t border-gray-800 text-center text-xs">
         <div className="mx-auto max-w-7xl px-6 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="text-left">
-            <p>© 2026 FLN Assessment Platform. Handcrafted for educational diagnostics.</p>
+            <p>© 2026 Assessment Platform. Handcrafted for educational diagnostics.</p>
             <p className="mt-1 text-slate-500 dark:text-slate-500">Technical Support & Platform Host: Secure Education Services.</p>
           </div>
         </div>
