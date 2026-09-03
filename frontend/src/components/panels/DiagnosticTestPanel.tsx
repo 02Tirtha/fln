@@ -175,10 +175,22 @@ export const DiagnosticTestPanel: React.FC<DiagnosticTestPanelProps> = ({ studen
               className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm outline-none focus:border-indigo-500 text-slate-900 dark:text-white"
             >
               <option value="">Select a student...</option>
-              {students.map(s => (
-                <option key={s.id} value={s.id}>{s.name} — {s.classGroup} {s.section}</option>
-              ))}
+              {students
+                .filter(s => s.currentLevel == null)
+                .map(s => (
+                  <option key={s.id} value={s.id}>{s.name} — {s.classGroup} {s.section}</option>
+                ))}
+              {students.some(s => s.currentLevel != null) && (
+                <option disabled value="__done__">
+                  ── {students.filter(s => s.currentLevel != null).length} students already placed (see Completed Diagnostics) ──
+                </option>
+              )}
             </select>
+            {students.some(s => s.currentLevel != null) && (
+              <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+                Students with a diagnostic on file are hidden from the dropdown. To re-issue a paper, contact a SuperAdmin to clear the lock.
+              </p>
+            )}
           </div>
           <button
             type="button"
