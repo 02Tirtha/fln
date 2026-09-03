@@ -120,22 +120,19 @@ export const LandingView: React.FC<LandingViewProps> = ({ onNavigateToLogin, isL
 
       {/* 3. Main portal banner header */}
       <header className="border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm dark:shadow-slate-950/50">
-        <div className="mx-auto max-w-7xl px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-4 text-center md:text-left flex-col md:flex-row">
-            <div className="flex items-center gap-4">
+        <div className="mx-auto max-w-screen-2xl pl-2 pr-6 py-4 md:py-6 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-4 text-center md:text-left flex-col md:flex-row pl-2">
+            <div className="flex items-center gap-3">
               <img
                 src="/partners/iit-ropar-logo.svg"
                 alt="Indian Institute of Technology Ropar"
-                className="h-10 md:h-12 w-auto"
+                className="h-12 md:h-16 w-auto"
               />
-              <span className="hidden md:inline text-slate-200 dark:text-slate-700">|</span>
-              <span className="inline-flex items-center bg-white rounded-md px-2 py-1 border border-slate-200 dark:border-slate-700 shadow-sm">
-                <img
-                  src="/partners/vicharanashala-logo.png"
-                  alt="Vicharanashala — Lab for Education Design"
-                  className="h-7 md:h-9 w-auto"
-                />
-              </span>
+              <img
+                src="/partners/vicharanashala-logo.png"
+                alt="Vicharanashala — Lab for Education Design"
+                className="h-12 md:h-16 w-auto"
+              />
             </div>
           </div>
           <div className="flex items-center gap-3">
