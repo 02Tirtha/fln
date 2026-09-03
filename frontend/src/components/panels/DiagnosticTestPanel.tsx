@@ -42,7 +42,7 @@ export const DiagnosticTestPanel: React.FC<DiagnosticTestPanelProps> = ({ studen
   const [singleLoading, setSingleLoading] = useState(false);
   const [singleError, setSingleError] = useState('');
   const [multiResult, setMultiResult] = useState<{
-    succeeded: { studentId: string; studentName: string; pdfUrl: string; mockMode: boolean }[];
+    succeeded: { studentId: string; studentName: string; mockMode: boolean }[];
     failed: { studentId: string; studentName: string; reason: string }[];
   } | null>(null);
   const pendingStudents = students.filter(s => s.currentLevel == null);
@@ -82,7 +82,7 @@ export const DiagnosticTestPanel: React.FC<DiagnosticTestPanelProps> = ({ studen
     setSingleError('');
     setMultiResult(null);
 
-    const succeeded: { studentId: string; studentName: string; pdfUrl: string; mockMode: boolean }[] = [];
+    const succeeded: { studentId: string; studentName: string; mockMode: boolean }[] = [];
     const failed: { studentId: string; studentName: string; reason: string }[] = [];
 
     // Sequential so the teacher can see the result build up; switch to
@@ -101,10 +101,35 @@ export const DiagnosticTestPanel: React.FC<DiagnosticTestPanelProps> = ({ studen
         });
         const data = await res.json();
         if (res.ok) {
+          const pdfUrl = data.diagnosticPaper?.pdfUrl || '';
+          // One-shot download: fetch the PDF and trigger a browser save
+          // immediately. The teacher must keep the file on their device —
+          // we do NOT keep the URL around for re-download.
+          if (pdfUrl) {
+            try {
+              const pdfRes = await fetch(pdfUrl, { headers: { Authorization: `Bearer ${token}` } });
+              if (pdfRes.ok) {
+                const blob = await pdfRes.blob();
+                const blobUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = blobUrl;
+                a.download = `${target.name.replace(/\s+/g, '_')}_diagnostic.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                // Defer revoke so the browser has time to start the download
+                setTimeout(() => window.URL.revokeObjectURL(blobUrl), 30000);
+              }
+            } catch {
+              // Download trigger failed; the paper is still on the server.
+              // Don't add to succeeded list because the teacher has no copy.
+              failed.push({ studentId: target.id, studentName: target.name, reason: 'PDF generated but download to device failed. Re-try.' });
+              continue;
+            }
+          }
           succeeded.push({
             studentId: target.id,
             studentName: data.student?.name || target.name,
-            pdfUrl: data.diagnosticPaper?.pdfUrl || '',
             mockMode: !!data.mockMode,
           });
         } else {
@@ -265,18 +290,21 @@ export const DiagnosticTestPanel: React.FC<DiagnosticTestPanelProps> = ({ studen
         {multiResult && multiResult.succeeded.length > 0 && (
           <div className="p-4 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg space-y-2">
             <span className="block text-green-700 dark:text-green-300 font-bold text-sm">
-              &#9989; {multiResult.succeeded.length} paper{multiResult.succeeded.length === 1 ? '' : 's'} ready
+              &#9989; {multiResult.succeeded.length} paper{multiResult.succeeded.length === 1 ? '' : 's'} downloaded
             </span>
+            <p className="text-xs text-green-700 dark:text-green-300">
+              Files saved to your device&apos;s Downloads folder. The server does not retain a copy after this session — keep the PDF locally.
+            </p>
             <ul className="space-y-1.5">
               {multiResult.succeeded.map(r => (
                 <li key={r.studentId} className="flex items-center gap-2 text-xs">
-                  {r.pdfUrl ? (
-                    <a href={r.pdfUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white font-mono font-bold px-2.5 py-1 rounded transition-colors">
-                      &#128424; Open
-                    </a>
-                  ) : (
+                  {r.mockMode ? (
                     <span className="inline-flex items-center gap-1 bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 font-mono font-bold px-2.5 py-1 rounded">
-                      &#9888; No PDF
+                      &#9888; Mock
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 bg-green-600 text-white font-mono font-bold px-2.5 py-1 rounded">
+                      &#128424; PDF
                     </span>
                   )}
                   <span className="text-slate-700 dark:text-slate-300">{r.studentName}</span>
