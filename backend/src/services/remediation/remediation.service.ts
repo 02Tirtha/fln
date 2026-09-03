@@ -22,8 +22,6 @@ export class RemediationService {
   }
 
   async startGeneration(studentId: string, examId: string, failedQuestionIds: string[], originalQuestions?: any[], studentNameHint: string = ''): Promise<{ ledgerId: string; status: string }> {
-    console.log('[Remediation POST] CREATE INPUT', { studentId, examId, failedQuestionIdsCount: failedQuestionIds.length });
-
     const existingLedger = await dbStore.getRemediationLedgerByStudentAndExam(studentId, examId);
 
     const isNew = !existingLedger;
@@ -85,21 +83,15 @@ export class RemediationService {
       responses
     };
 
-    console.log('[Remediation POST] Creating remediation ledger...');
-    console.log('[Remediation POST] using dbStore (isNew =', isNew, ')');
     if (isNew) {
       await dbStore.addRemediationLedger(this.cleanForMongo(ledgerData));
     } else {
       await dbStore.updateRemediationLedger(ledgerData.id, this.cleanForMongo(ledgerData));
     }
 
-    console.log('[Remediation POST] CREATED RECORD', ledgerData);
-    console.log('[Remediation POST] Status: generating');
-    console.log('[Remediation POST] Returning 202');
-
     // Trigger Phase B asynchronously in the background
     this.runBackgroundGeneration(ledgerId, studentId, examId, failedQuestionIds).catch((err) => {
-      console.error(`💥 Unhandled background generation crash for ledger ${ledgerId}:`, err);
+      console.error(`Unhandled background generation crash for ledger ${ledgerId}:`, err);
     });
 
     return { ledgerId, status: 'generating' };
@@ -211,8 +203,6 @@ export class RemediationService {
               return;
             }
 
-            console.log(`[Remediation] Generating Q#${response.questionNumber}: "${origQ.slice(0, 60)}" | concept=${concept} | offset=${baseOffset}`);
-
             let batch: Array<{ question: string; answer?: string; subQuestions?: any[]; options?: string[]; aiGenerated?: boolean; needsReview?: boolean }> = [];
 
             try {
@@ -236,7 +226,6 @@ export class RemediationService {
               needsReview: b.needsReview ?? false
             }));
             response.type = 'generative';
-            console.log(`[Remediation] ✅ Q#${response.questionNumber} → ${response.practiceQuestions.length} practice questions`);
           } catch (qErr: any) {
             console.error('[Remediation] Failed to generate question:', response.questionNumber, qErr);
             throw qErr;

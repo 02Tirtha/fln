@@ -2518,7 +2518,6 @@ export function generateRemediationVariants(
 ): BlueprintQuestion[] {
   const cleanQ = sanitizeQuestionText(originalQ);
   const concept = detectConcept(cleanQ, hintConcept);
-  console.log("Detected concept:", concept);
 
   const firstVariant = generateByConcept(concept, baseOffset, cleanQ, originalAnswer, classLevel);
 

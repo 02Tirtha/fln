@@ -315,24 +315,18 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
   const [generatingRemediation, setGeneratingRemediation] = useState(false);
 
   const handleGenerateRemediation = async () => {
-    console.log('--- BUTTON CLICKED: handleGenerateRemediation ---');
     if (!report) {
-      console.log('EXIT: No report');
-      alert("Cannot generate remediation: No report generated yet.");
+      setError('Cannot generate remediation: No report generated yet.');
       return;
     }
-    console.log('Report studentId:', report.studentId);
+
     // Collect the string IDs of failed questions (preserve original ID format — do NOT strip to int)
     let failedQuestionIds: string[] = [];
-
-    console.log('report.questionResults exists?', !!(report.questionResults && report.questionResults.length > 0));
-    console.log('questions exists?', !!(questions && questions.length > 0));
 
     if (report.questionResults && report.questionResults.length > 0) {
       failedQuestionIds = report.questionResults
         .filter(qr => !qr.isCorrect)
         .map(qr => String(qr.questionId));
-      console.log('Failed IDs from report.questionResults:', failedQuestionIds);
     } else if (questions && questions.length > 0) {
       questions.forEach((q, idx) => {
         const qId = q.id || `Q${idx + 1}`;
@@ -340,15 +334,12 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
         const isMatch = String(q.correctAnswer).trim().toLowerCase() === userVal.trim().toLowerCase();
         if (!isMatch) failedQuestionIds.push(qId);
       });
-      console.log('Failed IDs from questions/extractedAnswers:', failedQuestionIds);
     }
 
     failedQuestionIds = Array.from(new Set(failedQuestionIds));
-    console.log('Final Failed IDs length:', failedQuestionIds.length);
 
     if (failedQuestionIds.length === 0) {
-      console.log('EXIT: No failed questions');
-      alert('No failed questions found to generate remediation for.');
+      setError('No failed questions found to generate remediation for.');
       return;
     }
 
@@ -382,15 +373,7 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
 
     try {
       const examId = reportId || report.id || 'diagnostic';
-      console.log('--- STARTING REMEDIATION GENERATION ---');
       setGeneratingRemediation(true);
-
-      console.log('Payload:', {
-        studentId: report.studentId,
-        examId,
-        failedQuestionIds,
-        questionsProvided: originalQuestionsArray.length,
-      });
 
       // Start generation API request without awaiting it to block navigation
       const generatePromise = apiFetch('/api/remediation/generate', {
@@ -406,14 +389,11 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
         }),
       });
 
-      console.log(`Executing navigate(/remediation/${report.studentId}/${examId})...`);
       // Immediately navigate to the remediation page
       navigate(`/remediation/${report.studentId}/${examId}`);
-      console.log('Navigate called!');
 
       // Handle any errors that occur during the API request
       generatePromise.then(async (res) => {
-        console.log('POST /generate returned status:', res.status);
         if (!res.ok) {
           const errorData = await res.json().catch(() => ({}));
           console.error('Failed to start remediation generation:', errorData);
@@ -425,8 +405,8 @@ export const IcrScanner: React.FC<IcrScannerProps> = ({ token, user, onBack }) =
       });
 
     } catch (error) {
-      console.error('CRITICAL: Error in handleGenerateRemediation:', error);
-      alert('Failed to generate remediation sheet. Please try again.');
+      console.error('Failed to start remediation:', error);
+      setError('Failed to generate remediation sheet. Please try again.');
       setGeneratingRemediation(false);
     }
   };
