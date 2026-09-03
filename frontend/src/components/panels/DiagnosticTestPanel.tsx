@@ -38,10 +38,14 @@ export const DiagnosticTestPanel: React.FC<DiagnosticTestPanelProps> = ({ studen
   // wrong unit when you only want one paper to print and check by hand. Moved
   // here with the rest of the diagnostic tooling when #166 cleared the
   // operational cards off the Teacher dashboard.
-  const [singleStudentId, setSingleStudentId] = useState('');
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
   const [singleLoading, setSingleLoading] = useState(false);
   const [singleError, setSingleError] = useState('');
-  const [singleResult, setSingleResult] = useState<{ studentName: string; pdfUrl: string; mockMode: boolean } | null>(null);
+  const [multiResult, setMultiResult] = useState<{
+    succeeded: { studentId: string; studentName: string; pdfUrl: string; mockMode: boolean }[];
+    failed: { studentId: string; studentName: string; reason: string }[];
+  } | null>(null);
+  const pendingStudents = students.filter(s => s.currentLevel == null);
 
   const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -72,36 +76,66 @@ export const DiagnosticTestPanel: React.FC<DiagnosticTestPanelProps> = ({ studen
     }
   };
 
-  const handleGenerateSinglePaper = async () => {
-    const target = students.find(s => s.id === singleStudentId);
-    if (!target) return;
+  const handleGenerateSelectedPapers = async () => {
+    if (selectedStudentIds.length === 0) return;
     setSingleLoading(true);
     setSingleError('');
-    setSingleResult(null);
-    try {
-      const res = await apiFetch('/api/diagnostic/single', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        // The route needs the class the paper is generated for; take it from
-        // the student's own record rather than a dashboard class tab, so the
-        // two can never disagree.
-        body: JSON.stringify({ studentId: target.id, className: target.classGroup }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setSingleResult({
-          studentName: data.student?.name || target.name,
-          pdfUrl: data.diagnosticPaper?.pdfUrl || '',
-          mockMode: !!data.mockMode,
-        });
-      } else {
-        setSingleError(data.error || 'Failed to generate the paper.');
+    setMultiResult(null);
+
+    const succeeded: { studentId: string; studentName: string; pdfUrl: string; mockMode: boolean }[] = [];
+    const failed: { studentId: string; studentName: string; reason: string }[] = [];
+
+    // Sequential so the teacher can see the result build up; switch to
+    // Promise.all if performance becomes a problem (N × Puppeteer time).
+    for (const studentId of selectedStudentIds) {
+      const target = students.find(s => s.id === studentId);
+      if (!target) {
+        failed.push({ studentId, studentName: '(unknown)', reason: 'Student not found in local list.' });
+        continue;
       }
-    } catch {
-      setSingleError('Network error generating the paper.');
-    } finally {
-      setSingleLoading(false);
+      try {
+        const res = await apiFetch('/api/diagnostic/single', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ studentId: target.id, className: target.classGroup }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          succeeded.push({
+            studentId: target.id,
+            studentName: data.student?.name || target.name,
+            pdfUrl: data.diagnosticPaper?.pdfUrl || '',
+            mockMode: !!data.mockMode,
+          });
+        } else {
+          failed.push({ studentId: target.id, studentName: target.name, reason: data.error || `HTTP ${res.status}` });
+        }
+      } catch {
+        failed.push({ studentId: target.id, studentName: target.name, reason: 'Network error.' });
+      }
     }
+
+    setMultiResult({ succeeded, failed });
+    setSingleLoading(false);
+    // Clear the selection of the ones that succeeded so the teacher
+    // can re-run the failed ones without re-ticking everything.
+    const failedIds = new Set(failed.map(f => f.studentId));
+    setSelectedStudentIds(prev => prev.filter(id => failedIds.has(id)));
+  };
+
+  const toggleStudent = (id: string) => {
+    setSelectedStudentIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    setMultiResult(null);
+    setSingleError('');
+  };
+  const toggleAllPending = () => {
+    if (selectedStudentIds.length === pendingStudents.length) {
+      setSelectedStudentIds([]);
+    } else {
+      setSelectedStudentIds(pendingStudents.map(s => s.id));
+    }
+    setMultiResult(null);
+    setSingleError('');
   };
 
   return (
@@ -162,71 +196,108 @@ export const DiagnosticTestPanel: React.FC<DiagnosticTestPanelProps> = ({ studen
         <BulkDiagnosticWorkflow user={currentUser} token={token} userRole={currentUser.role} />
       </div>
 
-      {/* One paper for one student. Same generator as the bulk job, so the
-          answer regions the scanner reads back are stored either way. */}
+      {/* One paper per selected student. Same generator as the bulk job, so the
+          answer regions the scanner reads back are stored either way. Select
+          1 or N — the route processes one student per call, but the UI loops
+          and reports per-student success/failure. */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-6 shadow-sm space-y-4">
-        <PageHeader title="Single Diagnostic Paper" desc="Generate one printable paper for a single student" icon={<FileText className="h-5 w-5" />} />
-        <div className="flex flex-col sm:flex-row sm:items-end gap-3">
-          <div className="flex-1">
-            <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Single student</label>
-            <select
-              value={singleStudentId}
-              onChange={e => { setSingleStudentId(e.target.value); setSingleResult(null); setSingleError(''); }}
-              className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm outline-none focus:border-indigo-500 text-slate-900 dark:text-white"
-            >
-              <option value="">Select a student...</option>
-              {students
-                .filter(s => s.currentLevel == null)
-                .map(s => (
-                  <option key={s.id} value={s.id}>{s.name} — {s.classGroup} {s.section}</option>
-                ))}
-              {students.some(s => s.currentLevel != null) && (
-                <option disabled value="__done__">
-                  ── {students.filter(s => s.currentLevel != null).length} students already placed (see Completed Diagnostics) ──
-                </option>
-              )}
-            </select>
-            {students.some(s => s.currentLevel != null) && (
-              <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
-                Students with a diagnostic on file are hidden from the dropdown. To re-issue a paper, contact a SuperAdmin to clear the lock.
-              </p>
+        <PageHeader title="Diagnostic Paper" desc="Generate printable papers for one or more selected students" icon={<FileText className="h-5 w-5" />} />
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <label className="block text-xs font-medium text-slate-600 dark:text-slate-400">
+              Select students ({selectedStudentIds.length} of {pendingStudents.length} pending)
+            </label>
+            {pendingStudents.length > 0 && (
+              <button
+                type="button"
+                onClick={toggleAllPending}
+                className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 hover:underline"
+              >
+                {selectedStudentIds.length === pendingStudents.length ? 'Deselect all' : 'Select all pending'}
+              </button>
             )}
           </div>
+          {pendingStudents.length === 0 ? (
+            <p className="text-xs text-slate-400 dark:text-slate-500 text-center py-6 border border-dashed border-slate-200 dark:border-slate-700 rounded-lg">
+              All students have a diagnostic on file. See Completed Diagnostics below.
+            </p>
+          ) : (
+            <div className="max-h-64 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-lg divide-y divide-slate-100 dark:divide-slate-800">
+              {pendingStudents.map(s => (
+                <label
+                  key={s.id}
+                  className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedStudentIds.includes(s.id)}
+                    onChange={() => toggleStudent(s.id)}
+                    className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <span className="text-sm text-slate-900 dark:text-white flex-1">{s.name}</span>
+                  <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500">{s.classGroup} {s.section}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          {students.some(s => s.currentLevel != null) && (
+            <p className="text-[10px] text-slate-500 dark:text-slate-400">
+              {students.filter(s => s.currentLevel != null).length} students with a diagnostic on file are hidden from the list.
+              To re-issue a paper, contact a SuperAdmin to clear the lock.
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-3 pt-2">
           <button
             type="button"
-            onClick={handleGenerateSinglePaper}
-            disabled={!singleStudentId || singleLoading}
+            onClick={handleGenerateSelectedPapers}
+            disabled={selectedStudentIds.length === 0 || singleLoading}
             className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs font-mono px-4 py-2.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {singleLoading ? (
               <><span className="animate-spin text-sm">&#8987;</span> Generating...</>
             ) : (
-              <>Generate 1 Paper</>
+              <>Generate {selectedStudentIds.length || ''} Paper{selectedStudentIds.length === 1 ? '' : 's'}</>
             )}
           </button>
         </div>
 
-        {singleResult && singleResult.pdfUrl && (
-          <div className="p-4 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg space-y-3">
-            <span className="block text-green-700 dark:text-green-300 font-bold text-sm">&#9989; Diagnostic paper ready for {singleResult.studentName}</span>
-            <a
-              href={singleResult.pdfUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-mono font-bold px-4 py-2.5 rounded-lg transition-colors cursor-pointer shadow-sm"
-            >
-              &#128424; Print / Open PDF (1 Paper)
-            </a>
+        {multiResult && multiResult.succeeded.length > 0 && (
+          <div className="p-4 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg space-y-2">
+            <span className="block text-green-700 dark:text-green-300 font-bold text-sm">
+              &#9989; {multiResult.succeeded.length} paper{multiResult.succeeded.length === 1 ? '' : 's'} ready
+            </span>
+            <ul className="space-y-1.5">
+              {multiResult.succeeded.map(r => (
+                <li key={r.studentId} className="flex items-center gap-2 text-xs">
+                  {r.pdfUrl ? (
+                    <a href={r.pdfUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white font-mono font-bold px-2.5 py-1 rounded transition-colors">
+                      &#128424; Open
+                    </a>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 font-mono font-bold px-2.5 py-1 rounded">
+                      &#9888; No PDF
+                    </span>
+                  )}
+                  <span className="text-slate-700 dark:text-slate-300">{r.studentName}</span>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 
-        {/* The generator falls back to a question list when Puppeteer fails.
-            There is no PDF and no answer regions in that case, so the sheet
-            cannot be printed or scanned back in — say so rather than showing
-            a success state with a dead link. */}
-        {singleResult && !singleResult.pdfUrl && (
-          <div className="p-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg text-xs text-amber-800 dark:text-amber-300">
-            &#9888; Questions were generated for {singleResult.studentName}, but PDF rendering failed, so there is no printable paper and no answer regions were stored. Check the backend log for the Puppeteer error.
+        {multiResult && multiResult.failed.length > 0 && (
+          <div className="p-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg space-y-1">
+            <span className="block text-red-700 dark:text-red-300 font-bold text-xs">
+              &#9888; {multiResult.failed.length} failed
+            </span>
+            <ul className="space-y-1">
+              {multiResult.failed.map(r => (
+                <li key={r.studentId} className="text-[11px] text-red-700 dark:text-red-300">
+                  <span className="font-mono">{r.studentName}</span> — {r.reason}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 
