@@ -45,14 +45,16 @@ export const DiagnosticTestPanel: React.FC<DiagnosticTestPanelProps> = ({ studen
     succeeded: { studentId: string; studentName: string; mockMode: boolean }[];
     failed: { studentId: string; studentName: string; reason: string }[];
   } | null>(null);
-  const pendingStudents = students.filter(s => !studentLocks[s.id]);
 
   // Map of studentId -> lock record for students who already have a
   // diagnostic paper. Fetched on mount and after each generation so the
   // dropdown stays in sync with the server's lock state — currentLevel
   // alone is not enough because a paper can be generated but not yet
-  // graded/scanned.
+  // graded/scanned. MUST be declared before pendingStudents below, which
+  // reads it (TDZ would crash the whole component on render).
   const [studentLocks, setStudentLocks] = useState<Record<string, { generatedByEmail: string; createdAt: string }>>({});
+  const pendingStudents = students.filter(s => !studentLocks[s.id]);
+
   const refreshLocks = () => {
     apiFetch('/api/students/locks', { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
