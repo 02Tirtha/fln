@@ -4,7 +4,7 @@
 // Completed lists kept below as supplementary context, same data as before.
 // The exam timer that used to live here was removed for the pilot phase —
 // it wasn't wired to anything and pilot testing isn't timing exams.
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Student, User } from '../../types';
 import { PageHeader } from './PanelShared';
 import { ShieldAlert, CheckCircle2, Upload, FileText } from 'lucide-react';
@@ -45,7 +45,24 @@ export const DiagnosticTestPanel: React.FC<DiagnosticTestPanelProps> = ({ studen
     succeeded: { studentId: string; studentName: string; mockMode: boolean }[];
     failed: { studentId: string; studentName: string; reason: string }[];
   } | null>(null);
-  const pendingStudents = students.filter(s => s.currentLevel == null);
+  const pendingStudents = students.filter(s => !studentLocks[s.id]);
+
+  // Map of studentId -> lock record for students who already have a
+  // diagnostic paper. Fetched on mount and after each generation so the
+  // dropdown stays in sync with the server's lock state — currentLevel
+  // alone is not enough because a paper can be generated but not yet
+  // graded/scanned.
+  const [studentLocks, setStudentLocks] = useState<Record<string, { generatedByEmail: string; createdAt: string }>>({});
+  const refreshLocks = () => {
+    apiFetch('/api/students/locks', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => setStudentLocks(d.locks || {}))
+      .catch(() => setStudentLocks({}));
+  };
+  useEffect(() => { refreshLocks(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  // Re-fetch after each successful generation so the just-locked students
+  // disappear from the list.
+  useEffect(() => { if (multiResult) refreshLocks(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [multiResult?.succeeded.length, multiResult?.failed.length]);
 
   const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -265,9 +282,9 @@ export const DiagnosticTestPanel: React.FC<DiagnosticTestPanelProps> = ({ studen
               ))}
             </div>
           )}
-          {students.some(s => s.currentLevel != null) && (
+          {Object.keys(studentLocks).length > 0 && (
             <p className="text-[10px] text-slate-500 dark:text-slate-400">
-              {students.filter(s => s.currentLevel != null).length} students with a diagnostic on file are hidden from the list.
+              {Object.keys(studentLocks).length} student{Object.keys(studentLocks).length === 1 ? '' : 's'} with a paper already on file are hidden from the list.
               To re-issue a paper, contact a SuperAdmin to clear the lock.
             </p>
           )}
