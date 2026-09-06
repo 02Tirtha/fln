@@ -3,6 +3,7 @@ import path from 'path';
 import bcrypt from 'bcrypt';
 import { MongoClient, Db } from 'mongodb';
 import { CURRICULUM_MAPPING } from './config/curriculumMap';
+import type { StudentCycleLock } from './paperLock';
 
 const DB_DIR = path.resolve(process.cwd(), 'data');
 const DB_FILE = path.resolve(DB_DIR, 'db.json');
@@ -892,6 +893,7 @@ interface DatabaseSchema {
   questionTemplates: QuestionTemplate[];
   questionOptions: QuestionOption[];
   curriculumLevels: CurriculumLevel[];
+  studentCycleLocks: StudentCycleLock[];
 }
 
 const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
@@ -920,6 +922,7 @@ const COLLECTION_NAMES: Record<keyof DatabaseSchema, string> = {
   questionTemplates: 'questionTemplates',
   questionOptions: 'questionOptions',
   curriculumLevels: 'curriculumLevels',
+  studentCycleLocks: 'studentCycleLocks',
 };
 
 /**
@@ -1384,6 +1387,10 @@ export class DBStore {
   async getWorksheets() {
     if (this.mongoDb) return await this.mongoDb.collection<Worksheet>('worksheets').find({}).toArray();
     return this.data?.worksheets || [];
+  }
+  async getStudentCycleLocks() {
+    if (this.mongoDb) return await this.mongoDb.collection<StudentCycleLock>('studentCycleLocks').find({}).toArray();
+    return this.data?.studentCycleLocks || [];
   }
   async getTestHistory(teacherId?: string) {
     if (this.mongoDb) {
@@ -1850,6 +1857,12 @@ export class DBStore {
     await this.mongoDb!.collection('worksheets').insertOne(ws);
     if (this.data) this.data.worksheets.push(ws);
     return ws;
+  }
+
+  async addStudentCycleLock(lock: StudentCycleLock) {
+    if (this.mongoDb) await this.mongoDb.collection('studentCycleLocks').insertOne(lock as any);
+    if (this.data) this.data.studentCycleLocks.push(lock);
+    return lock;
   }
 
   async addTestHistoryEntry(entry: TestHistoryEntry) {
@@ -4330,7 +4343,8 @@ export class DBStore {
       questionOptions: [],
       // Populated by `npm run seed:levels`, not by the demo seed — the
       // curriculum is real data with one source, not fixture content.
-      curriculumLevels: []
+      curriculumLevels: [],
+      studentCycleLocks: []
     };
   }
 }
