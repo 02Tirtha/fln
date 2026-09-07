@@ -23,6 +23,7 @@
     "test:panel-isolation": "tsx --test tests/panel-isolation.test.cjs",
     "audit:aadhaar": "tsx scripts/audit-aadhaar-at-rest.ts",
     "test:answer-matching": "tsx src/answerMatching.test.ts",
+    "test:error-classification": "tsx src/errorClassification.test.ts",
     "test:paper-lock": "tsx src/paperLock.test.ts"
   },
   "dependencies": {

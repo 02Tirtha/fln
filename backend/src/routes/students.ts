@@ -1,13 +1,11 @@
 import express from 'express';
-import path from 'path';
-import fs from 'fs';
 import { dbStore, UserRole, Student, Question, AnswerSubmission, EvaluationReport, EvaluationReasoning, CYCLE_NAMES } from '../db';
 import { answersMatch } from '../answerMatching';
+import { classifyErrorType } from '../errorClassification';
 import { getAuthUser, canAccessStudent } from '../auth';
 import { generateDiagnosticPaper } from '../paperGenerator';
 import { generateQuestionsForLevel } from '../levelGenerator';
 import { evaluateAIDiagnostic } from '../gemini';
-import { AI_SERVICES_DIR, PYTHON_BIN } from '../config';
 import { invalidateFingerprintCache } from './misconceptions';
 import { assignStudentToArchetype } from '../studentArchetypeService';
 import { resolvePrerequisites, describeConcept, directPrerequisites } from '../competencyPrerequisites';
@@ -28,49 +26,18 @@ function toPublicStudent(s: Student): PublicStudent {
 }
 
 /**
- * The pipeline's output file for a student, tried against both date spellings.
+ * Lift the per-error detail out of a wrong-answer set.
  *
- * `run_pipeline.py` names its output with the machine's LOCAL date; this
- * handler was building the path from `new Date().toISOString()`, which is UTC.
- * East of Greenwich the two disagree for the first hours of every local day —
- * in IST, midnight to 05:30 — and the lookup silently missed. Nothing threw:
- * `score` and `recommendedLevel` kept their initial 0 and 1, so every child
- * assessed in that window was placed at Level 1 with a score of zero and none
- * of the pipeline's analysis was recorded.
- *
- * Returns the first path that exists, or null when the pipeline produced
- * nothing under either name.
- */
-function findPipelineFile(dir: string, prefix: string, suffix: string): string | null {
-  const now = new Date();
-  const utcDate = now.toISOString().split('T')[0];
-  const localDate = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
-    .toISOString()
-    .split('T')[0];
-  for (const date of [...new Set([localDate, utcDate])]) {
-    const candidate = path.join(dir, `${prefix}${date}${suffix}`);
-    if (fs.existsSync(candidate)) return candidate;
-  }
-  return null;
-}
-
-/**
- * Lift the per-error detail out of a `run_pipeline.py` evaluation JSON.
- *
- * The pipeline has always written `root_causes`, `levels_failed`,
- * `prerequisites_to_check` and `performance_by_difficulty`; the diagnostic
- * handler read `topics_to_focus` and dropped the rest on the floor. Everything
- * downstream that asks HOW a child failed — the misconception fingerprint, the
- * pipeline/measurement reconciliation — reads exactly these fields, so a
- * diagnostic-only child arrived there with nothing to read.
- *
- * Nothing here is inferred. When the pipeline's LLM step falls back it emits a
- * single overall verdict rather than one entry per question; in that case each
- * wrong answer is recorded with its OWN topic and level (from the question the
- * child actually sat) and the pipeline's overall `error_type` restated against
- * it. A shape the pipeline did not report is left unclassified rather than
- * guessed at — a fabricated cause is indistinguishable from a measured one
- * once it is downstream.
+ * `run_pipeline.py` used to write `root_causes` with a real `error_type` per
+ * question; that pipeline is never invoked from this backend (see FLN #458 —
+ * it runs on a legacy class/phrase data model with no connection to the
+ * current MongoDB-backed students), so `evalData` is always `{}` here now.
+ * Rather than leave every diagnostic `unclassified`, high-confidence patterns
+ * are detected directly from the submitted/expected answer pair — see
+ * `classifyErrorType` in `errorClassification.ts`. Nothing here is guessed:
+ * a shape that doesn't match a known pattern stays `unclassified` rather than
+ * having a fabricated cause attached — a fabricated cause is indistinguishable
+ * from a measured one once it is downstream (FLN #459).
  */
 function readPipelineDetail(
   evalData: any,
@@ -101,7 +68,10 @@ function readPipelineDetail(
   });
 
   if (rootCauses.length === 0) {
-    const overallType = evalData?.error_type ? String(evalData.error_type) : 'unclassified';
+    // A real pipeline verdict (when one exists) always wins over the local
+    // classifier — this is the fallback for the case that's true today,
+    // where evalData is always {} because nothing wires it in (FLN #458).
+    const overallType = evalData?.error_type ? String(evalData.error_type) : null;
     const overallAnalysis = evalData?.root_cause ? String(evalData.root_cause) : '';
     rootCauses = questions
       .filter(q => norm(answers?.[q.question_id]) !== norm(q.answer))
@@ -110,7 +80,7 @@ function readPipelineDetail(
         error: String(answers?.[q.question_id] ?? ''),
         topic: q.topic || 'Unclassified',
         flnLevel: Number(q.source_level ?? 0),
-        errorType: overallType,
+        errorType: overallType ?? classifyErrorType(answers?.[q.question_id], q.answer),
         analysis: overallAnalysis
       }));
   }
@@ -931,67 +901,6 @@ export function registerStudentRoutes(app: express.Express) {
       });
     }
 
-    // Connect to Python Evaluation Metrics Pipeline
-    const pipelineDir = AI_SERVICES_DIR;
-    const responseDir = path.join(pipelineDir, 'student_responses', `class_${classNumber}`, 'phrase_1');
-    fs.mkdirSync(responseDir, { recursive: true });
-
-    // Map answers for the Python pipeline. The pipeline's `1_compare_answers.py`
-    // looks each answer key up in `ai-services/questions/class_2/phrase_1/
-    // class_2_exam_phrase_1.json` (the static question bank). When the paper
-    // was generated dynamically by `generateClass2PaperFromAtlas` — because
-    // the live `questionBank` collection is empty (verified) — the paper's
-    // `question_id`s (e.g. `Q_L22_1`) are NOT in that static bank. So we
-    // (a) key the answers by the paper's *actual* `question_id` (not by an
-    // index-based Q1..Q10 that would alias the wrong static bank question),
-    // and (b) embed the paper's per-question metadata in `studentResponse.questions`
-    // so the comparator can fall back to it without a DB lookup.
-    const pipelineAnswers: { [qId: string]: { answer: string, confidence: number } } = {};
-    const paperQuestions: { [qId: string]: {
-      answer: string;
-      topic: string;
-      subtopic: string;
-      difficulty: string;
-      class_level: number;
-      source_level: number;
-      conceptId?: string;
-      conceptTitle?: string;
-    } } = {};
-    questions.forEach((q) => {
-      const submitted = (answers[q.question_id] || '').trim();
-      pipelineAnswers[q.question_id] = {
-        answer: String(submitted),
-        confidence: 0.95
-      };
-      paperQuestions[q.question_id] = {
-        answer: String(q.answer || '').trim(),
-        topic: q.topic || '',
-        subtopic: q.subtopic || '',
-        difficulty: q.difficulty || 'medium',
-        class_level: classNumber,
-        source_level: q.source_level || classNumber,
-        conceptId: q.conceptId,
-        conceptTitle: CURRICULUM_MAPPING[q.source_level || 0]?.levelTitle,
-      };
-    });
-
-    const studentResponse = {
-      student_id: student.id,
-      student_name: student.name,
-      enrolled_class: classNumber,
-      test_date: dateStr,
-      phrase: 'phrase_1',
-      exam_id: `C${classNumber}_WORKSHEET_PHRASE_1`,
-      // Embedded paper question metadata so the Python comparator can grade
-      // against the actual paper questions when the static question bank
-      // does not contain them.
-      questions: paperQuestions,
-      answers: pipelineAnswers
-    };
-
-    const responsePath = path.join(responseDir, `${student.id}.json`);
-    fs.writeFileSync(responsePath, JSON.stringify(studentResponse, null, 2));
-
     // Variables assigned by the scoring block below. Declared here (function
     // scope) so the rest of the handler can read them after the local block.
     let score = 0;
@@ -1218,31 +1127,16 @@ export function registerStudentRoutes(app: express.Express) {
       levelHistory
     });
 
-    // Create a special Evaluation Report with dynamic mock concept mastery
+    // Concept mastery by broad topic band. Coarse (four fixed bands keyed to
+    // recommendedLevel thresholds) rather than derived from which questions
+    // were actually missed — a real per-topic breakdown needs #413's error
+    // clustering, not something to fake here in the meantime.
     const conceptMastery: { [topic: string]: "Strong" | "Needs Practice" | "Satisfactory" } = {
       'Number Sense': recommendedLevel >= 15 ? 'Strong' : 'Needs Practice',
       'Shapes': recommendedLevel >= 25 ? 'Strong' : 'Needs Practice',
       'Fractions': recommendedLevel >= 35 ? 'Strong' : 'Needs Practice',
       'Operations': recommendedLevel >= 12 ? 'Strong' : 'Needs Practice'
     };
-
-    try {
-      const evalReportPath = findPipelineFile(
-        path.join(pipelineDir, 'evaluation_reports', `class_${classNumber}`, 'phrase_1', 'evaluation'),
-        `${student.id}_evaluation_`,
-        '.json'
-      );
-      if (evalReportPath) {
-        const evalData = JSON.parse(fs.readFileSync(evalReportPath, 'utf-8'));
-        if (evalData.topics_to_focus && Array.isArray(evalData.topics_to_focus)) {
-          evalData.topics_to_focus.forEach((t: string) => {
-            conceptMastery[t] = 'Needs Practice';
-          });
-        }
-      }
-    } catch (e) {
-      console.warn('Failed to parse dynamic concept mastery:', e);
-    }
 
     // Persist what the child actually wrote, alongside the verdict.
     //
