@@ -1086,8 +1086,9 @@ export function registerStudentRoutes(app: express.Express) {
       );
     } else {
       // Genuinely all correct: advance one past the hardest level assessed.
+      // Capped at 59, not 93: worksheet generation still throws UnknownLevelError above 59.
       const maxLevel = Math.max(0, ...assessedLevels);
-      recommendedLevel = Math.min(93, maxLevel + 1);
+      recommendedLevel = Math.min(59, maxLevel + 1);
     }
     pipelineDetail = readPipelineDetail({}, questions, answers);
     narrative = `Determined locally: student solved ${score}/${questions.length} questions correctly. Placed at Level ${recommendedLevel} using Weakest-Level Mapping.`;
@@ -1132,7 +1133,7 @@ export function registerStudentRoutes(app: express.Express) {
         '3. Continue routine class participation and worksheet drills.',
         '',
         'MEDIUM-TERM (Next month):',
-        `- Target next milestone: Level ${Math.min(93, recommendedLevel + 1)}.`,
+        `- Target next milestone: Level ${Math.min(59, recommendedLevel + 1)}.`,
         '',
         'The student demonstrated mastery in this attempt. No prerequisite remediation is required.',
         '',
@@ -1213,7 +1214,7 @@ export function registerStudentRoutes(app: express.Express) {
     await dbStore.updateStudent(student.id, {
       currentLevel: recommendedLevel,
       currentSubLevel: subLevel,
-      targetLevel: Math.min(93, recommendedLevel + 1),
+      targetLevel: Math.min(59, recommendedLevel + 1),
       levelHistory
     });
 
@@ -1305,7 +1306,7 @@ export function registerStudentRoutes(app: express.Express) {
         '3. Continue routine class participation and worksheet drills.',
         '',
         'MEDIUM-TERM (Next month):',
-        `- Target next milestone: Level ${Math.min(93, recommendedLevel + 1)}.`,
+        `- Target next milestone: Level ${Math.min(59, recommendedLevel + 1)}.`,
         '',
         'The student demonstrated mastery in this attempt. No prerequisite remediation is required.',
         '',
@@ -1441,7 +1442,7 @@ export function registerStudentRoutes(app: express.Express) {
         }
         if (failedFlnLevels.length > 0) {
           demonstratedLevel = Math.min(...failedFlnLevels);
-          nextDemonstratedLevel = Math.min(93, demonstratedLevel + 1);
+          nextDemonstratedLevel = Math.min(59, demonstratedLevel + 1);
         }
       }
       const currentCfg = CURRICULUM_MAPPING[demonstratedLevel];
