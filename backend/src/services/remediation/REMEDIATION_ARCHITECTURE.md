@@ -1,5 +1,50 @@
 # Remediation Feature Architecture Documentation
 
+## Reviewer Guide & Quick Reference
+
+### 1. Suggested Reviewer Reading Order
+
+| Step | File(s) | Focus Area |
+| :--- | :--- | :--- |
+| **1. Overview** | `REMEDIATION_ARCHITECTURE.md` | Architecture rationale, tiered remediation stages, and end-to-end data flow |
+| **2. Taxonomy** | `conceptDictionary.json`<br>`conceptClassifier.ts` | Mathematical concept taxonomy and classification rules |
+| **3. Generators** | `matrixEngine.ts`<br>`numericEngine.ts`<br>`generativeEngine.ts` | Deterministic question generation and fallback engines |
+| **4. Synthesis** | `blueprintEngine.ts`<br>`remediation.service.ts` | Scaffolded blueprint synthesis and async ledger orchestration |
+| **5. Backend & DB** | `backend/src/db.ts`<br>`backend/src/gemini.ts`<br>`backend/src/routes/remediation.ts` | Database ledger CRUD queries and REST endpoints |
+| **6. Teacher UI** | `RemediationNotesView.tsx`<br>`DiagnosticTestPanel.tsx` | Frontend teacher review panel, student notes, and printable sheet views |
+
+---
+
+### 2. End-to-End Worked Example
+
+* **Step 1 — Diagnostic Result**:
+  A Grade 3 student (*Ravi*) completes a diagnostic assessment and answers $52 - 18 = 44$. The diagnostic engine flags Question #4 as incorrect (regrouping / place-value error).
+* **Step 2 — Concept Classification**:
+  `conceptClassifier.ts` flags the misconception and maps it to concept `MATH.SUB.REGROUP_2D` (Subtraction with Regrouping). A `remediationLedger` task is registered on the server with status `generating`.
+* **Step 3 — Blueprint Synthesis**:
+  `blueprintEngine.ts` generates a 3-tier scaffolded remediation worksheet:
+  1. *Conceptual Visual Anchor*: Place-value decomposition visual ($52 \rightarrow 4 \text{ tens} + 12 \text{ ones}$).
+  2. *Guided Walkthrough*: Step-by-step subtraction ($12 - 8 = 4$; $4 - 1 = 3 \rightarrow 34$).
+  3. *Targeted Micro-Practice*: 3 fresh isomorphic problems ($63 - 27$, $41 - 19$, $74 - 38$) with progressive hints.
+* **Step 4 — Teacher Delivery**:
+  The teacher opens `RemediationNotesView`, which immediately presents the student's diagnosis, step-by-step instructional notes, and a printable PDF-ready intervention sheet.
+
+---
+
+### 3. Server-Authoritative Mastery Alignment (#288 / #289)
+
+- The remediation pipeline does **not** create or maintain a separate mastery engine or compute client-side mastery scores.
+- It strictly relies on the server-authoritative diagnostic evaluation (`DiagnosticAnswerKey` / `EvaluationReport`) and records remediation sessions into server-managed `remediationLedgers`.
+
+---
+
+### 4. High-Traffic Files Integration Notes
+
+* **`backend/src/gemini.ts`**: Exported `getAiClient(): GoogleGenAI | null` and added graceful offline fallback when `GEMINI_API_KEY` is not present, allowing local deterministic engines to run without unhandled exceptions.
+* **`backend/src/db.ts`**: Added CRUD helper methods for remediation records (`getRemediationLedgers`, `addRemediationLedger`, `updateRemediationLedger`, `getExamBlueprints`) and `findQuestionInAnyDiagnosticAnswerKey` for resilient question lookup.
+
+---
+
 ## Overview
 
 The **Remediation Feature** is an AI-driven personalized practice generation system that automatically creates targeted practice questions for students based on their incorrect answers in assessments. It operates as a background service triggered after evaluation, generating 5 practice variants per failed question with concept-matched, human-readable content.
