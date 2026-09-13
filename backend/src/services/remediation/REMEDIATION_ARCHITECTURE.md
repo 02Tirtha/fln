@@ -4,14 +4,14 @@
 
 ### 1. Suggested Reviewer Reading Order
 
-| Step | File(s) | Focus Area |
-| :--- | :--- | :--- |
-| **1. Overview** | `REMEDIATION_ARCHITECTURE.md` | Architecture rationale, tiered remediation stages, and end-to-end data flow |
-| **2. Taxonomy** | `conceptDictionary.json`<br>`conceptClassifier.ts` | Mathematical concept taxonomy and classification rules |
-| **3. Generators** | `matrixEngine.ts`<br>`numericEngine.ts`<br>`generativeEngine.ts` | Deterministic question generation and fallback engines |
-| **4. Synthesis** | `blueprintEngine.ts`<br>`remediation.service.ts` | Scaffolded blueprint synthesis and async ledger orchestration |
-| **5. Backend & DB** | `backend/src/db.ts`<br>`backend/src/gemini.ts`<br>`backend/src/routes/remediation.ts` | Database ledger CRUD queries and REST endpoints |
-| **6. Teacher UI** | `RemediationNotesView.tsx`<br>`DiagnosticTestPanel.tsx` | Frontend teacher review panel, student notes, and printable sheet views |
+| Step | File(s) | Lines | Focus Area |
+| :--- | :--- | :--- | :--- |
+| **1. Overview** | `REMEDIATION_ARCHITECTURE.md` | 766 | Architecture rationale, tiered remediation stages, and end-to-end data flow |
+| **2. Taxonomy** | `conceptDictionary.json`<br>`conceptClassifier.ts` | ~535 | Mathematical concept taxonomy and classification rules |
+| **3. Generators** | `matrixEngine.ts`<br>`numericEngine.ts`<br>`generativeEngine.ts` | ~560 | Deterministic question generation and fallback engines |
+| **4. Synthesis** | `blueprintEngine.ts`<br>`remediation.service.ts` | ~3,400 | Scaffolded blueprint synthesis and async ledger orchestration |
+| **5. Backend & DB** | `backend/src/db.ts`<br>`backend/src/gemini.ts`<br>`backend/src/routes/remediation.ts` | ~430 | Database ledger CRUD queries and REST endpoints |
+| **6. Teacher UI** | `RemediationNotesView.tsx`<br>`DiagnosticTestPanel.tsx` | ~520 | Frontend teacher review panel, student notes, and printable sheet views |
 
 ---
 
