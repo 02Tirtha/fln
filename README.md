@@ -99,7 +99,9 @@ This is the thinking behind why issues get raised the way they do on this repo. 
 
 **5. Question authoring is being decoupled from the legacy generators.** See [`docs/question-authoring-and-assets.md`](docs/question-authoring-and-assets.md) for the current intent-based authoring flow (PRs #428/#431) and where question/SVG content actually lives in the database — don't assume the old hardcoded generator logic is still the only path.
 
-**6. Stop designing around what the codebase already does.** Where the existing implementation and the intended pedagogy disagree, the pedagogy wins — the code is expected to change to match the design, not the other way around. Corollary: don't spend a review cycle defending existing code just because it's already there.
+**6. New code must be modular and plug-and-play, because the source of truth above is expected to keep changing.** If the Levels turn out to be wrong, or the prerequisite DAG gets revised, or a concept gets re-tagged, that should mean editing data/config in one place — not rebuilding or re-threading logic through the repository. Don't hardcode a level number, a prerequisite edge, or a misconception rule somewhere it can't be swapped independently of the rest of the system.
+
+**7. Stop designing around what the codebase already does.** Where the existing implementation and the intended pedagogy disagree, the pedagogy wins — the code is expected to change to match the design, not the other way around. Corollary: don't spend a review cycle defending existing code just because it's already there.
 
 If you're picking up level-framework, curriculum, or scoring/diagnosis work, check with a maintainer first — this area is mid-redesign and the source of truth is expected to keep changing.
 
