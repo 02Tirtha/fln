@@ -325,7 +325,7 @@
     "level": 22,
     "section": "22.2 — Remediation",
     "questionNumber": 1,
-    "bytes": 6132
+    "bytes": 6136
   },
   {
     "id": "qb_L22_22.2-Remediation_2",
@@ -333,7 +333,7 @@
     "level": 22,
     "section": "22.2 — Remediation",
     "questionNumber": 2,
-    "bytes": 6125
+    "bytes": 6129
   },
   {
     "id": "qb_L22_22.2-Remediation_3",
@@ -341,7 +341,7 @@
     "level": 22,
     "section": "22.2 — Remediation",
     "questionNumber": 3,
-    "bytes": 6051
+    "bytes": 6055
   },
   {
     "id": "qb_L22_22.2-Remediation_4",
@@ -349,7 +349,7 @@
     "level": 22,
     "section": "22.2 — Remediation",
     "questionNumber": 4,
-    "bytes": 7413
+    "bytes": 7417
   },
   {
     "id": "qb_L22_22.2-Remediation_5",
@@ -357,7 +357,7 @@
     "level": 22,
     "section": "22.2 — Remediation",
     "questionNumber": 5,
-    "bytes": 6182
+    "bytes": 6186
   },
   {
     "id": "qb_L22_22.2-Remediation_6",
@@ -365,7 +365,7 @@
     "level": 22,
     "section": "22.2 — Remediation",
     "questionNumber": 6,
-    "bytes": 6289
+    "bytes": 6293
   },
   {
     "id": "qb_L22_22.2-Remediation_7",
@@ -373,7 +373,7 @@
     "level": 22,
     "section": "22.2 — Remediation",
     "questionNumber": 7,
-    "bytes": 6395
+    "bytes": 6399
   },
   {
     "id": "qb_L22_22.2-Remediation_8",
@@ -381,7 +381,7 @@
     "level": 22,
     "section": "22.2 — Remediation",
     "questionNumber": 8,
-    "bytes": 6068
+    "bytes": 6072
   },
   {
     "id": "qb_L23_23.0-Assessment_1",
@@ -405,7 +405,7 @@
     "level": 23,
     "section": "23.0 — Assessment",
     "questionNumber": 3,
-    "bytes": 654
+    "bytes": 660
   },
   {
     "id": "qb_L23_23.0-Assessment_4",
@@ -437,7 +437,7 @@
     "level": 23,
     "section": "23.0 — Assessment",
     "questionNumber": 7,
-    "bytes": 654
+    "bytes": 660
   },
   {
     "id": "qb_L23_23.0-Assessment_8",
@@ -469,7 +469,7 @@
     "level": 23,
     "section": "23.0 — Assessment",
     "questionNumber": 11,
-    "bytes": 654
+    "bytes": 660
   },
   {
     "id": "qb_L23_23.0-Assessment_12",
@@ -501,7 +501,7 @@
     "level": 23,
     "section": "23.1 — Easier",
     "questionNumber": 3,
-    "bytes": 654
+    "bytes": 660
   },
   {
     "id": "qb_L23_23.1-Easier_4",
@@ -533,7 +533,7 @@
     "level": 23,
     "section": "23.1 — Easier",
     "questionNumber": 7,
-    "bytes": 654
+    "bytes": 660
   },
   {
     "id": "qb_L23_23.1-Easier_8",
@@ -565,7 +565,7 @@
     "level": 23,
     "section": "23.1 — Easier",
     "questionNumber": 11,
-    "bytes": 654
+    "bytes": 660
   },
   {
     "id": "qb_L23_23.1-Easier_12",
@@ -1541,7 +1541,7 @@
     "level": 28,
     "section": "28.0 — Mastery",
     "questionNumber": 1,
-    "bytes": 654
+    "bytes": 660
   },
   {
     "id": "qb_L28_28.0-Mastery_2",
@@ -1565,7 +1565,7 @@
     "level": 28,
     "section": "28.0 — Mastery",
     "questionNumber": 4,
-    "bytes": 654
+    "bytes": 660
   },
   {
     "id": "qb_L28_28.0-Mastery_5",
@@ -1589,7 +1589,7 @@
     "level": 28,
     "section": "28.0 — Mastery",
     "questionNumber": 7,
-    "bytes": 654
+    "bytes": 660
   },
   {
     "id": "qb_L28_28.0-Mastery_8",
@@ -1613,7 +1613,7 @@
     "level": 28,
     "section": "28.0 — Mastery",
     "questionNumber": 10,
-    "bytes": 654
+    "bytes": 660
   },
   {
     "id": "qb_L28_28.1-Easier_1",
@@ -1621,7 +1621,7 @@
     "level": 28,
     "section": "28.1 — Easier",
     "questionNumber": 1,
-    "bytes": 654
+    "bytes": 660
   },
   {
     "id": "qb_L28_28.1-Easier_2",
@@ -1637,7 +1637,7 @@
     "level": 28,
     "section": "28.1 — Easier",
     "questionNumber": 3,
-    "bytes": 654
+    "bytes": 660
   },
   {
     "id": "qb_L28_28.1-Easier_4",
@@ -1653,7 +1653,7 @@
     "level": 28,
     "section": "28.1 — Easier",
     "questionNumber": 5,
-    "bytes": 654
+    "bytes": 660
   },
   {
     "id": "qb_L28_28.1-Easier_6",
@@ -1669,7 +1669,7 @@
     "level": 28,
     "section": "28.1 — Easier",
     "questionNumber": 7,
-    "bytes": 654
+    "bytes": 660
   },
   {
     "id": "qb_L28_28.1-Easier_8",
@@ -1685,7 +1685,7 @@
     "level": 28,
     "section": "28.1 — Easier",
     "questionNumber": 9,
-    "bytes": 654
+    "bytes": 660
   },
   {
     "id": "qb_L28_28.1-Easier_10",
@@ -1701,7 +1701,7 @@
     "level": 28,
     "section": "28.2 — Remediation",
     "questionNumber": 1,
-    "bytes": 654
+    "bytes": 660
   },
   {
     "id": "qb_L28_28.2-Remediation_2",
@@ -1717,7 +1717,7 @@
     "level": 28,
     "section": "28.2 — Remediation",
     "questionNumber": 3,
-    "bytes": 654
+    "bytes": 660
   },
   {
     "id": "qb_L28_28.2-Remediation_4",
@@ -1733,7 +1733,7 @@
     "level": 28,
     "section": "28.2 — Remediation",
     "questionNumber": 5,
-    "bytes": 654
+    "bytes": 660
   },
   {
     "id": "qb_L28_28.2-Remediation_6",
@@ -1749,7 +1749,7 @@
     "level": 28,
     "section": "28.2 — Remediation",
     "questionNumber": 7,
-    "bytes": 654
+    "bytes": 660
   },
   {
     "id": "qb_L28_28.2-Remediation_8",
@@ -1765,7 +1765,7 @@
     "level": 28,
     "section": "28.2 — Remediation",
     "questionNumber": 9,
-    "bytes": 654
+    "bytes": 660
   },
   {
     "id": "qb_L28_28.2-Remediation_10",
@@ -2101,7 +2101,7 @@
     "level": 29,
     "section": "29.2 — Remediation",
     "questionNumber": 1,
-    "bytes": 6594
+    "bytes": 6598
   },
   {
     "id": "qb_L29_29.2-Remediation_2",
@@ -2109,7 +2109,7 @@
     "level": 29,
     "section": "29.2 — Remediation",
     "questionNumber": 2,
-    "bytes": 7561
+    "bytes": 7565
   },
   {
     "id": "qb_L29_29.2-Remediation_3",
@@ -2117,7 +2117,7 @@
     "level": 29,
     "section": "29.2 — Remediation",
     "questionNumber": 3,
-    "bytes": 7561
+    "bytes": 7565
   },
   {
     "id": "qb_L29_29.2-Remediation_4",
@@ -2125,7 +2125,7 @@
     "level": 29,
     "section": "29.2 — Remediation",
     "questionNumber": 4,
-    "bytes": 7479
+    "bytes": 7483
   },
   {
     "id": "qb_L29_29.2-Remediation_5",
@@ -2133,7 +2133,7 @@
     "level": 29,
     "section": "29.2 — Remediation",
     "questionNumber": 5,
-    "bytes": 7481
+    "bytes": 7485
   },
   {
     "id": "qb_L29_29.2-Remediation_6",
@@ -2141,7 +2141,7 @@
     "level": 29,
     "section": "29.2 — Remediation",
     "questionNumber": 6,
-    "bytes": 7433
+    "bytes": 7437
   },
   {
     "id": "qb_L29_29.2-Remediation_7",
@@ -2149,7 +2149,7 @@
     "level": 29,
     "section": "29.2 — Remediation",
     "questionNumber": 7,
-    "bytes": 7381
+    "bytes": 7385
   },
   {
     "id": "qb_L29_29.2-Remediation_8",
@@ -2157,7 +2157,7 @@
     "level": 29,
     "section": "29.2 — Remediation",
     "questionNumber": 8,
-    "bytes": 6592
+    "bytes": 6596
   },
   {
     "id": "qb_L30_30.0-Mastery_1",
@@ -3349,7 +3349,7 @@
     "level": 35,
     "section": "35.0 — Mastery",
     "questionNumber": 1,
-    "bytes": 391
+    "bytes": 395
   },
   {
     "id": "qb_L35_35.0-Mastery_2",
@@ -3381,7 +3381,7 @@
     "level": 35,
     "section": "35.0 — Mastery",
     "questionNumber": 5,
-    "bytes": 391
+    "bytes": 395
   },
   {
     "id": "qb_L35_35.0-Mastery_6",
@@ -3413,7 +3413,7 @@
     "level": 35,
     "section": "35.0 — Mastery",
     "questionNumber": 9,
-    "bytes": 391
+    "bytes": 395
   },
   {
     "id": "qb_L35_35.0-Mastery_10",
@@ -3445,7 +3445,7 @@
     "level": 35,
     "section": "35.1 — Easier",
     "questionNumber": 1,
-    "bytes": 368
+    "bytes": 372
   },
   {
     "id": "qb_L35_35.1-Easier_2",
@@ -3469,7 +3469,7 @@
     "level": 35,
     "section": "35.1 — Easier",
     "questionNumber": 4,
-    "bytes": 368
+    "bytes": 372
   },
   {
     "id": "qb_L35_35.1-Easier_5",
@@ -3493,7 +3493,7 @@
     "level": 35,
     "section": "35.1 — Easier",
     "questionNumber": 7,
-    "bytes": 368
+    "bytes": 372
   },
   {
     "id": "qb_L35_35.1-Easier_8",
@@ -3517,7 +3517,7 @@
     "level": 35,
     "section": "35.1 — Easier",
     "questionNumber": 10,
-    "bytes": 368
+    "bytes": 372
   },
   {
     "id": "qb_L35_35.1-Easier_11",
@@ -3765,7 +3765,7 @@
     "level": 37,
     "section": "37.0 — Mastery",
     "questionNumber": 1,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.0-Mastery_2",
@@ -3773,7 +3773,7 @@
     "level": 37,
     "section": "37.0 — Mastery",
     "questionNumber": 2,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.0-Mastery_3",
@@ -3781,7 +3781,7 @@
     "level": 37,
     "section": "37.0 — Mastery",
     "questionNumber": 3,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.0-Mastery_4",
@@ -3789,7 +3789,7 @@
     "level": 37,
     "section": "37.0 — Mastery",
     "questionNumber": 4,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.0-Mastery_5",
@@ -3797,7 +3797,7 @@
     "level": 37,
     "section": "37.0 — Mastery",
     "questionNumber": 5,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.0-Mastery_6",
@@ -3805,7 +3805,7 @@
     "level": 37,
     "section": "37.0 — Mastery",
     "questionNumber": 6,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.0-Mastery_7",
@@ -3813,7 +3813,7 @@
     "level": 37,
     "section": "37.0 — Mastery",
     "questionNumber": 7,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.0-Mastery_8",
@@ -3821,7 +3821,7 @@
     "level": 37,
     "section": "37.0 — Mastery",
     "questionNumber": 8,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.0-Mastery_9",
@@ -3829,7 +3829,7 @@
     "level": 37,
     "section": "37.0 — Mastery",
     "questionNumber": 9,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.0-Mastery_10",
@@ -3837,7 +3837,7 @@
     "level": 37,
     "section": "37.0 — Mastery",
     "questionNumber": 10,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.0-Mastery_11",
@@ -3845,7 +3845,7 @@
     "level": 37,
     "section": "37.0 — Mastery",
     "questionNumber": 11,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.0-Mastery_12",
@@ -3853,7 +3853,7 @@
     "level": 37,
     "section": "37.0 — Mastery",
     "questionNumber": 12,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.1-Easier_1",
@@ -3861,7 +3861,7 @@
     "level": 37,
     "section": "37.1 — Easier",
     "questionNumber": 1,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.1-Easier_2",
@@ -3869,7 +3869,7 @@
     "level": 37,
     "section": "37.1 — Easier",
     "questionNumber": 2,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.1-Easier_3",
@@ -3877,7 +3877,7 @@
     "level": 37,
     "section": "37.1 — Easier",
     "questionNumber": 3,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.1-Easier_4",
@@ -3885,7 +3885,7 @@
     "level": 37,
     "section": "37.1 — Easier",
     "questionNumber": 4,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.1-Easier_5",
@@ -3893,7 +3893,7 @@
     "level": 37,
     "section": "37.1 — Easier",
     "questionNumber": 5,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.1-Easier_6",
@@ -3901,7 +3901,7 @@
     "level": 37,
     "section": "37.1 — Easier",
     "questionNumber": 6,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.1-Easier_7",
@@ -3909,7 +3909,7 @@
     "level": 37,
     "section": "37.1 — Easier",
     "questionNumber": 7,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.1-Easier_8",
@@ -3917,7 +3917,7 @@
     "level": 37,
     "section": "37.1 — Easier",
     "questionNumber": 8,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.1-Easier_9",
@@ -3925,7 +3925,7 @@
     "level": 37,
     "section": "37.1 — Easier",
     "questionNumber": 9,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.1-Easier_10",
@@ -3933,7 +3933,7 @@
     "level": 37,
     "section": "37.1 — Easier",
     "questionNumber": 10,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.1-Easier_11",
@@ -3941,7 +3941,7 @@
     "level": 37,
     "section": "37.1 — Easier",
     "questionNumber": 11,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.1-Easier_12",
@@ -3949,7 +3949,7 @@
     "level": 37,
     "section": "37.1 — Easier",
     "questionNumber": 12,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.2-Remediation_1",
@@ -3957,7 +3957,7 @@
     "level": 37,
     "section": "37.2 — Remediation",
     "questionNumber": 1,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.2-Remediation_2",
@@ -3965,7 +3965,7 @@
     "level": 37,
     "section": "37.2 — Remediation",
     "questionNumber": 2,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.2-Remediation_3",
@@ -3973,7 +3973,7 @@
     "level": 37,
     "section": "37.2 — Remediation",
     "questionNumber": 3,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.2-Remediation_4",
@@ -3981,7 +3981,7 @@
     "level": 37,
     "section": "37.2 — Remediation",
     "questionNumber": 4,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.2-Remediation_5",
@@ -3989,7 +3989,7 @@
     "level": 37,
     "section": "37.2 — Remediation",
     "questionNumber": 5,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.2-Remediation_6",
@@ -3997,7 +3997,7 @@
     "level": 37,
     "section": "37.2 — Remediation",
     "questionNumber": 6,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.2-Remediation_7",
@@ -4005,7 +4005,7 @@
     "level": 37,
     "section": "37.2 — Remediation",
     "questionNumber": 7,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.2-Remediation_8",
@@ -4013,7 +4013,7 @@
     "level": 37,
     "section": "37.2 — Remediation",
     "questionNumber": 8,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.2-Remediation_9",
@@ -4021,7 +4021,7 @@
     "level": 37,
     "section": "37.2 — Remediation",
     "questionNumber": 9,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L37_37.2-Remediation_10",
@@ -4029,7 +4029,7 @@
     "level": 37,
     "section": "37.2 — Remediation",
     "questionNumber": 10,
-    "bytes": 576
+    "bytes": 582
   },
   {
     "id": "qb_L38_38.0-Mastery_1",
@@ -7765,7 +7765,7 @@
     "level": 52,
     "section": "52.0 — Mastery",
     "questionNumber": 1,
-    "bytes": 1588
+    "bytes": 1592
   },
   {
     "id": "qb_L52_52.0-Mastery_2",
@@ -7773,7 +7773,7 @@
     "level": 52,
     "section": "52.0 — Mastery",
     "questionNumber": 2,
-    "bytes": 1580
+    "bytes": 1584
   },
   {
     "id": "qb_L52_52.0-Mastery_3",
@@ -7781,7 +7781,7 @@
     "level": 52,
     "section": "52.0 — Mastery",
     "questionNumber": 3,
-    "bytes": 1571
+    "bytes": 1575
   },
   {
     "id": "qb_L52_52.0-Mastery_4",
@@ -7789,7 +7789,7 @@
     "level": 52,
     "section": "52.0 — Mastery",
     "questionNumber": 4,
-    "bytes": 1581
+    "bytes": 1585
   },
   {
     "id": "qb_L52_52.0-Mastery_5",
@@ -7797,7 +7797,7 @@
     "level": 52,
     "section": "52.0 — Mastery",
     "questionNumber": 5,
-    "bytes": 1582
+    "bytes": 1586
   },
   {
     "id": "qb_L52_52.0-Mastery_6",
@@ -7805,7 +7805,7 @@
     "level": 52,
     "section": "52.0 — Mastery",
     "questionNumber": 6,
-    "bytes": 1591
+    "bytes": 1595
   },
   {
     "id": "qb_L52_52.0-Mastery_7",
@@ -7813,7 +7813,7 @@
     "level": 52,
     "section": "52.0 — Mastery",
     "questionNumber": 7,
-    "bytes": 1568
+    "bytes": 1572
   },
   {
     "id": "qb_L52_52.0-Mastery_8",
@@ -7821,7 +7821,7 @@
     "level": 52,
     "section": "52.0 — Mastery",
     "questionNumber": 8,
-    "bytes": 1581
+    "bytes": 1585
   },
   {
     "id": "qb_L52_52.0-Mastery_9",
@@ -7829,7 +7829,7 @@
     "level": 52,
     "section": "52.0 — Mastery",
     "questionNumber": 9,
-    "bytes": 1572
+    "bytes": 1576
   },
   {
     "id": "qb_L52_52.0-Mastery_10",
@@ -7837,7 +7837,7 @@
     "level": 52,
     "section": "52.0 — Mastery",
     "questionNumber": 10,
-    "bytes": 1569
+    "bytes": 1573
   },
   {
     "id": "qb_L52_52.1-Easier_1",
@@ -7845,7 +7845,7 @@
     "level": 52,
     "section": "52.1 — Easier",
     "questionNumber": 1,
-    "bytes": 1568
+    "bytes": 1572
   },
   {
     "id": "qb_L52_52.1-Easier_2",
@@ -7853,7 +7853,7 @@
     "level": 52,
     "section": "52.1 — Easier",
     "questionNumber": 2,
-    "bytes": 1569
+    "bytes": 1573
   },
   {
     "id": "qb_L52_52.1-Easier_3",
@@ -7861,7 +7861,7 @@
     "level": 52,
     "section": "52.1 — Easier",
     "questionNumber": 3,
-    "bytes": 1582
+    "bytes": 1586
   },
   {
     "id": "qb_L52_52.1-Easier_4",
@@ -7869,7 +7869,7 @@
     "level": 52,
     "section": "52.1 — Easier",
     "questionNumber": 4,
-    "bytes": 1571
+    "bytes": 1575
   },
   {
     "id": "qb_L52_52.1-Easier_5",
@@ -7877,7 +7877,7 @@
     "level": 52,
     "section": "52.1 — Easier",
     "questionNumber": 5,
-    "bytes": 1572
+    "bytes": 1576
   },
   {
     "id": "qb_L52_52.1-Easier_6",
@@ -7885,7 +7885,7 @@
     "level": 52,
     "section": "52.1 — Easier",
     "questionNumber": 6,
-    "bytes": 1569
+    "bytes": 1573
   },
   {
     "id": "qb_L52_52.1-Easier_7",
@@ -7893,7 +7893,7 @@
     "level": 52,
     "section": "52.1 — Easier",
     "questionNumber": 7,
-    "bytes": 1581
+    "bytes": 1585
   },
   {
     "id": "qb_L52_52.1-Easier_8",
@@ -7901,7 +7901,7 @@
     "level": 52,
     "section": "52.1 — Easier",
     "questionNumber": 8,
-    "bytes": 1582
+    "bytes": 1586
   },
   {
     "id": "qb_L52_52.1-Easier_9",
@@ -7909,7 +7909,7 @@
     "level": 52,
     "section": "52.1 — Easier",
     "questionNumber": 9,
-    "bytes": 1581
+    "bytes": 1585
   },
   {
     "id": "qb_L52_52.1-Easier_10",
@@ -7917,7 +7917,7 @@
     "level": 52,
     "section": "52.1 — Easier",
     "questionNumber": 10,
-    "bytes": 1572
+    "bytes": 1576
   },
   {
     "id": "qb_L52_52.2-Remediation_1",
@@ -8373,7 +8373,7 @@
     "level": 54,
     "section": "54.2 — Remediation",
     "questionNumber": 1,
-    "bytes": 361
+    "bytes": 365
   },
   {
     "id": "qb_L54_54.2-Remediation_2",
@@ -8381,7 +8381,7 @@
     "level": 54,
     "section": "54.2 — Remediation",
     "questionNumber": 2,
-    "bytes": 361
+    "bytes": 365
   },
   {
     "id": "qb_L54_54.2-Remediation_3",
@@ -8389,7 +8389,7 @@
     "level": 54,
     "section": "54.2 — Remediation",
     "questionNumber": 3,
-    "bytes": 361
+    "bytes": 365
   },
   {
     "id": "qb_L54_54.2-Remediation_4",
@@ -8397,7 +8397,7 @@
     "level": 54,
     "section": "54.2 — Remediation",
     "questionNumber": 4,
-    "bytes": 361
+    "bytes": 365
   },
   {
     "id": "qb_L54_54.2-Remediation_5",
@@ -8405,7 +8405,7 @@
     "level": 54,
     "section": "54.2 — Remediation",
     "questionNumber": 5,
-    "bytes": 361
+    "bytes": 365
   },
   {
     "id": "qb_L54_54.2-Remediation_6",
@@ -8413,7 +8413,7 @@
     "level": 54,
     "section": "54.2 — Remediation",
     "questionNumber": 6,
-    "bytes": 361
+    "bytes": 365
   },
   {
     "id": "qb_L54_54.2-Remediation_7",
@@ -8421,7 +8421,7 @@
     "level": 54,
     "section": "54.2 — Remediation",
     "questionNumber": 7,
-    "bytes": 361
+    "bytes": 365
   },
   {
     "id": "qb_L54_54.2-Remediation_8",
@@ -8429,7 +8429,7 @@
     "level": 54,
     "section": "54.2 — Remediation",
     "questionNumber": 8,
-    "bytes": 361
+    "bytes": 365
   },
   {
     "id": "qb_L55_55.0-Mastery_1",

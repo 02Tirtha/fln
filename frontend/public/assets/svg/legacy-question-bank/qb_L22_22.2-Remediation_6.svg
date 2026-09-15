@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 340" width="700" height="340" style="font-family:Cambria,serif;font-size:14px">
-<text x="350" y="22" font-size="13" font-weight="bold" text-anchor="middle" fill="#333">Use the number line & bars below to help order:</text>
+<text x="350" y="22" font-size="13" font-weight="bold" text-anchor="middle" fill="#333">Use the number line &amp; bars below to help order:</text>
 <line x1="190" y1="55" x2="510" y2="55" stroke="#555" stroke-width="1.5"/>
 <polygon points="512,55 504,50 504,60" fill="#555"/>
 <polygon points="188,55 196,50 196,60" fill="#555"/>

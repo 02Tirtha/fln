@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ClipboardList, Check, Ban, Layers, AlertTriangle } from 'lucide-react';
-import { apiFetch } from '../../services/apiClient';
+import { apiFetch, withBase } from '../../services/apiClient';
 import type {
   QuestionBankEntry, QuestionBankProgress, QuestionReviewStatus,
   LegacyLevelRow, CurriculumLevel,
@@ -241,7 +241,7 @@ export const QuestionReviewPanel: React.FC = () => {
                   </p>
                   <div className="mt-2 overflow-x-auto border border-slate-100 dark:border-zinc-800 rounded p-2 bg-white">
                     <img
-                      src={`/assets/svg/legacy-question-bank/${q.questionId}.svg`}
+                      src={withBase(`/assets/svg/legacy-question-bank/${q.questionId}.svg`)}
                       alt={`Illustration for ${q.questionId}`}
                       loading="lazy"
                       onError={(e) => { e.currentTarget.style.display = 'none'; }}
