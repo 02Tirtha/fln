@@ -52,8 +52,8 @@ These are not competing standards. They are layers of one national system:
 - **Content = NCF-FS learning outcomes for this year.** It is the curriculum the other layers are built on.
 - **Our earlier levels were built mainly from NIPUN Bharat.** NIPUN Bharat is the pass mark; the NCF-FS is the whole curriculum, and it goes further.
 - **NIPUN Bharat's Balvatika targets = the readiness gate.** The report says:
-  - "ready for Class 1" when the NIPUN items are met
-  - "to strengthen" for any NCF-FS outcome not yet shown
+  - "ready for Class 1" when the child is **Proficient** on the NIPUN concepts
+  - "to strengthen" for any NCF-FS outcome not yet at Proficient
 
   Missing an NCF-FS outcome does not hold a child back.
 - **Task formats = NCERT *Anand***, because it is what children use in class.
@@ -63,20 +63,48 @@ These are not competing standards. They are layers of one national system:
 
 - **No tests.** NCF-FS §6.1.2(a): *"Explicit tests and examinations are completely inappropriate assessment tools for this Stage."*
   - There is **no question paper** at this stage, only **worksheets**.
-  - Results are reported as **"ready / not yet"**, never pass/fail.
+  - Results use the Holistic Progress Card's three attainment levels (**Beginner / Progressive / Proficient**, §4b), never pass/fail or marks.
 - **Two kinds of sheet**, matching the NCF-FS's two assessment methods (§6.2): analysing what the child produces, and observing the child.
   - **Student worksheet:** the child does the activity on paper.
-  - **Teacher observation sheet:** the teacher watches each child and marks **tick or cross for every observed activity**. There is no shortcut: an observable skill has to be observed.
+  - **Teacher observation sheet:** the teacher watches each child and records, for every observed activity, one of **three levels: did it on their own / with some help / with a lot of help** (Proficient / Progressive / Beginner, §4b). This replaces the tick-or-cross wording in the first version of this document. There is no shortcut: an observable skill has to be observed.
   - **Both are printed, filled in and scanned** through the existing scanning pipeline (`ai-services/PIPELINE.md`). The only difference is who writes on the sheet.
 - **Teacher observation sheet layout: offer both, and the teacher chooses.**
   - a **class grid** (students × observable outcomes), easier for large classes
   - a **multi-page sheet with half a page per child**
 - Tag every observation record **"teacher-observed"**, so reports can tell it apart from the child's own answers.
-- **Until observation data exists,** observation-only nodes show **"not yet assessed"**, never "not ready". Otherwise every child's heat map shows false gaps.
+- **Until observation data exists,** observation-only nodes show **"not yet assessed"**, never "Beginner". Otherwise every child's heat map shows false gaps.
 - **Maths vocabulary** (NCF-FS C-8.12) is **a check on every teacher observation sheet**, not a node.
 - **Worksheet layout (Amrita's feedback):** current papers are too crowded. For this stage especially, use:
   - much more open space between items, because young children write large
   - larger diagrams
+
+## 4b. Evaluation: what "ready" means for one concept (decided 17 Sep)
+
+First decision of this stage's evaluation matrix. The other questions (items per concept, repeated observation, how far back to trace a gap, overall Class 1 readiness, the report) are still open.
+
+**Evidence considered** (link map accepted by Pavani):
+
+| Source | What it says | Use here |
+|---|---|---|
+| Holistic Progress Card, Foundational Stage (CBSE teacher guide, adapted from PARAKH) | Three attainment levels defined by **independence**: Beginner (a lot of support), Progressive (some support), Proficient (on their own). Observe 1–2 competencies a week. | Adopted as the reporting levels |
+| ASER 2022 assessment tasks | One-to-one; number recognition needs at least 4 of 5 correct, subtraction 2 of 2 | Reference point for the child-sheet rule |
+| Mastery learning (Bloom; Guskey) | Mastery criterion usually 80–90% | Reference point |
+| Knowledge Space Theory (Falmagne et al. 1990) | Careless errors and lucky guesses are expected, so one wrong answer is not a gap | Principle: never decide on one item |
+| Knowledge tracing (Corbett & Anderson 1995) | Mastered when the model is 95% confident, estimated from a sequence of answers | Later, once data exists |
+| Hosoya et al. (2021), *Frontiers in Psychology* | Early-childhood teachers' maths judgements correlate about 0.79 with a standardised test, but vary a lot between teachers | Teacher observation is valid evidence if teachers share a clear description of each level |
+
+No source found gives a required number of observations before a skill counts as secure.
+
+**Decisions:**
+- **Teacher observation sheet: three levels**, Proficient / Progressive / Beginner, as "on their own / with some help / with a lot of help" (§4).
+- **Student worksheet: a provisional rule, deliberately loose at the start, tightened by data.** Working rule to begin with: **about 3 of 5 items correct on a concept = Proficient**. Label it *provisional* in every report.
+  - This is lenient (60%) compared with ASER (4 of 5) and mastery learning (80–90%). That is intentional for a first version.
+  - How items per concept fit on a sheet a 5-year-old can manage is still open.
+- **Learning from data, under three conditions:**
+  1. **Store every item response**, not only the resulting level, so any new rule can be re-run on past data.
+  2. **Learn against a reference, not in a vacuum:** the teacher's three-level rating of the same child, and later, how the child copes in Class 1.
+  3. **Data proposes, the team approves.** Each rule change gets a version number and is signed off. Same responses + same rule version always give the same result (#372's exit gate). The NCF-FS warns against labelling young children on weak evidence.
+- **Expect slow tightening.** A pilot has few children per concept. Rules firm up at a few hundred children, not a few dozen.
 
 ## 5. The 30 NCF-FS outcomes and where each goes
 
@@ -355,7 +383,7 @@ These stay in the graph. Whether each stays as it is is still open.
 
 1. The §7 nodes.
 2. How to score teacher-judged work (S3.18, S3.22).
-3. What counts as "mastered" for this stage's nodes (Jinal's question D).
+3. The rest of the evaluation matrix: items per concept, repeated observation, how far back to trace a gap, overall Class 1 readiness, the report (§4b covers "ready" for one concept).
 4. Check NIPUN's Balvatika targets against the original document, and whether they changed after NCF-FS (2022).
 5. Which prerequisites are really OR (#466). Settle through teacher sessions, not on paper.
 
@@ -365,8 +393,8 @@ These stay in the graph. Whether each stays as it is is still open.
 |---|---|
 | A / 3: OR prerequisites | Agreed in principle (#466). Which links are OR comes from teacher sessions. |
 | B / 9: graph, not a ladder | Agreed. Spec §17 already says so. |
-| C / 10–11: no single "Current Level"; mastery view | Agreed. Mastery per concept, not per strand. Observation nodes show "not yet assessed" until data exists. |
-| D / 12: what counts as mastered | Open. Settle it for this stage first. |
+| C / 10–11: no single "Current Level"; mastery view | Agreed. Mastery per concept, not per strand, on three levels (§4b). Observation nodes show "not yet assessed" until data exists. |
+| D / 12: what counts as mastered | **Partly decided (§4b):** three levels; a provisional child-sheet rule that data tightens. Items per concept still open. |
 | 1–2: two-digit addition | Class 1–2, waits its turn. The graph has no "2-digit addition without regrouping" node. |
 | 4: early symmetry | **Out of MVP scope** (S7.17 is Class 4). |
 | 5: perimeter | **Out of MVP scope** (S7.18 is Class 4). |
@@ -381,7 +409,11 @@ These stay in the graph. Whether each stays as it is is still open.
   2. Update the stage labels of the 4 moved nodes and the definitions of the 2 extended ones.
   3. Move the Part 2b rows into their chain tables.
   4. Regenerate the TypeScript. Only → edges are reproduced there.
-- **Don't renumber existing levels.** `questionBankId()` builds the level number into stored question IDs (README §2). New nodes get new numbers at the end. The proposed S-codes (S3.11–S3.25) follow the existing stage convention; final ids are the dev team's call.
+- **Level numbers will shift — decide how to handle it before registering nodes.** *(Corrects the first version of this document, which said new nodes could take numbers "at the end".)*
+  - L-numbers are **computed** as the n-th S-code in stage order (`scripts/check-level-notation-drift.ts`). So adding 15 nodes to Stage 3 shifts every level from L28 onwards.
+  - Newer records are already keyed by `conceptId`, with the level number as a display alias only (`backend/src/db.ts`, `QuestionTemplate`). #350 (a `concepts` collection with stable ids) is the natural place to make that the rule everywhere.
+  - Legacy `questionBankId()` still builds the level number into stored ids (README §2), so either migrate those ids or freeze the old numbers. That is the dev team's call.
+  - The proposed S-codes (S3.11–S3.25) follow the existing stage convention; final ids are also the dev team's call.
 - **Worksheet generation** for this stage needs:
   - two sheet types (student, teacher observation)
   - both teacher layouts
