@@ -106,6 +106,70 @@ No source found gives a required number of observations before a skill counts as
   3. **Data proposes, the team approves.** Each rule change gets a version number and is signed off. Same responses + same rule version always give the same result (#372's exit gate). The NCF-FS warns against labelling young children on weak evidence.
 - **Expect slow tightening.** A pilot has few children per concept. Rules firm up at a few hundred children, not a few dozen.
 
+## 4c. The rest of the evaluation matrix (decided 17 Sep)
+
+### Items on the student worksheet
+
+- **The diagnostic is one shot:** one sitting for the child, and one submitted teacher sheet. Practice worksheets are separate and can be longer.
+- **Solid arrows cover earlier concepts on success.** A child who writes numerals correctly has shown numeral recognition. Only **→** edges count, never **⇢**. In this stage that covers only 5 of 31 nodes (S1.6, S3.1, S3.2, S3.6, S3.8), because most of this stage's arrows point out to Class 1–3.
+- **Combined questions:** at most two concepts each, pictorial, with generous space.
+- **Every concept assessed on the sheet also gets one question on its own**, unless a prerequisite chain already tells it apart. Without that, a wrong combined answer can't show which concept failed ("complete" Q-matrix: Chiu, Douglas & Li, 2009, *Psychometrika*). Heller (2022, *British Journal of Mathematical and Statistical Psychology*) and a 2018 *Frontiers in Psychology* paper ("Theorems and Methods of a Complete Q Matrix With Attribute Hierarchies Under Restricted Q-Matrix Design") show that prerequisite hierarchies relax this requirement; *only their abstracts have been read, so verify before relying on the relaxation.*
+- **About three pieces of evidence per concept** (2 of 3 correct = Proficient, provisional, §4b). This gives **roughly 15 single-concept + 10 combined ≈ 25 questions**, instead of about 45 with three separate items per concept.
+
+### Teacher observation
+
+- The teacher plans observation however suits the class (across days, in small groups).
+- The platform receives **one sheet with one three-level rating per concept per child, in one go**.
+- **The heat map is produced only when both the student sheets and the teacher sheet are in.** Until then, observed concepts show "not yet assessed".
+
+### When a child is Beginner on a concept: how far back
+
+- **No fixed demotion, and no midpoint.** Picking the midpoint of the earlier levels is the "half-split rule" of Falmagne et al. (1990). It is for choosing the *next* question in a live adaptive test, which is worth keeping for a future digital version. A printed one-shot sheet has already been answered, so the actual answers are used instead.
+- **Rule:** follow **solid arrows** back **as far as the sheet has evidence**. The **starting point** is the first weak concept whose own prerequisites are fine.
+  - *Example:* Beginner on ordinal position (S4.13), Beginner on sequencing (S3.6), Proficient on numeral–quantity (S3.2) → "start with sequencing".
+- If the trail reaches an earlier-stage concept that isn't assessed, report **"possible cause, not checked: <concept>"**.
+- **"Ready to learn next"** is the Knowledge Space Theory **outer fringe**: concepts not yet shown whose prerequisites are all shown (Matayoshi et al., 2021, on ALEKS).
+
+### Ready for Class 1 (the 7 NIPUN concept rows, 6 targets)
+
+| Band | Rule |
+|---|---|
+| **Ready for Class 1** | Proficient on all 7 |
+| **Almost ready** | No Beginner, at least one Progressive |
+| **Needs support before Class 1** | Beginner on at least one |
+| **Incomplete** | Any of the 7 not yet assessed. Flagged to the teacher; no band shown. |
+
+- Other NCF-FS concepts **never change the band**; they only appear as areas to improve.
+- Bands are **provisional** and are tightened by the same data loop as §4b: do "almost ready" children cope in Class 1?
+
+### Who sees what
+
+| Audience | Sees |
+|---|---|
+| **Teacher, per child** | One plain-language statement, no codes: band · % on track (share of this year's concepts at Proficient) · up to 3 areas to improve (the starting points above, NIPUN concepts first) · a flag for anything not yet assessed. *E.g. "Almost ready for Class 1 · 70% on track · Work on: sequencing, sharing equally, writing numbers."* |
+| **Teacher, whole class** | Number of children in each band; the most common areas to improve, for planning group activities (NCF-FS §6.1.1(f) asks for an aggregate class view) |
+| **Parent** | Areas to improve, each with one home activity. **No band:** NCF-FS §6.1.1(h) warns against labelling children "especially based on poorly designed assessments", and these bands are still provisional. |
+| **Student or teacher login, optional** | A **"show concept map" toggle** that reveals the heat map, always labelled **tentative and not yet accurate** |
+| **Backend (team and research)** | Full heat map: every concept's level and whether it was tested, observed or inferred · every raw response · the rule version |
+
+### Accuracy: what makes the map trustworthy, and its known limits
+
+The priority is generating the map as accurately as possible; visibility is secondary.
+
+**What the design already does for accuracy:**
+- a single-concept question for each assessed concept, so failures can be traced to a concept
+- inference only across solid (→) arrows
+- three pieces of evidence per concept rather than one
+- teacher ratings on a shared three-level description
+- every raw response stored, and every rule versioned, so results can be recomputed
+
+**Known limits, each with its fix:**
+1. **Thresholds are guesses** (2 of 3, the bands). *Fix:* calibrate against teacher ratings and later Class 1 outcomes (§4b).
+2. **Teachers rate differently from one another.** Hosoya et al. (2021) found teachers accurate on average but varying widely. *Fix:* each three-level rating needs a concrete description of what "on their own / some help / a lot of help" looks like for each concept.
+3. **The prerequisite edges are expert judgement, not yet tested on children.** *Fix:* once responses exist, check each → edge. Children who pass the later concept but fail the earlier one are evidence against that edge.
+4. **A one-shot sheet can't resolve every failure.** Some starting points will stay "possible cause, not checked". *Fix:* a future adaptive digital version (half-split rule).
+5. **Small pilot numbers.** Rules firm up at a few hundred children.
+
 ## 5. The 30 NCF-FS outcomes and where each goes
 
 **Source:** NCF-FS 2022, Annexure 1, Tables 29–41 (C-8.1 to C-8.13). Column C = age 5–6. Wording shortened.
@@ -383,7 +447,7 @@ These stay in the graph. Whether each stays as it is is still open.
 
 1. The §7 nodes.
 2. How to score teacher-judged work (S3.18, S3.22).
-3. The rest of the evaluation matrix: items per concept, repeated observation, how far back to trace a gap, overall Class 1 readiness, the report (§4b covers "ready" for one concept).
+3. Write a concrete description of the three teacher-rating levels for each observed concept (§4c, accuracy limit 2).
 4. Check NIPUN's Balvatika targets against the original document, and whether they changed after NCF-FS (2022).
 5. Which prerequisites are really OR (#466). Settle through teacher sessions, not on paper.
 
@@ -394,7 +458,7 @@ These stay in the graph. Whether each stays as it is is still open.
 | A / 3: OR prerequisites | Agreed in principle (#466). Which links are OR comes from teacher sessions. |
 | B / 9: graph, not a ladder | Agreed. Spec §17 already says so. |
 | C / 10–11: no single "Current Level"; mastery view | Agreed. Mastery per concept, not per strand, on three levels (§4b). Observation nodes show "not yet assessed" until data exists. |
-| D / 12: what counts as mastered | **Partly decided (§4b):** three levels; a provisional child-sheet rule that data tightens. Items per concept still open. |
+| D / 12: what counts as mastered | **Decided (§4b–4c):** three levels, a provisional rule, about 3 pieces of evidence per concept, follow solid arrows back as far as the evidence goes, readiness bands on the NIPUN concepts. |
 | 1–2: two-digit addition | Class 1–2, waits its turn. The graph has no "2-digit addition without regrouping" node. |
 | 4: early symmetry | **Out of MVP scope** (S7.17 is Class 4). |
 | 5: perimeter | **Out of MVP scope** (S7.18 is Class 4). |
@@ -429,3 +493,13 @@ These stay in the graph. Whether each stays as it is is still open.
 - Ministry of Women & Child Development, Early Childhood Care and Education (Aadharshila). https://www.wcd.gov.in/offerings/early-childhood-care-and-education
 - Gelman, R. & Gallistel, C. R. (1978). *The Child's Understanding of Number.* Harvard University Press.
 - Frydman, O. & Bryant, P. (1988). Sharing and the understanding of number equivalence by young children. *Cognitive Development*, 3(4), 323–339. https://www.sciencedirect.com/science/article/abs/pii/0885201488900196
+- Holistic Progress Card for Foundational Stage, Teacher Guide (CBSE, adapted from PARAKH). https://cbseacademic.nic.in/web_material/Manuals/HPC_TeacherGuide.pdf
+- ASER 2022 Assessment Tasks. https://img.asercentre.org/docs/ASER%202022%20report%20pdfs/All%20India%20documents/About%20the%20survey/ASER_2022_AssessmentTasks.pdf
+- Guskey, T. R. In Search of a Useful Definition of Mastery. https://tguskey.com/wp-content/uploads/Mastery-Learning-2-In-Search-of-a-Useful-Definition-of-Mastery.pdf
+- Corbett, A. T. & Anderson, J. R. (1995). Knowledge tracing: Modeling the acquisition of procedural knowledge. *User Modeling and User-Adapted Interaction*, 4(4), 253–278.
+- Falmagne, J.-C., Koppen, M., Villano, M., Doignon, J.-P. & Johannesen, L. (1990). Introduction to knowledge spaces. *Psychological Review*, 97(2), 201–224. In repo: `Research/Falmagne_1990_KST_HCI.pdf`.
+- Hosoya, G., Blömeke, S., Eilerts, K., Jenßen, L. & Eid, M. (2021). Absolute and relative judgment accuracy: early childhood teachers' competence to evaluate children's mathematical skills. *Frontiers in Psychology*. https://pmc.ncbi.nlm.nih.gov/articles/PMC8558252/
+- Chiu, C.-Y., Douglas, J. A. & Li, X. (2009). Cluster analysis for cognitive diagnosis. *Psychometrika*.
+- Heller, J. (2022). Complete Q-matrices in conjunctive models on general attribute structures. *British Journal of Mathematical and Statistical Psychology*. https://bpspsychub.onlinelibrary.wiley.com/doi/full/10.1111/bmsp.12266
+- Theorems and Methods of a Complete Q Matrix With Attribute Hierarchies Under Restricted Q-Matrix Design (2018). *Frontiers in Psychology*. https://pmc.ncbi.nlm.nih.gov/articles/PMC6092632/
+- Matayoshi, J. et al. (2021). A practical perspective on knowledge space theory: ALEKS and its data. *Journal of Mathematical Psychology*. https://jmatayoshi.github.io/publications/JMP2021_KST_ALEKS_preprint.pdf
