@@ -1,5 +1,6 @@
 import { Express } from 'express';
 import { dbStore } from '../db';
+import { getAuthUser } from '../auth';
 import { routerService } from '../services/remediation/router.service';
 
 // Types inlined from the former interfaces/examBlueprint.interface.ts
@@ -53,6 +54,9 @@ export function registerBlueprintRoutes(app: Express) {
   // GET /api/blueprint
   app.get('/api/blueprint', async (req, res) => {
     try {
+      const user = getAuthUser(req);
+      if (!user) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
       const { examId } = req.query;
       let blueprints = await dbStore.getExamBlueprints();
       if (examId) {
@@ -65,23 +69,32 @@ export function registerBlueprintRoutes(app: Express) {
   });
 
   // POST /api/blueprint — creation is managed automatically by the Content Ingestion Parser
-  app.post('/api/blueprint', (_req, res) => {
+  app.post('/api/blueprint', (req, res) => {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Unauthorized' });
     res.status(501).json({ success: false, error: 'Creation is managed automatically by the Content Ingestion Parser.' });
   });
 
   // PUT /api/blueprint/:id — updates are managed automatically by the Content Ingestion Parser
-  app.put('/api/blueprint/:id', (_req, res) => {
+  app.put('/api/blueprint/:id', (req, res) => {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Unauthorized' });
     res.status(501).json({ success: false, error: 'Updates are managed automatically by the Content Ingestion Parser.' });
   });
 
   // DELETE /api/blueprint/:id — deletions are managed automatically by the Content Ingestion Parser
-  app.delete('/api/blueprint/:id', (_req, res) => {
+  app.delete('/api/blueprint/:id', (req, res) => {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ success: false, error: 'Unauthorized' });
     res.status(501).json({ success: false, error: 'Deletion is managed automatically by the Content Ingestion Parser.' });
   });
 
   // POST /api/blueprint/:id/test-generate
   app.post('/api/blueprint/:id/test-generate', async (req, res) => {
     try {
+      const user = getAuthUser(req);
+      if (!user) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
       const { id } = req.params;
       const all = await dbStore.getExamBlueprints();
       const blueprint = all.find(b => b.id === id) || null;
@@ -97,3 +110,4 @@ export function registerBlueprintRoutes(app: Express) {
     }
   });
 }
+
