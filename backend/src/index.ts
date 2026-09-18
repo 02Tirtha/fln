@@ -44,6 +44,7 @@ import { registerQuestionOptionRoutes } from './routes/questionOptions';
 import { registerDiagnosticBulkRoutes } from './routes/diagnosticBulk';
 import { registerRemediationRoutes } from './routes/remediation';
 import { registerBlueprintRoutes } from './routes/blueprint';
+import { registerCertificationRoutes } from './routes/certification';
 import { registerMisconceptionRoutes } from './routes/misconceptions';
 import { registerCurriculumRoutes } from './routes/curriculum';
 import { registerQuestionBankRoutes } from './routes/questionBank';
@@ -268,6 +269,7 @@ async function startServer() {
   registerQuestionTemplateRoutes(app);
   registerQuestionOptionRoutes(app);
   registerDiagnosticBulkRoutes(app);
+  registerCertificationRoutes(app);
 
   registerRemediationRoutes(app);
   registerBlueprintRoutes(app);
