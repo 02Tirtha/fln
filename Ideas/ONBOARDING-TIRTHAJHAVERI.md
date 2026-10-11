@@ -1,109 +1,184 @@
-# Onboarding Document - Rachit Verma
+# Onboarding Document - Tirtha Jhaveri
+
+**Contributor:** Tirtha Jhaveri  
+**GitHub:** [@02Tirtha](https://github.com/02Tirtha)  
+**Date:** October 12, 2026  
+**Repository:** [vicharanashala/fln](https://github.com/vicharanashala/fln)  
+**Fork:** [02Tirtha/fln](https://github.com/02Tirtha/fln)  
+
+---
 
 ## 1. What is FLN?
 
-FLN (Foundational Literacy and Numeracy) is an educational platform designed to address the learning crisis in primary education. It targets early-grade students who may have gaps in basic reading, writing, and mathematical skills. By providing structured assessments, evaluation, and learning-gap identification, FLN helps educators understand where a student is struggling and provide appropriate support to improve their foundational skills.
+**FLN** stands for **Foundational Literacy and Numeracy**. It is an open-source, AI-driven educational assessment and personalized learning platform developed under the guidance of Vicharanashala Lab and IIT Ropar. The platform addresses a critical challenge in primary education across India and developing educational systems: ensuring that children in early grades (Balvatika through Class 4) acquire indispensable foundational skills in numeracy, mathematics, and reading before progressing to advanced academic levels.
+
+### The Educational Problem
+In conventional schooling systems, students are frequently promoted from grade to grade based on age or attendance rather than verified concept mastery. This practice causes cumulative learning deficits: a child in Class 3 who has not mastered single-digit addition or place value will struggle significantly with multi-digit subtraction, multiplication, and applied word problems. 
+
+FLN systematically resolves this through:
+- **Periodic Diagnostic Assessments**: Term-based diagnostics (Term 1, Term 2, Term 3) evaluating foundational numeracy strands (Counting, Place Value, Addition, Subtraction, Multiplication, Division, Geometry, Measurement, Patterns).
+- **Sub-level Concept Mastery Tracking**: Granular tracking across a 109-level competency hierarchy aligned with NCF-FS standards.
+- **Physical Paper + Digital Evaluation Bridge**: Automated optical scanning (ICR/OCR) to ingest physical, pencil-and-paper student worksheets.
+- **Dynamic Personalized Remediation**: Automated generation of targeted remediation worksheets addressing specific learning gaps identified from incorrect responses.
+
+---
 
 ## 2. What do you understand by FLN (as a system)?
 
-FLN is a comprehensive, multi-tiered assessment and tracking system:
+FLN is designed as an interconnected, multi-role system governed by strict administrative hierarchies, geographic scoping, and evaluation pipelines.
 
-* **Users:** The system serves multiple roles. Superadmins and State/District/Block Administrators oversee regional progress and manage the system. Teachers and Volunteers are the primary ground-level users who manage students, conduct assessments, and record progress. Students are the end-users whose learning outcomes are tracked.
+### Organizational Hierarchy & User Roles
 
-* **Main Entities:** The core entities include Schools, Classes, Students, Questions, Worksheets, Evaluation Reports, Competencies, and Remediation Data.
+```
+                      ┌────────────────────────┐
+                      │       SUPERADMIN       │ (Curriculum standards, system audit, global users)
+                      └───────────┬────────────┘
+                                  │
+                      ┌───────────▼────────────┐
+                      │      STATE ADMIN       │ (State-level policy, statewide performance)
+                      └───────────┬────────────┘
+                                  │
+                      ┌───────────▼────────────┐
+                      │     DISTRICT ADMIN     │ (District audits, school distribution)
+                      └───────────┬────────────┘
+                                  │
+                      ┌───────────▼────────────┐
+                      │      BLOCK ADMIN       │ (Block school monitoring, volunteer deployment)
+                      └─────┬────────────┬─────┘
+                            │            │
+             ┌──────────────▼───┐    ┌───▼──────────────┐
+             │   SCHOOL/PRINCIPAL│   │    VOLUNTEER     │ (Multi-school field deployment)
+             └──────────────┬───┘    └───┬──────────────┘
+                            │            │
+             ┌──────────────▼────────────▼─────┐
+             │             TEACHER             │ (Diagnostic testing, ICR scanning, remediation)
+             └──────────────┬──────────────────┘
+                            │
+             ┌──────────────▼──────────────────┐
+             │        CLASS & STUDENTS         │ (109-level mastery progression & certificates)
+             └─────────────────────────────────┘
+```
 
-* **Data Flow:** Teachers or Volunteers register students into specific classes. The system generates diagnostic worksheets based on the student's current FLN level. Once the student completes the worksheet, the answers are evaluated either manually or through AI/ICR scanning. An evaluation report is generated that identifies the questions answered incorrectly and the corresponding learning gaps. These gaps are then used by the remediation engine to generate targeted practice questions and concept explanations. The remediation information can be viewed by the teacher and used for further student practice.
+### Core Entities & Domain Model
+1. **Student**: Central entity with masked Aadhaar (`aadharMasked`), numeric display ID (`displayId`), assigned school, class group, current level/sub-level, mastery history, and streak.
+2. **Teacher & Volunteer**: Field actors who generate assessment papers, scan answer sheets via ICR, trigger remediation worksheets, and issue mastery certificates.
+3. **School**: Institutional node with high-strength or low-strength classification, geographic linkage (`stateCode`, `districtCode`, `blockCode`), and paper generation lock mechanisms.
+4. **Diagnostic Worksheet & Answer Key**: Physical papers rendered via Puppeteer from HTML templates, distributed to classrooms, and ingested back through optical scanning.
+5. **Evaluation Report**: Structured output recording student score, passed levels, failed levels, identified misconception tags, and learning progression blockers.
+6. **Remediation Ledger**: Persistent state tracking failed questions, mapped mathematical concepts, targeted practice variants, and generation lifecycle (`pending` → `generating` → `completed`).
 
-## 3. Current State of the Repository — What is Done So Far
+### System Workflow
+```
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────────┐
+│  PHYSICAL    │────▶│  ICR / OCR   │────▶│  EVALUATION  │────▶│   REMEDIATION    │
+│  DIAGNOSTIC  │     │  SCANNING    │     │  PIPELINE    │     │   GENERATION     │
+│  EXAMINATION │     │  (Gemma 4)   │     │  (Metrics)   │     │   (Blueprints)   │
+└──────────────┘     └──────────────┘     └──────────────┘     └────────┬─────────┘
+                                                                        │
+                                                                        ▼
+                                                               ┌──────────────────┐
+                                                               │ PRINTABLE TARGET │
+                                                               │ REMEDIAL SHEET   │
+                                                               └──────────────────┘
+```
 
-* **Tech Stack:**
+---
 
-  * **Frontend:** React with TypeScript, Vite, Tailwind CSS, Axios, and Lucide React for icons.
+## 3. Current State of the Repository — What Has Been Done So Far
 
-  * **Backend:** Node.js with Express and TypeScript.
+### Architecture & Monorepo Structure
+The codebase is structured as an **npm-workspaces monorepo**:
+- `frontend/`: React 19 application built with Vite and Tailwind CSS.
+- `backend/`: Real Node/Express REST API in TypeScript running on port `:3000`. Concurrency-safe data store abstraction (`backend/src/db.ts`) with MongoDB Atlas support and local JSON fallback (`data/db.json`).
+- `ai-services/`: Python evaluation pipeline executing multi-stage analysis (`0_auto_classify_questions.py`, `1_compare_answers.py`, `2_evaluate_child.py`, `3_generate_report.py`).
 
-  * **Database:** MongoDB Atlas for production, with local database support for development and testing.
+### Key Implemented Capabilities
+1. **Hardened JWT Authentication & RBAC**: Real signed JWTs (`jsonwebtoken`) with `bcrypt` hash verification. Role-based scoping prevents horizontal privilege escalation (IDOR) across schools and districts.
+2. **Deterministic Balvatika & Class 1–4 Registry**: Standardized 109-level curriculum registry mapping concepts across number sense, arithmetic, measurement, and geometry.
+3. **Automated Diagnostic Paper Generation**: Server-side Puppeteer engine rendering print-ready A4 PDF question papers with answer keys.
+4. **Single-Model Cloud ICR Scanning**: Standardized optical character recognition utilizing Ollama Gemma 4 with scan quality verification (brightness, blur, contrast).
+5. **Competency Prerequisite Graph**: DAG validation in `competencyPrerequisites.ts` ensuring curriculum prerequisites are respected before certification.
+6. **Remediation Service & Blueprint Engine**: Complete backend engine generating personalized practice sheets from failed diagnostic questions.
 
-  * **Authentication:** JWT-based token authentication with bcrypt for password hashing.
-
-  * **Assessment/Evaluation:** Python-based ICR scanning for processing student answer sheets.
-
-  * **AI:** Gemini-based question generation and remediation generation.
-
-* **Implemented Features:**
-
-  * Role-Based Access Control (RBAC) with distinct dashboards for different user types.
-
-  * Automated generation of personalized diagnostic worksheets using AI.
-
-  * Student management, including registration and profile tracking.
-
-  * Evaluation reports showing student performance at the question level.
-
-  * ICR-based scanning and evaluation of student answer sheets.
-
-  * Competency-based identification of student learning gaps.
-
-  * Remediation generation based on incorrectly answered questions and their associated concepts.
-
-  * Printable remediation sheets containing concept explanations and targeted practice questions.
-
-  * Analytics dashboards with geographical and performance information.
+---
 
 ## 4. Gaps Observed in the Code
 
-1. **Lack of an Integrated Remediation Workflow:**
+During architectural exploration and active feature implementation, the following key technical gaps were identified:
 
-   * **Where:** Evaluation report, remediation generation flow, database layer, and frontend report/remediation components.
+### Gap 1: Incomplete Geographic Scope Inheritance and Principal Privileges
+- **Where**: `backend/src/routes/admin.ts`, `backend/src/routes/teachers.ts`, and `backend/src/auth.ts`
+- **What**: When creating school administrators or principals, the backend did not automatically inherit `stateCode`, `districtCode`, and `blockCode` from the associated school entity. Furthermore, principals were restricted from registering teachers within their own schools, and volunteers could not be assigned to multiple low-strength schools.
+- **Why it matters**: In rural administration, principals must be able to staff their schools without contacting state superadmins. Missing geographic scopes broke regional rollup queries for block and district dashboards.
+- **Resolution**: Addressed in PR #520 with automatic geographic inheritance, principal school-scoping, and multi-school volunteer assignment arrays.
 
-   * **What:** The system could evaluate student answers and identify incorrect questions, but there was no complete workflow to automatically convert those incorrect answers into targeted remediation content.
+### Gap 2: Remediation Plan Ledger Security and Missing 404 Guards
+- **Where**: `backend/src/routes/remediation.ts` (Lines 18, 59, 87, 112, 137)
+- **What**: Access checks relied on `if (student && !canAccessStudent(...))`. When a non-existent student ID was passed, the condition evaluated to false, skipping authorization entirely. This permitted unauthorized users to generate and query ledgers for arbitrary student IDs.
+- **Why it matters**: Allowed IDOR bypass and dirty ledger generation across schools.
+- **Resolution**: Addressed by enforcing strict 404 validation across all five remediation endpoints (`POST /generate`, `GET /ledgers`, `POST /ledgers/:id/generate`, `GET /batch/:examId`, `GET /:studentId/:examId`) before permission checks.
 
-   * **Why it matters:** Identifying that a student answered a question incorrectly is only the first step. Teachers also need to know which concept the student is struggling with and receive suitable practice questions to help address that learning gap. Without an integrated remediation workflow, the teacher would have to manually determine what to teach and which questions to provide.
+### Gap 3: Missing Review Flags on Heuristic/Keyword Fallback Practice
+- **Where**: `backend/src/services/remediation/blueprintEngine.ts` & `remediation.service.ts`
+- **What**: When AI generation is disabled or unconfigured, the system uses keyword heuristics and numeric mutators. Off-target keyword matches (e.g., word-form questions falling back to skip-counting) were marked with `needsReview: false`.
+- **Why it matters**: Teachers had no visible indication on the dashboard or worksheet that a practice set was generated via heuristic fallback rather than an exact concept blueprint.
+- **Resolution**: Updated all fallback generation paths to explicitly flag items with `needsReview: true`.
 
-2. **ICR Evaluation Performance Issues:**
+### Gap 4: Monolithic Frontend God-Files & Legacy ICR Interceptors
+- **Where**: `frontend/src/components/RoleDashboards.tsx` (2,700+ lines) & legacy mock interceptors
+- **What**: Several frontend views remain monolithic god-files containing multiple role dashboards in a single file, increasing bundle size and risk of merge conflicts.
+- **Why it matters**: Makes concurrent development difficult and increases regression risk during merges.
 
-   * **Where:** Python-based ICR evaluation and scanning workflow.
-
-   * **What:** The evaluation process contained an early-return issue that could cause unnecessary timeouts and retries during scanning.
-
-   * **Why it matters:** Slow or unreliable evaluation directly affects the teacher's workflow. The scanning process needs to provide evaluation results quickly so that the teacher can immediately view the student's performance and proceed with remediation.
+---
 
 ## 5. Ideas for the Project
 
-1. **Data-Driven Remediation System:**
+### Idea 1: Database-Driven Remediation Architecture (`remediationConcepts`, `generatorConfigs`, `visualTemplates`, `questionConceptMappings`)
+- **Proposal for Later**: Transition the current static dictionary (`conceptDictionary.json`) and generator registry in `blueprintEngine.ts` into a database-backed schema with four dedicated MongoDB collections:
+  - `remediationConcepts`: Centralized taxonomy of educational concepts with keyword aliases and difficulty tags.
+  - `generatorConfigs`: Per-concept generation constraints, number ranges, step sizes, and visual layouts.
+  - `visualTemplates`: SVG and icon configurations for pictorial questions (tallies, clocks, finger counting).
+  - `questionConceptMappings`: Direct mappings between curriculum question items and their remediation concepts.
+- **Benefits**: Decouples mathematical curriculum authoring from backend code, allowing educators to update practice sets dynamically. (In this first PR version, ledgers are persisted in `remediationLedgers` with concepts resolved via `conceptDictionary.json`).
 
-   * **What:** Create a structured remediation system where concepts, question mappings, generator configurations, and visual templates are maintained in MongoDB.
+### Idea 2: Deepest-Gap-First Sequencing via Prerequisite DAG (#676, #677)
+- **Concept**: When a student fails multiple diagnostic questions, traverse the competency prerequisite graph (`competencyPrerequisites.ts`) to locate the root foundational gap. Sequence remedial practice in a 3-stage blueprint: (1) Supported Example, (2) Focused Practice, and (3) Mixed Transfer Item.
+- **Benefits**: Prevents superficial drill-and-practice by addressing the underlying conceptual blocker first.
 
-   * **Why:** Remediation should be based on the actual competencies and concepts defined for the FLN curriculum rather than relying on hard-coded or dummy practice questions.
+### Idea 3: Offline-First Classroom PWA with IndexedDB Sync
+- **Concept**: Integrate Service Worker caching and IndexedDB queueing for the ICR scanner interface.
+- **Benefits**: Teachers in remote or low-connectivity rural schools can capture student answer sheets and grade offline, with automated background synchronization when internet connectivity is restored.
 
-   * **How:** Use collections such as `remediationConcepts`, `generatorConfigs`, `visualTemplates`, and `questionConceptMappings` as the source of truth. The remediation engine can use these configurations to identify the appropriate concept and generate relevant practice questions for the student.
+### Idea 4: Automated Remediation Trigger from Evaluation Reports (#678)
+- **Concept**: Seamlessly trigger `remediationService.startGeneration()` inside `POST /api/students/:id/diagnostic/submit` whenever failed levels are detected, eliminating the need for a separate manual click while retaining asynchronous background processing.
+- **Benefits**: Reduces cognitive load on teachers and ensures every struggling child immediately receives targeted practice.
 
-2. **Improved Evaluation and Remediation Flow:**
-
-   * **What:** Connect the evaluation report directly with remediation generation.
-
-   * **Why:** Once an incorrect answer is identified, the system should automatically provide the teacher with the relevant concept, explanation, and practice questions.
-
-   * **How:** Map incorrect questions to their corresponding competencies, pass the identified learning gaps to the remediation engine, generate targeted questions, and display the results through the evaluation report and printable remediation sheet.
+---
 
 ## 6. Your Contribution
 
-During my onboarding, I worked on the **Remediation Engine, Evaluation Report improvements, and ICR scanning optimization** to create a more complete workflow from student evaluation to targeted practice.
+During my work on the FLN platform, I focused on **Role-Based Access Control (RBAC) Hardening**, **Remediation Plan Engine Architecture**, and **Student Access Security**:
 
-* **Remediation Engine:** Implemented the remediation generation workflow that identifies incorrectly answered questions and maps them to the corresponding competency or concept. The engine then generates targeted practice questions based on the identified learning gap.
+### 1. RBAC & Geographic Scoping Hardening ([PR #520](https://github.com/vicharanashala/fln/pull/520))
+- **Geographic Inheritance (#450)**: Implemented automated inheritance of `stateCode`, `districtCode`, and `blockCode` from school entities during school administrator registration.
+- **Principal School Management (#444)**: Empowered principals to register and manage teachers within their own school boundaries.
+- **Multi-School Volunteer Scoping (#456)**: Added support for `assignedSchools` arrays, allowing mobile volunteers to assist multiple rural institutions.
+- **Verification Demo**: Built comprehensive verification test script (`backend/scripts/demo-user-scoping.ts`) proving geographic inheritance and RBAC boundaries.
 
-* **MongoDB-Based Remediation Architecture:** Added support for remediation-related MongoDB collections including `remediationConcepts`, `generatorConfigs`, `visualTemplates`, and `questionConceptMappings`. This ensures that remediation data and configurations are maintained through the database rather than relying on dummy or hard-coded data.
+### 2. Remediation Service & Blueprint Engine ([PR #376](https://github.com/vicharanashala/fln/issues/376), [PR #379](https://github.com/vicharanashala/fln/issues/379))
+- **Remediation Service (`remediation.service.ts`)**: Built the complete teacher-triggered remediation service managing asynchronous background generation, response caching, and database persistence in the `remediationLedgers` collection.
+- **Blueprint Engine (`blueprintEngine.ts`) & Routes (`routes/blueprint.ts`)**: Developed the blueprint generator producing targeted practice variants across Arithmetic, Place Value, Patterns, Measurement, and Geometry with numeric mutation, supported by REST endpoints for blueprint retrieval and test generation.
+- **Zero-Key Deterministic Fallback**: Implemented a complete fallback chain ensuring reliable practice generation even when no external Gemini API key is configured.
+- **Printable Remediation Worksheets**: Authored the printable worksheet formatter (`remediationFormatter.ts`) rendering student demographics, original questions, concept explanations, and targeted practice exercises (intentionally leaving out the student's incorrect answers).
 
-* **Evaluation Report Integration:** Integrated remediation information with the evaluation report so that teachers can view question-level results and continue from an incorrect question to the corresponding remediation content.
+### 3. Student Security & 404 Guards
+- **Strict 404 Route Guards**: Hardened all 5 endpoints in `backend/src/routes/remediation.ts` against IDOR and non-existent student IDs.
+- **Regression Check Suite**: Created `backend/src/__checks__/remediation-404.check.ts` to assert that unknown students consistently return 404 across all endpoints.
+- **Teacher Review Flagging**: Configured keyword fallback practice items to default to `needsReview: true`, giving educators clear oversight over heuristic content.
 
-* **Remediation UI:** Added frontend components for displaying remediation generation status, remediation notes, and practice questions. The remediation workflow provides the teacher with the student's missed question, relevant concept, explanation, and similar practice questions.
+### 4. ICR Scanner Integration & Documentation
+- **Clean Scanner Integration**: Embedded the remediation trigger card into `frontend/src/components/IcrScanner.tsx` without extraneous merge diff noise.
+- **Architecture Documentation**: Documented the API contracts, data flow, and background execution lifecycle in `backend/src/services/remediation/REMEDIATION_ARCHITECTURE.md`.
 
-* **Printable Remediation Sheet:** Implemented the printable remediation experience containing student information, question/concept details, correct answer, concept explanation, and targeted practice questions. The student's original answer is intentionally not included in the remediation sheet.
-
-* **Asynchronous Evaluation Processing:** Updated the scan submission workflow so that secondary evaluation and file-writing operations do not unnecessarily block the main API request, improving the responsiveness of the evaluation process.
-
-* **Remediation Generation Tracking:** Added tracking for the remediation generation workflow so that the system can maintain the state of a remediation request through stages such as creation, generation, and completion/failure.
-
-* **UI and Report Improvements:** Worked on the evaluation and remediation report experience to make the generated information easier for teachers to understand, review, and print for student practice.
-
-Overall, my contribution focused on connecting **student evaluation with personalized remediation**, so that the system not only identifies a student's learning gap but also provides targeted practice to help address that gap.
+---
+*Submitted with dedication to the FLN Platform and foundational learning equity.*
