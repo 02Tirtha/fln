@@ -133,9 +133,13 @@ During architectural exploration and active feature implementation, the followin
 
 ## 5. Ideas for the Project
 
-### Idea 1: Database-Driven Remediation Blueprints (`remediationBlueprints`)
-- **Concept**: Migrate the static generator registry in `blueprintEngine.ts` into a MongoDB collection (`remediationBlueprints`) allowing educational experts to update practice templates, number constraints, and visual foils dynamically without redeploying backend code.
-- **Benefits**: Decouples mathematical curriculum authoring from engine logic; supports versioned blueprints per academic term.
+### Idea 1: Database-Driven Remediation Architecture (`remediationConcepts`, `generatorConfigs`, `visualTemplates`, `questionConceptMappings`)
+- **Proposal for Later**: Transition the current static dictionary (`conceptDictionary.json`) and generator registry in `blueprintEngine.ts` into a database-backed schema with four dedicated MongoDB collections:
+  - `remediationConcepts`: Centralized taxonomy of educational concepts with keyword aliases and difficulty tags.
+  - `generatorConfigs`: Per-concept generation constraints, number ranges, step sizes, and visual layouts.
+  - `visualTemplates`: SVG and icon configurations for pictorial questions (tallies, clocks, finger counting).
+  - `questionConceptMappings`: Direct mappings between curriculum question items and their remediation concepts.
+- **Benefits**: Decouples mathematical curriculum authoring from backend code, allowing educators to update practice sets dynamically. (In this first PR version, ledgers are persisted in `remediationLedgers` with concepts resolved via `conceptDictionary.json`).
 
 ### Idea 2: Deepest-Gap-First Sequencing via Prerequisite DAG (#676, #677)
 - **Concept**: When a student fails multiple diagnostic questions, traverse the competency prerequisite graph (`competencyPrerequisites.ts`) to locate the root foundational gap. Sequence remedial practice in a 3-stage blueprint: (1) Supported Example, (2) Focused Practice, and (3) Mixed Transfer Item.
@@ -162,10 +166,10 @@ During my work on the FLN platform, I focused on **Role-Based Access Control (RB
 - **Verification Demo**: Built comprehensive verification test script (`backend/scripts/demo-user-scoping.ts`) proving geographic inheritance and RBAC boundaries.
 
 ### 2. Remediation Service & Blueprint Engine ([PR #376](https://github.com/vicharanashala/fln/issues/376), [PR #379](https://github.com/vicharanashala/fln/issues/379))
-- **Remediation Service (`remediation.service.ts`)**: Built the complete teacher-triggered remediation service managing background generation, response caching, and database persistence in `RemediationLedger`.
-- **Blueprint Engine (`blueprintEngine.ts`)**: Developed the multi-strand blueprint generator producing targeted practice variants across Arithmetic, Place Value, Patterns, Measurement, and Geometry with numeric mutation and constrained random number generation.
-- **Zero-Key Deterministic Fallback**: Implemented a complete fallback chain ensuring high-quality practice generation even when no external Gemini API key is configured.
-- **Printable Remediation Worksheets**: Authored the simple printable worksheet formatter (`remediationFormatter.ts`) rendering student demographics, original questions, concept explanations, and practice exercises.
+- **Remediation Service (`remediation.service.ts`)**: Built the complete teacher-triggered remediation service managing asynchronous background generation, response caching, and database persistence in the `remediationLedgers` collection.
+- **Blueprint Engine (`blueprintEngine.ts`) & Routes (`routes/blueprint.ts`)**: Developed the blueprint generator producing targeted practice variants across Arithmetic, Place Value, Patterns, Measurement, and Geometry with numeric mutation, supported by REST endpoints for blueprint retrieval and test generation.
+- **Zero-Key Deterministic Fallback**: Implemented a complete fallback chain ensuring reliable practice generation even when no external Gemini API key is configured.
+- **Printable Remediation Worksheets**: Authored the printable worksheet formatter (`remediationFormatter.ts`) rendering student demographics, original questions, concept explanations, and targeted practice exercises (intentionally leaving out the student's incorrect answers).
 
 ### 3. Student Security & 404 Guards
 - **Strict 404 Route Guards**: Hardened all 5 endpoints in `backend/src/routes/remediation.ts` against IDOR and non-existent student IDs.
