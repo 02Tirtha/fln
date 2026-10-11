@@ -349,48 +349,55 @@ interface IBlueprintItem {
 
 ## API Endpoints
 
-### Trigger Remediation (Internal)
+### Trigger Remediation (Teacher-Triggered)
 ```http
-POST /api/students/:id/level-worksheet/submit
+POST /api/remediation/generate
 ```
-- Called after ICR scan submission
-- Auto-detects failed questions → calls `remediationService.startGeneration()`
+- Teacher-triggered via the ICR Scanner UI ("Generate Remediation Sheet" button) after scanning/evaluating student answers.
+- Payload includes `studentId`, `examId`, `failedQuestionIds`, and failed question details.
+- Validates student existence and caller access permissions (returns 404 if student not found, 403 if unauthorized).
+- Initiates background generation via `remediationService.startGeneration()`.
+*(Note: Automatic triggering directly from the evaluation pipeline/report submit routes is tracked under Issue #678).*
+
+### Retrieve Remediation Ledgers & Worksheets
+```http
+GET /api/remediation/:studentId/:examId
+```
+- Returns ledger and printable worksheet for a specific student and exam.
+- Enforces student scoping and 404 on missing student.
 
 ```http
-POST /api/students/:id/diagnostic/submit
+GET /api/remediation/ledgers?studentId=:studentId
 ```
-- Called after diagnostic evaluation
-- Triggers remediation for failed diagnostic questions
-
-### Retrieve Remediation Notes (Frontend)
-```http
-GET /api/remediation/note/:studentId/:examId
-```
-- Returns ledger with all practice questions
-- Used by `RemediationNotesView` component
+- Lists all remediation ledgers for a student.
 
 ```http
-GET /api/remediation/ledger/:studentId
+GET /api/remediation/batch/:examId
 ```
-- Lists all remediation ledgers for a student
+- Returns completed remediation ledgers and printable sheets for an exam, scoped to students the caller can access.
+
+```http
+POST /api/remediation/ledgers/:ledgerId/generate
+```
+- Retries generation for a failed or pending ledger.
 
 ---
 
 ## Frontend Integration
 
+### Scanner UI Integration (`frontend/src/components/IcrScanner.tsx`)
+- Teacher reviews scanned diagnostic answers and clicks "Generate Remediation Sheet".
+- Calls `POST /api/remediation/generate` and navigates to the remediation worksheet view (`/remediation/:studentId/:examId`).
+
 ### RemediationNotesView (`frontend/src/components/RemediationNotesView.tsx`)
-- Route: `/remediation-note/:studentId/:examId`
-- Fetches ledger via `/api/remediation/note/:studentId/:examId`
+- Route: `/remediation/:studentId/:examId`
+- Fetches ledger and printable sheet via `GET /api/remediation/:studentId/:examId`
 - Renders:
-  - Original failed question + student's wrong answer
-  - 5 practice variants with answers
+  - Original failed questions + student answers
+  - Targeted practice variants with answers
   - Concept tag + remediation hint
   - AI-generated vs fallback badges
-  - "Needs Review" warning flags
-
-### Panel Integration
-- Accessible from Teacher/Volunteer dashboards via "Remediation Notes" panel
-- Links from evaluation reports → remediation view
+  - "Needs Review" warning flags for fallback items
 
 ---
 
@@ -398,9 +405,9 @@ GET /api/remediation/ledger/:studentId
 
 ```
 ┌─────────────┐     ┌──────────────┐     ┌──────────────────┐
-│  STUDENT    │     │  EVALUATION  │     │  REMEDIATION     │
-│  SUBMITS    │────▶│  ENGINE      │────▶│  SERVICE         │
-│  ANSWERS    │     │  (Python)    │     │  startGeneration │
+│  TEACHER    │     │ POST /api/   │     │  REMEDIATION     │
+│  CLICKS     │────▶│ remediation/ │────▶│  SERVICE         │
+│  GENERATE   │     │ generate     │     │  startGeneration │
 └─────────────┘     └──────────────┘     └────────┬─────────┘
                                                    │
                                                    ▼

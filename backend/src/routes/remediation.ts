@@ -14,8 +14,15 @@ export function registerRemediationRoutes(app: Express) {
 
       const { studentId, examId, failedQuestionIds, failedQuestionNums, originalQuestions, studentName } = req.body;
 
+      if (!studentId || !examId) {
+        return res.status(400).json({ success: false, error: 'Missing studentId or examId.' });
+      }
+
       const student = await dbStore.getStudentById(studentId);
-      if (student && !canAccessStudent(user, student)) {
+      if (!student) {
+        return res.status(404).json({ success: false, error: 'Student not found.' });
+      }
+      if (!canAccessStudent(user, student)) {
         return res.status(403).json({ success: false, error: 'Forbidden: You do not have access to this student.' });
       }
 
@@ -27,8 +34,8 @@ export function registerRemediationRoutes(app: Express) {
             ? failedQuestionNums.map(String)
             : [];
 
-      if (!studentId || !examId || questionIds.length === 0) {
-        return res.status(400).json({ success: false, error: 'Missing studentId, examId, or failed question IDs.' });
+      if (questionIds.length === 0) {
+        return res.status(400).json({ success: false, error: 'Missing failed question IDs.' });
       }
 
       const result = await remediationService.startGeneration(
@@ -56,7 +63,10 @@ export function registerRemediationRoutes(app: Express) {
       }
 
       const student = await dbStore.getStudentById(studentId);
-      if (student && !canAccessStudent(user, student)) {
+      if (!student) {
+        return res.status(404).json({ success: false, error: 'Student not found.' });
+      }
+      if (!canAccessStudent(user, student)) {
         return res.status(403).json({ success: false, error: 'Forbidden: You do not have access to this student.' });
       }
 
@@ -84,7 +94,10 @@ export function registerRemediationRoutes(app: Express) {
       }
 
       const student = await dbStore.getStudentById(ledger.studentId);
-      if (student && !canAccessStudent(user, student)) {
+      if (!student) {
+        return res.status(404).json({ success: false, error: 'Student not found.' });
+      }
+      if (!canAccessStudent(user, student)) {
         return res.status(403).json({ success: false, error: 'Forbidden: You do not have access to this student.' });
       }
 
@@ -109,7 +122,7 @@ export function registerRemediationRoutes(app: Express) {
       const accessibleLedgers: any[] = [];
       for (const l of completed) {
         const student = await dbStore.getStudentById(l.studentId);
-        if (!student || canAccessStudent(user, student)) {
+        if (student && canAccessStudent(user, student)) {
           accessibleLedgers.push(l);
         }
       }
@@ -134,7 +147,10 @@ export function registerRemediationRoutes(app: Express) {
       const { studentId, examId } = req.params;
 
       const student = await dbStore.getStudentById(studentId);
-      if (student && !canAccessStudent(user, student)) {
+      if (!student) {
+        return res.status(404).json({ success: false, error: 'Student not found.' });
+      }
+      if (!canAccessStudent(user, student)) {
         return res.status(403).json({ success: false, error: 'Forbidden: You do not have access to this student.' });
       }
 

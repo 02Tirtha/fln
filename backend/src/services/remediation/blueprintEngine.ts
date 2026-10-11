@@ -1075,6 +1075,7 @@ const generatePatterns: ConceptGenerator = (v, originalQ = '', originalAnswer = 
     answer: "",
     topic: "Patterns",
     aiGenerated: false,
+    needsReview: true,
     remediation: "Identify the rule and continue the sequence."
   };
 };
@@ -2633,7 +2634,7 @@ export class BlueprintEngine {
           : String(mutatedNums[0]);
       }
 
-      return { question: mutatedText, answer: ansStr, topic: conceptName || 'Mathematics', aiGenerated: false };
+      return { question: mutatedText, answer: ansStr, topic: conceptName || 'Mathematics', aiGenerated: false, needsReview: true };
     }
 
     // ── 4. Domain-Aware Fallback ────────────────────────────────────────────────

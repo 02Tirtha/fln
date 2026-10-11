@@ -298,7 +298,7 @@ export class GenerativeEngine {
       answer: v.answer,
       remediation: v.remediation,
       aiGenerated: false,
-      needsReview: v.needsReview ?? false,
+      needsReview: v.needsReview ?? true,
       topic: v.topic,
       subQuestions: v.subQuestions
     }));

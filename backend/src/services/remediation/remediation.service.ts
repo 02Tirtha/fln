@@ -223,7 +223,7 @@ export class RemediationService {
               remediation: (b as any).remediation,
               generatedAt: new Date(),
               aiGenerated: b.aiGenerated ?? false,
-              needsReview: b.needsReview ?? false
+              needsReview: b.needsReview !== undefined ? b.needsReview : (!b.aiGenerated)
             }));
             response.type = 'generative';
           } catch (qErr: any) {
@@ -606,7 +606,7 @@ export class RemediationService {
         subQuestions: firstBp.subQuestions,
         remediation: firstBp.remediation,
         aiGenerated: firstBp.aiGenerated,
-        needsReview: firstBp.needsReview
+        needsReview: firstBp.needsReview !== undefined ? firstBp.needsReview : true
       }];
     }
 
@@ -618,7 +618,7 @@ export class RemediationService {
         answer: bp.answer,
         remediation: bp.remediation,
         aiGenerated: bp.aiGenerated,
-        needsReview: bp.needsReview
+        needsReview: bp.needsReview !== undefined ? bp.needsReview : true
       };
     });
   }
@@ -719,7 +719,7 @@ export class RemediationService {
                 remediation: b.remediation,
                 generatedAt: new Date(),
                 aiGenerated: b.aiGenerated ?? false,
-                needsReview: b.needsReview ?? false
+                needsReview: b.needsReview !== undefined ? b.needsReview : (!b.aiGenerated)
               }))
             };
           }
